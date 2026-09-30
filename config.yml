@@ -1,0 +1,21 @@
+# ares-sc2 settings. Overrides the defaults in `ares-sc2/src/ares/config.yml`
+# (see that file for every available option).
+
+MyBotName: Zasz
+MyBotRace: Zerg
+
+UseData: False
+Debug: False  # must be False for ladder uploads
+GameStep: 2
+DebugGameStep: 2
+
+Features:
+    TacticalGroundGrid: False
+
+DebugOptions:
+    ActiveGrid: Ground
+    ChatDebug: True
+    DebugSpawn: False
+    ShowPathingCost: True
+    ResourceDebug: False
+    ShowBuildingFormation: False

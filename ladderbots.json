@@ -1,0 +1,13 @@
+{
+    "Bots": {
+        "Zasz": {
+            "Race": "Zerg",
+            "Type": "Python",
+            "RootPath": "./",
+            "FileName": "run.py",
+            "Args": "-O",
+            "Debug": true,
+            "SurrenderPhrase": "(pineapple)"
+        }
+    }
+}

@@ -1,0 +1,5 @@
+# Keep LF line endings in the repo so it works the same on Windows and Linux
+* text=auto eol=lf
+*.SC2Replay binary
+*.SC2Map binary
+*.zip binary
