@@ -48,6 +48,11 @@ uv run python scripts/benchmark.py --games 12 --difficulty Hard --races Terran P
 
 Every game is appended to `benchmarks/results.csv` with the git commit, so you can compare versions.
 
+| Commit | Opponent | Result | Notes |
+|---|---|---|---|
+| `12faa25` | Medium | 4/6 | baseline: one-point attacks, no upgrades |
+| `467ba00` | Medium | 6/6 | squads + combat sim, per-unit targeting, upgrades, creep; all wins in 6.5-8.6 min |
+
 ## Layout
 
 ```
