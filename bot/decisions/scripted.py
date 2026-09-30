@@ -1,14 +1,22 @@
 from ares import AresBot
 from ares.behaviors.macro import AutoSupply, BuildStructure, ExpansionController, MacroPlan, SpawnController
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.upgrade_id import UpgradeId
 
 from bot.actions.building import affordable_on_arrival, next_expansion_location
 from bot.actions.drones import BuildDrones, drone_target
-from bot.settings import ARMY_COMPOSITION, ATTACK_AT_ZERGLINGS, EXPAND_WHEN_DRONES_WITHIN, MAX_DRONES, POOL_AT_DRONES
+from bot.settings import (
+    ARMY_COMPOSITION,
+    ATTACK_AT_ZERGLINGS,
+    EXPAND_WHEN_DRONES_WITHIN,
+    MAX_DRONES,
+    POOL_AT_DRONES,
+    SCRIPTED_UPGRADES,
+)
 
 
 class ScriptedDecisions:
-    """Hand-written rules: 16 pool, expand as drones saturate, mass zerglings, attack at 12."""
+    """Hand-written rules: 16 pool, ling speed, expand as drones saturate, mass zerglings, attack at 12."""
 
     def macro_plan(self, ai: AresBot) -> MacroPlan:
         """Spending priorities, highest first. Each step stops later steps from spending
@@ -35,6 +43,12 @@ class ScriptedDecisions:
 
     def should_attack(self, ai: AresBot) -> bool:
         return ai.units(UnitTypeId.ZERGLING).amount >= ATTACK_AT_ZERGLINGS
+
+    def upgrades(self, ai: AresBot) -> list[UpgradeId]:
+        # Wait for the pool, otherwise ares' UpgradeController would build its own
+        if not ai.structures(UnitTypeId.SPAWNINGPOOL):
+            return []
+        return SCRIPTED_UPGRADES
 
     # `already_pending` doesn't count a drone that is still walking to the build spot,
     # so these stay True (and keep saving minerals) until the building is placed

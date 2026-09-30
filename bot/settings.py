@@ -1,6 +1,7 @@
 """All of Zasz's tunables in one place."""
 
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.upgrade_id import UpgradeId
 
 MAX_DRONES = 70  # overall cap; the real target comes from `actions.drones.drone_target()`
 POOL_AT_DRONES = 16  # start the spawning pool once we have (or are making) this many drones
@@ -9,6 +10,11 @@ POOL_AT_DRONES = 16  # start the spawning pool once we have (or are making) this
 EXPAND_WHEN_DRONES_WITHIN = 4
 ATTACK_AT_ZERGLINGS = 12
 DEFEND_RADIUS = 20  # zerglings attack enemies this close to any of our hatcheries
+
+# Upgrades the scripted decisions want, in priority order (once the spawning pool is down)
+SCRIPTED_UPGRADES = [
+    UpgradeId.ZERGLINGMOVEMENTSPEED,
+]
 
 ARMY_COMPOSITION = {
     UnitTypeId.ZERGLING: {"proportion": 1.0, "priority": 0},

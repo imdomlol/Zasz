@@ -4,8 +4,8 @@ A Zerg StarCraft II bot built on [ares-sc2](https://aressc2.github.io/ares-sc2/)
 [python-sc2](https://github.com/BurnySc2/python-sc2).
 
 Strategy: make 16 drones and a spawning pool, then keep expanding whenever the drones are about to fill
-every base (or patches mine out), up to 70 drones. Make a queen per hatchery (injecting larva), pump
-zerglings, and attack once there are 12. Until then, zerglings defend the base.
+every base (or patches mine out), up to 70 drones. Research zergling speed, make a queen per hatchery
+(injecting larva), pump zerglings, and attack once there are 12. Until then, zerglings defend the base.
 
 ## Setup
 

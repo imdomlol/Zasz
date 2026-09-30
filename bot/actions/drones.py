@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ares import AresBot
 from ares.behaviors.macro.macro_behavior import MacroBehavior
@@ -6,6 +9,9 @@ from ares.managers.manager_mediator import ManagerMediator
 from sc2.ids.unit_typeid import UnitTypeId
 
 from bot.settings import MAX_DRONES
+
+if TYPE_CHECKING:
+    from bot.zasz import ZaszBot
 
 
 @dataclass
@@ -28,9 +34,10 @@ class BuildDrones(MacroBehavior):
         return trained > 0
 
 
-def drone_target(ai: AresBot) -> int:
-    """2 drones per mineral patch plus 3 per extractor, matching how ares' `Mining`
-    saturates bases. A hatchery counts once it's nearly done, so drones hatch in time."""
+def drone_target(ai: ZaszBot) -> int:
+    """2 drones per mineral patch plus the drones we currently want on each extractor, matching
+    how ares' `Mining` saturates bases. A hatchery counts once it's nearly done, so drones hatch
+    in time."""
     patches = sum(len(ai.mineral_field.closer_than(10, th)) for th in ai.townhalls if th.build_progress > 0.9)
     extractors = ai.gas_buildings.ready.amount
-    return min(2 * patches + 3 * extractors, MAX_DRONES)
+    return min(2 * patches + ai.workers_per_gas * extractors, MAX_DRONES)

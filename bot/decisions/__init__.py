@@ -8,6 +8,7 @@ from typing import Protocol
 
 from ares import AresBot
 from ares.behaviors.macro import MacroPlan
+from sc2.ids.upgrade_id import UpgradeId
 
 from bot.decisions.scripted import ScriptedDecisions
 
@@ -18,6 +19,14 @@ class Decisions(Protocol):
         ...
 
     def should_attack(self, ai: AresBot) -> bool: ...
+
+    def upgrades(self, ai: AresBot) -> list[UpgradeId]:
+        """Upgrades we want, highest priority first. Can change every step.
+
+        Only the choice lives here; `actions.upgrades` handles gas, tech buildings and
+        research, so a model only has to output this list.
+        """
+        ...
 
 
 __all__ = ["Decisions", "ScriptedDecisions"]

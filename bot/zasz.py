@@ -3,11 +3,13 @@ from ares.behaviors.macro import Mining
 from loguru import logger
 from sc2.data import Result
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.upgrade_id import UpgradeId
 from sc2.unit import Unit
 
 from bot import army
 from bot.actions.drones import drone_target
 from bot.actions.queens import build_queens, inject_larva
+from bot.actions.upgrades import upgrade_plan, workers_per_gas
 from bot.decisions import Decisions, ScriptedDecisions
 from bot.settings import MAX_DRONES
 
@@ -24,6 +26,8 @@ class ZaszBot(AresBot):
     def __init__(self, decisions: Decisions | None = None, game_step_override: int | None = None):
         super().__init__(game_step_override)
         self.decisions: Decisions = decisions or ScriptedDecisions()
+        # How many drones each extractor should have; follows the upgrade wish list
+        self.workers_per_gas: int = 3
 
     async def on_start(self) -> None:
         await super().on_start()
@@ -39,10 +43,15 @@ class ZaszBot(AresBot):
             army.all_in(self)
             return
 
+        upgrades = self.decisions.upgrades(self)
+        self.workers_per_gas = workers_per_gas(self, upgrades)
+
         # Speed mining, worker distribution, gas and fleeing from danger
-        self.register_behavior(Mining())
+        self.register_behavior(Mining(workers_per_gas=self.workers_per_gas))
 
         build_queens(self)
+        # Behaviors run in registration order, so upgrades get resources before the macro plan
+        self.register_behavior(upgrade_plan(self, upgrades))
         self.register_behavior(self.decisions.macro_plan(self))
         inject_larva(self)
 
@@ -58,6 +67,10 @@ class ZaszBot(AresBot):
                 f"{self.time_formatted} expanding: base #{self.townhalls.amount}, "
                 f"drones {self.supply_workers}/{drone_target(self)} (max {MAX_DRONES})"
             )
+
+    async def on_upgrade_complete(self, upgrade: UpgradeId) -> None:
+        await super().on_upgrade_complete(upgrade)
+        logger.info(f"{self.time_formatted} upgrade complete: {upgrade.name}")
 
     async def on_end(self, game_result: Result) -> None:
         await super().on_end(game_result)
