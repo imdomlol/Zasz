@@ -19,3 +19,20 @@ def affordable_on_arrival(ai: AresBot, structure: UnitTypeId, target: Point2) ->
     travel_seconds = distance / drone.real_speed
     income_per_second = ai.state.score.collection_rate_minerals / 60
     return ai.minerals + income_per_second * travel_seconds >= cost
+
+
+def next_expansion_location(ai: AresBot) -> Point2 | None:
+    """The base `ExpansionController` will take next: the closest (by path) free, safe expansion.
+
+    Mirrors its checks so we aim the just-in-time timing at the right spot, and so we know
+    when there is nowhere left to expand.
+    """
+    grid = ai.mediator.get_ground_grid
+    for location, _distance in ai.mediator.get_own_expansions:
+        if (
+            ai.mediator.is_position_safe(grid=grid, position=location)
+            and not ai.location_is_blocked(ai.mediator, location)
+            and ai.mediator.can_place_structure(position=location, structure_type=ai.base_townhall_type)
+        ):
+            return location
+    return None

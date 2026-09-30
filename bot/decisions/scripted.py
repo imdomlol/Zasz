@@ -2,13 +2,13 @@ from ares import AresBot
 from ares.behaviors.macro import AutoSupply, BuildStructure, ExpansionController, MacroPlan, SpawnController
 from sc2.ids.unit_typeid import UnitTypeId
 
-from bot.actions.building import affordable_on_arrival
+from bot.actions.building import affordable_on_arrival, next_expansion_location
 from bot.actions.drones import BuildDrones, drone_target
-from bot.settings import ARMY_COMPOSITION, ATTACK_AT_ZERGLINGS, EXPAND_TO_BASES, POOL_AT_DRONES
+from bot.settings import ARMY_COMPOSITION, ATTACK_AT_ZERGLINGS, EXPAND_WHEN_DRONES_WITHIN, MAX_DRONES, POOL_AT_DRONES
 
 
 class ScriptedDecisions:
-    """Hand-written rules: 16 pool, natural, saturate, mass zerglings, attack at 12."""
+    """Hand-written rules: 16 pool, expand as drones saturate, mass zerglings, attack at 12."""
 
     def macro_plan(self, ai: AresBot) -> MacroPlan:
         """Spending priorities, highest first. Each step stops later steps from spending
@@ -24,9 +24,9 @@ class ScriptedDecisions:
                 plan.add(BuildStructure(base_location=ai.start_location, structure_id=UnitTypeId.SPAWNINGPOOL))
             return plan
 
-        if self.expansion_wanted(ai):
-            if affordable_on_arrival(ai, UnitTypeId.HATCHERY, ai.mediator.get_own_nat):
-                plan.add(ExpansionController(to_count=EXPAND_TO_BASES, can_afford_check=False))
+        if self.expansion_wanted(ai) and (location := next_expansion_location(ai)):
+            if affordable_on_arrival(ai, UnitTypeId.HATCHERY, location):
+                plan.add(ExpansionController(to_count=ai.townhalls.ready.amount + 1, can_afford_check=False))
             return plan
 
         plan.add(BuildDrones(to_count=drone_target(ai)))
@@ -45,6 +45,16 @@ class ScriptedDecisions:
         return ai.supply_workers + ai.already_pending(UnitTypeId.DRONE) >= POOL_AT_DRONES
 
     def expansion_wanted(self, ai: AresBot) -> bool:
-        if not ai.structures(UnitTypeId.SPAWNINGPOOL):
+        """Expand when our drones are about to fill every base we have.
+
+        `drone_target` only counts mineral patches that still exist, so this also triggers
+        when patches mine out and drones have nowhere left to mine.
+        """
+        # One hatchery at a time; the pool comes first
+        if not ai.structures(UnitTypeId.SPAWNINGPOOL) or ai.townhalls.not_ready:
             return False
-        return ai.townhalls.amount < EXPAND_TO_BASES
+        target = drone_target(ai)
+        if target >= MAX_DRONES:
+            return False  # we already have room for as many drones as we'll ever make
+        drones = ai.supply_workers + ai.already_pending(UnitTypeId.DRONE)
+        return drones >= target - EXPAND_WHEN_DRONES_WITHIN

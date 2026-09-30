@@ -2,10 +2,14 @@ from ares import AresBot
 from ares.behaviors.macro import Mining
 from loguru import logger
 from sc2.data import Result
+from sc2.ids.unit_typeid import UnitTypeId
+from sc2.unit import Unit
 
 from bot import army
+from bot.actions.drones import drone_target
 from bot.actions.queens import build_queens, inject_larva
 from bot.decisions import Decisions, ScriptedDecisions
+from bot.settings import MAX_DRONES
 
 
 class ZaszBot(AresBot):
@@ -46,6 +50,14 @@ class ZaszBot(AresBot):
             army.attack(self)
         else:
             army.defend(self)
+
+    async def on_building_construction_started(self, unit: Unit) -> None:
+        await super().on_building_construction_started(unit)
+        if unit.type_id == UnitTypeId.HATCHERY:
+            logger.info(
+                f"{self.time_formatted} expanding: base #{self.townhalls.amount}, "
+                f"drones {self.supply_workers}/{drone_target(self)} (max {MAX_DRONES})"
+            )
 
     async def on_end(self, game_result: Result) -> None:
         await super().on_end(game_result)

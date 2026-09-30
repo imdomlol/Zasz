@@ -3,9 +3,9 @@
 A Zerg StarCraft II bot built on [ares-sc2](https://aressc2.github.io/ares-sc2/), which extends
 [python-sc2](https://github.com/BurnySc2/python-sc2).
 
-Strategy: make 16 drones, build a spawning pool, take the natural, saturate both bases (32 drones),
-make a queen per hatchery (injecting larva), then pump zerglings and attack once there are 12.
-Until then, zerglings defend the base.
+Strategy: make 16 drones and a spawning pool, then keep expanding whenever the drones are about to fill
+every base (or patches mine out), up to 70 drones. Make a queen per hatchery (injecting larva), pump
+zerglings, and attack once there are 12. Until then, zerglings defend the base.
 
 ## Setup
 
@@ -53,7 +53,7 @@ Every game is appended to `benchmarks/results.csv` with the git commit, so you c
 ```
 bot/
 ├── zasz.py            # ZaszBot: wires decisions and actions together each step
-├── settings.py        # all tunables (POOL_AT_DRONES, EXPAND_TO_BASES, ATTACK_AT_ZERGLINGS, ...)
+├── settings.py        # all tunables (POOL_AT_DRONES, EXPAND_WHEN_DRONES_WITHIN, ...)
 ├── decisions/         # WHAT to do: build order, when to expand/attack
 │   ├── __init__.py    #   `Decisions` interface
 │   └── scripted.py    #   hand-written rules (a learned model would sit next to this)
