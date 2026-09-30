@@ -1,5 +1,6 @@
 from ares import AresBot
 from ares.behaviors.macro import Mining
+from ares.consts import UnitRole
 from loguru import logger
 from sc2.data import Result
 from sc2.ids.unit_typeid import UnitTypeId
@@ -7,8 +8,9 @@ from sc2.ids.upgrade_id import UpgradeId
 from sc2.unit import Unit
 
 from bot import army
+from bot.actions.defense import build_spores
 from bot.actions.drones import drone_target
-from bot.actions.queens import build_queens, inject_larva
+from bot.actions.queens import build_queens, control_queens
 from bot.actions.upgrades import upgrade_plan, workers_per_gas
 from bot.decisions import Decisions, ScriptedDecisions
 from bot.settings import MAX_DRONES
@@ -50,15 +52,18 @@ class ZaszBot(AresBot):
         self.register_behavior(Mining(workers_per_gas=self.workers_per_gas))
 
         build_queens(self)
+        await build_spores(self)
         # Behaviors run in registration order, so upgrades get resources before the macro plan
         self.register_behavior(upgrade_plan(self, upgrades))
         self.register_behavior(self.decisions.macro_plan(self))
-        inject_larva(self)
 
-        if self.decisions.should_attack(self):
-            army.attack(self)
-        else:
-            army.defend(self)
+        control_queens(self)
+        army.control(self, attacking=self.decisions.should_attack(self))
+
+    async def on_unit_created(self, unit: Unit) -> None:
+        await super().on_unit_created(unit)
+        if unit.type_id in army.ARMY_TYPES:
+            self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
 
     async def on_building_construction_started(self, unit: Unit) -> None:
         await super().on_building_construction_started(unit)
