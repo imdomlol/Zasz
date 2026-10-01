@@ -56,6 +56,12 @@ are comparable either way.
 
 Every game is appended to `benchmarks/results.csv` with the git commit, so you can compare versions.
 
+If the bot crashes in a game, that game is recorded as `Crash` (with the error) and the run carries on.
+Replays are saved to `replays/benchmarks/<run>/`. By default (`--replays notable`) only losses, ties,
+crashes and unusually slow wins (over 1.5x the usual win time at that difficulty) are kept. Use
+`--replays all` or `--replays none` to change that. Each crash also gets a `.log` with its traceback and
+game log.
+
 | Commit | Opponent | Result | Notes |
 |---|---|---|---|
 | `12faa25` | Medium | 4/6 | baseline: one-point attacks, no upgrades |

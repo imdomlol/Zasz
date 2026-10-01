@@ -43,6 +43,13 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 - **Ideas not done yet:** split attacks (pressure a far base while hitting the main), spine crawlers,
   more upgrades (+3 needs hive), imitation-learning model in `bot/decisions/`.
 
+- **Torches AIE expedition gates:** map_analyzer (ares pathing) treats the 6 gates as walls, but
+  they have 0 HP and the game says they're walkable. So ares thinks the 4 bases along each player's
+  map edge are unreachable. Harmless until those are the next expansion (long games), then
+  `find_raw_path` returns `None` (no longer crashes, but expanding there may stall).
+- **CheatMoney crash (2026-09-30):** `find_raw_path` returned `None` in a game that wasn't on Torches.
+  Cause unknown; benchmark crashes now keep a `.log` and replays, so the next one can be traced.
+
 ## Gotchas found along the way
 
 - `mediator.find_raw_path` returns `None` when the target is unreachable; handle it.
