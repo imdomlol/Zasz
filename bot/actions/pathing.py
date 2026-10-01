@@ -8,6 +8,9 @@ unreachable. `ExpansionAccess` works out why:
 - "hostile": enemy structures we've seen are in the way (e.g. a wall-off)
 - "walled": our own structures are in the way
 - "unreachable": nothing we know of explains it
+
+Answers are cached, and re-checked as soon as anything that can block a path changes (a structure
+of ours or the enemy's appears or disappears, or rocks break), or after EXPANSION_RECHECK_SECONDS.
 """
 
 from dataclasses import dataclass, field
@@ -35,8 +38,11 @@ class ExpansionAccess:
     def __init__(self) -> None:
         self.blocked: dict[Point2, Blockage] = {}
         self._checked: dict[Point2, float] = {}  # reachable expansions -> when we last checked
+        self._blockers: int | None = None  # fingerprint of everything that can block a path
+        self._blockers_loop = -1
 
     def is_reachable(self, ai: AresBot, location: Point2) -> bool:
+        self._forget_if_blockers_changed(ai)
         last = self.blocked.get(location)
         last_time = last.checked_at if last else self._checked.get(location)
         if last_time is not None and ai.time - last_time < EXPANSION_RECHECK_SECONDS:
@@ -54,10 +60,30 @@ class ExpansionAccess:
         self.blocked[location] = blockage
         return False
 
+    def _forget_if_blockers_changed(self, ai: AresBot) -> None:
+        """Drop cached answers when a structure (ours or theirs) or a rock appears or disappears."""
+        if self._blockers_loop == ai.state.game_loop:
+            return  # already checked this step
+        self._blockers_loop = ai.state.game_loop
+        blockers = hash(
+            (
+                frozenset(ai.structures.not_flying.tags),
+                frozenset(ai.enemy_structures.not_flying.tags),
+                frozenset(ai.destructables.tags),
+            )
+        )
+        if blockers != self._blockers:
+            self._blockers = blockers
+            self._checked.clear()
+            for blockage in self.blocked.values():
+                blockage.checked_at = -EXPANSION_RECHECK_SECONDS
+
     def _find_blockage(self, ai: AresBot, location: Point2) -> Blockage | None:
         map_data = ai.mediator.get_map_data_object
         start = ai.townhalls.closest_to(location).position if ai.townhalls else ai.start_location
-        if map_data.pathfind(start, location, ai.mediator.get_ground_grid) is not None:
+        # A fresh grid: ares only refreshes its own every 8 steps, so a structure that just
+        # appeared might not be in `mediator.get_ground_grid` yet
+        if map_data.pathfind(start, location, map_data.get_pyastar_grid()) is not None:
             return None
 
         # Rocks counted as open ground, structures still solid: if that works, only rocks are in the way

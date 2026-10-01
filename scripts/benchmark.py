@@ -14,6 +14,9 @@ time spent waiting on SC2) and checked against the ladder's limits (LADDER_* bel
 limit keeps its replay and the run exits with 1. Parallel games slow each other down, so a game
 over the limit with --jobs > 1 is worth rerunning with --jobs 1.
 
+With --record, every game's (observation, decision) pairs are saved to data/decisions/<run>/ as
+JSON lines (`bot.recording`), e.g. as training data for a model.
+
 A game that crashes is recorded as "Crash" and the rest of the run carries on. Replays go to
 replays/benchmarks/<run>/; by default only notable ones are kept (see --replays), plus a .log next to
 each crash with its traceback and game log.
@@ -46,9 +49,11 @@ from sc2.paths import Paths
 from sc2.player import Bot, Computer
 
 from bot import ZaszBot
+from bot.recording import DecisionRecorder
 
 RESULTS_FILE = ROOT / "benchmarks" / "results.csv"
 REPLAYS_DIR = ROOT / "replays" / "benchmarks"
+RECORDINGS_DIR = ROOT / "data" / "decisions"
 # A win counts as slow (its replay is kept) past this multiple of the usual win time at that difficulty
 SLOW_WIN_FACTOR = 1.5
 SLOW_WIN_MIN_HISTORY = 5
@@ -88,8 +93,8 @@ class BenchmarkZasz(ZaszBot):
     any time spent waiting for SC2 to answer a request.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, recorder: DecisionRecorder | None = None):
+        super().__init__(recorder=recorder)
         self.stats: dict = {}
         self.max_drones = 0
         self.step_times: list[float] = []  # seconds of bot time per step
@@ -171,13 +176,14 @@ def current_commit() -> str:
 
 
 def play_game(
-    map_name: str, race: str, difficulty: str, time_limit: int, commit: str, replay: str
+    map_name: str, race: str, difficulty: str, time_limit: int, commit: str, record: str | None, replay: str
 ) -> tuple[dict, float, str]:
     """Play one game. Returns its row, real seconds taken and its log; a crash becomes a "Crash" row."""
     log = io.StringIO()
     # Same sink settings python-sc2 uses (sc2/main.py), so a replayed log matches a sequential run
     capture = logger.add(log, level="INFO", colorize=sys.stdout.isatty())
-    bot = BenchmarkZasz()
+    meta = {"map": map_name, "opponent_race": race, "difficulty": difficulty, "commit": commit}
+    bot = BenchmarkZasz(recorder=DecisionRecorder(record, meta=meta) if record else None)
     started = time.monotonic()
     row = {"commit": commit, "map": map_name, "opponent_race": race, "difficulty": difficulty}
     try:
@@ -221,7 +227,7 @@ def run_matchups(game_args: list[tuple], jobs: int):
                 try:
                     row, real_time, log = future.result()
                 except Exception as e:  # the worker process itself died
-                    map_name, race, difficulty, _, commit, _ = a
+                    map_name, race, difficulty, _, commit, _, _ = a
                     row = {
                         "timestamp": datetime.now().isoformat(timespec="seconds"),
                         "commit": commit,
@@ -292,6 +298,9 @@ def main() -> None:
         choices=["notable", "all", "none"],
         help="Replays to keep: notable = losses, ties, crashes and unusually slow wins (default)",
     )
+    parser.add_argument(
+        "--record", action="store_true", help="Save each game's (observation, decision) pairs to data/decisions/"
+    )
     args = parser.parse_args()
 
     map_names = args.maps or installed_maps()
@@ -307,8 +316,10 @@ def main() -> None:
         if r["difficulty"] == args.difficulty and r["result"] == "Victory" and r["game_time"]
     ]
     commit = current_commit()
-    run_dir = REPLAYS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = REPLAYS_DIR / run_name
     run_dir.mkdir(parents=True)
+    record_dir = RECORDINGS_DIR / run_name if args.record else None
     game_args = [
         (
             map_name,
@@ -316,6 +327,7 @@ def main() -> None:
             args.difficulty,
             args.time_limit,
             commit,
+            str(record_dir / f"{i:02d}_{race}_{map_name}.jsonl") if record_dir else None,
             str(run_dir / f"{i:02d}_{race}_{map_name}.SC2Replay"),
         )
         for i, (map_name, race) in enumerate(matchups, 1)
@@ -354,6 +366,8 @@ def main() -> None:
     if not any(run_dir.iterdir()):
         run_dir.rmdir()
     print_summary(rows, jobs)
+    if record_dir and record_dir.exists():
+        print(f"Decisions recorded in {record_dir.relative_to(ROOT)}")
     if over := [r for r in rows if over_ladder_limits(r)]:
         print(f"\n{len(over)} game(s) over the AI Arena time limits:")
         for r in over:

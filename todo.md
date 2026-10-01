@@ -17,10 +17,9 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 |---|---|---|---|---|
 | 13 | `damage-efficiency` | Damage efficiency: how much of the army's damage actually lands | High | - |
 | 15 | `external-opponents` | Play against other people's bots | High | - |
-| 4 | `learning-interface` | Keep Zasz ready for imitation learning | High | - |
-| 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | `learning-interface` |
-| 9 | `mining-rate` | Mining rate per drone | Low | `learning-interface` |
-| 10 | `army-value` | Army value: ours vs the enemy's | Medium | `learning-interface` |
+| 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | - |
+| 9 | `mining-rate` | Mining rate per drone | Low | - |
+| 10 | `army-value` | Army value: ours vs the enemy's | Medium | - |
 | 14 | `supply-targeting` | Target supply buildings when the enemy is near its supply cap | Medium | `army-value`, `damage-efficiency` |
 | 2 | `army-variety` | More unit types + army composition logic | High | - (`damage-efficiency` helps tune ranged/air control) |
 | 3 | `army-upgrading` | Upgrades tied to army composition | Medium | `army-variety` |
@@ -33,9 +32,9 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 Why this order: `damage-efficiency` builds directly on the scenario suite and the bot is all melee
 today, so it's likely the biggest win-rate lever before new units. `external-opponents` next,
 because everything after it should be judged against real bots, not just the built-in AI (which
-Zasz now beats 6/6 up to Hard). `learning-interface` comes early
-so `trade-tracking`, `mining-rate` and `army-value` land as features in its `observe()` rather than
-as scattered helpers. `static-defense-placement` and `drone-escape-building` wait until harass
+Zasz now beats 6/6 up to Hard). `trade-tracking`, `mining-rate` and `army-value` are small and
+land as features in `bot/observation.py` (the learning interface is done: observe -> decide -> act,
+see the README), rather than as scattered helpers. `static-defense-placement` and `drone-escape-building` wait until harass
 shows up in losses (check kept replays, summarised by `replay-summary`).
 
 ## `damage-efficiency` (#13): Damage efficiency: how much of the army's damage actually lands
@@ -79,7 +78,7 @@ be judged by whether it raises the number without raising damage taken.
 
 **Impact:** **High** while Zasz is zergling-only: all its damage is melee, and congestion limits
 exactly that (it's likely part of why Harder+ games stall into ties). The metric also carries over
-to roaches and other units later (#2), and is a good model feature (#4).
+to roaches and other units later (#2), and is a good model feature (an `Observation` field).
 **Blockers:**
 - **Health deltas are noisy:** SCV repair, shield regen, zerg regeneration, and damage from
   queens all change enemy health. Keep scenario armies to zerglings only and repair-free targets,
@@ -105,7 +104,7 @@ to roaches and other units later (#2), and is a good model feature (#4).
    everyone's bots. The pieces exist (`scripts/create_ladder_zip.py`, `ladder.py`,
    `ladderbots.json`); this is mostly checking the zip runs and setting up an account and bot
    entry. Results come back as match history and replays (4.10, so they play here headless and
-   feed `replay-summary` #1 and training data for `learning-interface` #4).
+   feed `replay-summary` #1 and training data in the same format as `benchmark.py --record`).
 2. **Local bot-vs-bot:** add `--opponent <bot folder>` to `scripts/benchmark.py`. python-sc2's
    `BotProcess` already launches any bot that speaks the standard ladder protocol (`--LadderServer`,
    `--GamePort`, `--StartPort`), in any language, which every AI Arena bot does. Opponents come from
@@ -119,7 +118,7 @@ to roaches and other units later (#2), and is a good model feature (#4).
 **Impact:** **High.** The built-in AI is a narrow and predictable opponent (and the harder levels
 cheat); tuning only against it risks overfitting. Real bots punish different weaknesses (early
 rushes, cannon/bunker rushes, mass air, proxy builds), and the ladder gives a rating to track over
-time. It also gives #4 its most realistic training data.
+time. It also gives the most realistic training data for a learned `Decisions` model.
 **Blockers:**
 - **Getting opponents:** only bots their authors mark downloadable on AI Arena can be fetched, and
   some need an AI Arena account. Respect each bot's license; don't redistribute them (keep
@@ -132,32 +131,14 @@ time. It also gives #4 its most realistic training data.
 - **Ladder rules:** ares `Debug: False` for uploads (already noted in `config.yml`); the ladder's
   map pool and Python version (3.12) have to match; chat that other bots can read (#11).
 - **Timing:** AI Arena enforces per-step time limits; a slow `on_step` (e.g. lots of pathfinding,
-  #13 metrics) can lose games by timeout on the ladder even when it wins locally. Worth measuring
-  step time in the benchmark.
-
-## `learning-interface` (#4): Keep Zasz ready for imitation learning
-
-**Idea:** Ensure Zasz is always primed to implement the imitation learning when ready and we do not implement useless functions that need to be editted later to allow for this
-
-**Depends on:** -
-
-**Revision:** Make it a standing rule plus a concrete interface: (a) every *what* decision goes
-through `Decisions` (the macro plan, attack, upgrades; composition from #2 should be added);
-(b) one `observe(ai) -> features` function shared by the scripted rules, the model and logging;
-(c) actions stay scripted. Items #8-#10 then become features in that one function rather than
-scattered helpers.
-**Impact:** **High** for the long-term goal; zero win rate on its own.
-**Blockers:** **Training data is the big one.** The Linux headless build is 4.10 and can only
-replay 4.10 replays, so current human ladder replays can't be turned into observations here
-(Windows can, using its version downloads). AI Arena replays (4.10) and our own games are usable.
-A learned `macro_plan` also needs a fixed action space (a choice from a fixed set of options),
-since `MacroPlan` is open-ended today.
+  #13 metrics) can lose games by timeout on the ladder even when it wins locally. The benchmark
+  measures step time against the ladder limits (done), so check it for bot-vs-bot games too.
 
 ## `trade-tracking` (#8): Ally vs enemy losses (resource trades)
 
 **Idea:** Implement logic to determine total ally losses vs enemy losses, which helps us understand wasted resources better. When we train a model, this will be useful.
 
-**Depends on:** `learning-interface`
+**Depends on:** - (add it as `Observation` fields in `bot/observation.py`)
 
 **Revision:** Mostly already available: `state.score` has killed and lost values by category (the
 benchmark already records `killed_value` and `lost_value`). What's missing is *per-engagement*
@@ -171,7 +152,7 @@ reported.
 
 **Idea:** Implement logic to determine the number of resources mined per drone, like the rate we are gathering, so the model will be able to better understand and plan around incoming minerals (unless we already do this somehow?)
 
-**Depends on:** `learning-interface`
+**Depends on:** - (add it as `Observation` fields in `bot/observation.py`)
 
 **Revision:** Partly there: `state.score.collection_rate_minerals/vespene` is the game's own income
 rate (`affordable_on_arrival` already uses it). Per drone = rate / mining drones. Add the
@@ -184,11 +165,11 @@ oversaturation, long-distance mining or harass.
 
 **Idea:** Implement logic to understand enemy army value vs ally army value to give model more information when deciding to attack or not (we will also adjust the ares packages that do this to advice the model similarly)
 
-**Depends on:** `learning-interface`
+**Depends on:** - (add it as `Observation` fields in `bot/observation.py`)
 
 **Revision:** ares already does this in the combat simulator (`FIGHT_AT` uses it per fight). A
 whole-map value is easy to add (cost of our army vs cost of known enemy units, from ares' unit
-memory) and is a natural `observe()` feature for the attack decision.
+memory) and is a natural `Observation` feature for the attack decision.
 **Impact:** Medium. It improves the attack/defend decision, especially once there's more than one
 unit type (#2).
 **Blockers:** **Fog.** The enemy value is only what we've seen (plus memory), so it undercounts
@@ -236,7 +217,7 @@ finish), and the built-in AI rebuilds supply quickly.
   anti-air units (#2) or by sniping hatcheries.
 - **Terran depots are often in a wall** (lowered/raised at the ramp): killing one also opens the
   way in, which is a separate value worth weighing.
-- Fits naturally with #10 (enemy army value: the same "known enemy units" estimate) and #4 (supply
+- Fits naturally with #10 (enemy army value: the same "known enemy units" estimate) and the learning interface (supply
   margin is a good model feature).
 
 ## `army-variety` (#2): More unit types + army composition logic
@@ -247,8 +228,9 @@ finish), and the built-in AI rebuilds supply quickly.
 
 **Revision:** Move from zergling-only to a composition that answers what we've scouted (e.g.
 roach/ravager vs ground, hydra/queen vs air, banelings vs light units). ares' `SpawnController`
-already takes a composition dict, so the decision can be a function from scouted info to
-`ARMY_COMPOSITION`. The real work is around it: tech path (lair, roach warren, hydra den), gas
+already takes a composition dict, and the learning interface already carries it: add the units to
+`bot/spaces.py` (`ARMY_UNITS`, `OWN_UNIT_TYPES`) and have `decide` set `Decision.army` from what
+`Observation` says we've scouted (add enemy unit counts there if needed). The real work is around it: tech path (lair, roach warren, hydra den), gas
 timings, and army control that copes with ranged units (squads assume melee today).
 **Impact:** **High.** It's the clearest gap: zerglings alone stall against Harder+ (ties at the
 20-minute limit, losses to siege tanks and air), and queens + spores are the only anti-air.
@@ -265,9 +247,9 @@ mutalisks is `mutalisk-harass` (#12), and their upgrades are `army-upgrading` (#
 **Depends on:** `army-variety`
 
 **Revision:** Derive the upgrade list from the composition (melee vs missile vs flyer, plus unit
-upgrades like roach speed or hydra range). `Decisions.upgrades()` already returns a list that
+upgrades like roach speed or hydra range). `Decision.upgrades` is already a wish list that
 `actions.upgrades` turns into gas, tech and research, so this is mostly a mapping table once #2
-exists.
+exists (new upgrades go in `bot/spaces.py` `UPGRADES`).
 **Impact:** Medium (it multiplies #2's impact; little on its own while we're zergling-only).
 **Blockers:** Depends on #2. Some upgrades need hive tech (+3 needs hive), which nothing builds yet.
 

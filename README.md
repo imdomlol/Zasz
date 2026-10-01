@@ -48,6 +48,7 @@ a change to catch regressions:
 uv run python scripts/benchmark.py                      # 6 games vs Hard, all races, all maps
 uv run python scripts/benchmark.py --games 12 --difficulty VeryHard --races Terran Protoss
 uv run python scripts/benchmark.py --games 30 --jobs 6  # 6 games at a time (~1 core, ~1.5 GB each)
+uv run python scripts/benchmark.py --record             # also save (observation, decision) pairs
 ```
 
 With `--jobs`, games run in parallel, but logs and results are still reported in matchup order, the same
@@ -98,16 +99,48 @@ Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`)
 `scenarios/__init__.py` for how to write one and the debug quirks to watch for. Replays of failed
 scenarios are kept in `replays/scenarios/`.
 
+## Decisions and the learning interface
+
+Each step the bot runs one loop, built so that the scripted rules can be swapped for a learned
+model without touching anything else:
+
+```
+observe(ai) -> Observation -> decisions.decide(obs) -> Decision -> actions carry it out
+```
+
+- **`Observation`** (`bot/observation.py`): everything decisions get to see, as a flat set of
+  numbers with a fixed shape: economy, bases, tech, our units/structures/upgrades, and what we know
+  about the enemy. `to_vector()` / `FEATURE_NAMES` give the model input.
+- **`Decision`** (`bot/decisions/__init__.py`): every *what* choice, as a fixed action space:
+  what to save for (nothing / pool / expansion), drone target, army proportions, upgrade wish
+  list, attack or defend, queens, spores per base. `to_vector()` / `DECISION_NAMES` give the
+  model output. The fixed lists behind both shapes are in `bot/spaces.py`.
+- **`Decisions.decide(obs)`** only gets the observation, never the bot. `ScriptedDecisions` is the
+  hand-written rules; a model implements the same method and is passed as
+  `ZaszBot(decisions=...)` (the `custom_decisions` scenario does exactly that).
+- **Actions stay scripted** (`bot/actions/`, `bot/army.py`): worker choice, timing, placement and
+  micro. A new *what* choice gets a `Decision` field instead of living in an action.
+- **Recording** (`bot/recording.py`): `benchmark.py --record` saves each game's (observation,
+  decision) pairs as JSON lines in `data/decisions/<run>/`; `read_records()` loads them back,
+  e.g. to train a model to imitate the scripted rules (or anything else recorded).
+
+Because decisions are a pure function of the observation, the scripted rules have offline unit
+tests (`uv run pytest`, no StarCraft II needed).
+
 ## Layout
 
 ```
 bot/
-├── zasz.py            # ZaszBot: wires decisions and actions together each step
+├── zasz.py            # ZaszBot: observe -> decide -> act, each step
 ├── settings.py        # all tunables (POOL_AT_DRONES, EXPAND_WHEN_DRONES_WITHIN, ...)
-├── decisions/         # WHAT to do: build order, when to expand/attack
-│   ├── __init__.py    #   `Decisions` interface (macro plan, upgrade wish list, attack?)
+├── observation.py     # Observation + observe(): what decisions get to see
+├── spaces.py          # the fixed unit/upgrade/race lists behind observations and decisions
+├── recording.py       # save / load (observation, decision) pairs
+├── decisions/         # WHAT to do
+│   ├── __init__.py    #   Decision (the action space) and the Decisions interface
 │   └── scripted.py    #   hand-written rules (a learned model would sit next to this)
 ├── actions/           # HOW to do it well: stays scripted
+│   ├── macro.py       #   a Decision's spending: supply, pool/expansion timing, drones, army
 │   ├── drones.py      #   BuildDrones (counts eggs), drone_target
 │   ├── building.py    #   just-in-time builder drones, next expansion spot
 │   ├── pathing.py     #   why an expansion can't be reached (rocks, enemy wall, ...)
@@ -119,7 +152,8 @@ bot/
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
-scenarios/             # staged scenarios (expansions, defense, army), run by scripts/run_scenarios.py
+scenarios/             # staged scenarios (expansions, defense, army, decisions), run by scripts/run_scenarios.py
+tests/                 # offline unit tests (uv run pytest)
 scripts/
 ├── benchmark.py       # win-rate benchmark
 ├── run_scenarios.py   # scenario runner
@@ -128,7 +162,7 @@ ares-sc2/              # git submodule, pinned to a known-good commit
 ```
 
 From ares, Zasz uses `Mining` (speed mining, worker distribution), `AutoSupply`, `BuildStructure`,
-`ExpansionController` and `SpawnController`, ordered by a `MacroPlan` so higher priorities get the
+`ExpansionController` (via `ExpandTo`) and `SpawnController`, ordered by a `MacroPlan` so higher priorities get the
 minerals first. Every `ZaszBot` hook must call `super()` or ares stops working.
 
 ## Development
@@ -136,6 +170,8 @@ minerals first. Every `ZaszBot` hook must call `super()` or ares stops working.
 ```sh
 uv run ruff check --fix .    # lint
 uv run ruff format .         # format
+uv run pytest                # offline unit tests (< 1 s)
+uv run python scripts/run_scenarios.py   # staged in-game scenarios (~40 s)
 ```
 
 Updating ares: `git -C ares-sc2 pull`, run the benchmark, then commit the new submodule pointer.

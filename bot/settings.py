@@ -46,6 +46,7 @@ SCRIPTED_UPGRADES = [
     UpgradeId.ZERGGROUNDARMORSLEVEL2,
 ]
 
+# Army proportions the scripted decisions ask for (first listed = built first when larva is short)
 ARMY_COMPOSITION = {
-    UnitTypeId.ZERGLING: {"proportion": 1.0, "priority": 0},
+    UnitTypeId.ZERGLING: 1.0,
 }

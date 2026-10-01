@@ -12,7 +12,7 @@ class ExpansionBaseline(Scenario):
     time_limit = 5
 
     def check(self, bot: ScenarioBot) -> Outcome | None:
-        location = next_expansion_location(bot, bot.decisions.expansions)
+        location = next_expansion_location(bot, bot.expansions)
         closest = bot.mediator.get_own_expansions[0][0]
         if location != closest:
             return failed(f"next expansion {location} isn't the closest base {closest.rounded}")
@@ -41,10 +41,10 @@ class RampBlocked(Scenario):
     def check(self, bot: ScenarioBot) -> Outcome | None:
         if bot.time < 3:  # let the spawns land and ares refresh its grid
             return None
-        location = next_expansion_location(bot, bot.decisions.expansions)
+        location = next_expansion_location(bot, bot.expansions)
         if location is not None:
             return failed(f"picked {location.rounded} although the main is walled in")
-        blocked = bot.decisions.expansions.blocked
+        blocked = bot.expansions.blocked
         if not blocked:
             return failed("no expansion recorded as blocked")
         kinds = {b.kind for b in blocked.values()}
@@ -82,7 +82,7 @@ class ExpansionRocks(Scenario):
         if not behind_gates:
             return failed("ares can reach every base; expected the gated ones to be missing")
         location = min(behind_gates, key=lambda p: p.distance_to(bot.start_location))
-        access = bot.decisions.expansions
+        access = bot.expansions
         if access.is_reachable(bot, location):
             return failed(f"{location.rounded} reported reachable")
         blockage = access.blocked[location]

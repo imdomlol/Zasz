@@ -10,29 +10,42 @@ from sc2.unit import Unit
 from bot import army
 from bot.actions.defense import build_spores
 from bot.actions.drones import drone_target
+from bot.actions.macro import macro_plan
+from bot.actions.pathing import ExpansionAccess
 from bot.actions.queens import build_queens, control_queens
 from bot.actions.scouting import Scouting
 from bot.actions.upgrades import upgrade_plan, workers_per_gas
-from bot.decisions import Decisions, ScriptedDecisions
+from bot.decisions import Decision, Decisions, ScriptedDecisions
+from bot.observation import Observation, observe
+from bot.recording import DecisionRecorder
 from bot.settings import MAX_DRONES
 
 
 class ZaszBot(AresBot):
     """Zasz: a Zerg bot built on ares-sc2 (https://aressc2.github.io/ares-sc2/).
 
-    This class only wires things together each step: `decisions` chooses what to do,
-    `actions` and `army` carry it out. Remember to call `super()` in every hook.
+    This class only wires things together each step: `observe` what we can see, `decisions`
+    choose what to do, `actions` and `army` carry it out. Remember to call `super()` in every hook.
     """
 
     NAME = "Zasz"
 
-    def __init__(self, decisions: Decisions | None = None, game_step_override: int | None = None):
+    def __init__(
+        self,
+        decisions: Decisions | None = None,
+        recorder: DecisionRecorder | None = None,
+        game_step_override: int | None = None,
+    ):
         super().__init__(game_step_override)
         self.decisions: Decisions = decisions or ScriptedDecisions()
+        self.recorder = recorder  # logs (observation, decision) pairs, e.g. for training a model
+        self.observation = Observation()  # this step's, for logging and tests
+        self.decision = Decision()
         # How many drones each extractor should have; follows the upgrade wish list
         self.workers_per_gas: int = 3
         self.army = army.Army()
         self.scouting = Scouting()
+        self.expansions = ExpansionAccess()  # which expansions we can walk to, and why not
 
     async def on_start(self) -> None:
         await super().on_start()
@@ -48,21 +61,26 @@ class ZaszBot(AresBot):
             army.all_in(self)
             return
 
-        upgrades = self.decisions.upgrades(self)
+        self.observation = observe(self)
+        self.decision = decision = self.decisions.decide(self.observation)
+        if self.recorder:
+            self.recorder.record(self.state.game_loop, self.observation, decision)
+
+        upgrades = list(decision.upgrades)
         self.workers_per_gas = workers_per_gas(self, upgrades)
 
         # Speed mining, worker distribution, gas and fleeing from danger
         self.register_behavior(Mining(workers_per_gas=self.workers_per_gas))
 
-        build_queens(self)
-        await build_spores(self)
+        build_queens(self, decision.queens)
+        await build_spores(self, decision.spores_per_base)
         # Behaviors run in registration order, so upgrades get resources before the macro plan
         self.register_behavior(upgrade_plan(self, upgrades))
-        self.register_behavior(self.decisions.macro_plan(self))
+        self.register_behavior(macro_plan(self, decision, self.expansions))
 
         control_queens(self)
         self.scouting.control(self)
-        self.army.control(self, attacking=self.decisions.should_attack(self))
+        self.army.control(self, attacking=decision.attack)
 
     async def on_unit_created(self, unit: Unit) -> None:
         await super().on_unit_created(unit)
@@ -89,3 +107,5 @@ class ZaszBot(AresBot):
     async def on_end(self, game_result: Result) -> None:
         await super().on_end(game_result)
         logger.info(f"{self.NAME} game ended: {game_result}")
+        if self.recorder:
+            self.recorder.close(game_result)

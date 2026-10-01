@@ -3,9 +3,15 @@
 Where Zasz stands, what's been verified, and what's open. Update this when picking work back up
 or finishing a session, so it travels with the repo.
 
-## Current state (branch `tanks-and-scouting`, 2026-10-01)
+## Current state (`main`, 2026-10-01)
 
 Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings only (by choice).
+
+- **Learning interface:** each step is `observe(ai) -> Observation -> decisions.decide(obs) ->
+  Decision -> actions`. Decisions see only the `Observation` (fixed shape, `bot/spaces.py`) and
+  return a `Decision` (fixed action space); actions stay scripted. `ScriptedDecisions` is the
+  rules below; a model plugs in as `ZaszBot(decisions=...)`. `benchmark.py --record` saves
+  (observation, decision) pairs to `data/decisions/` for training. See the README.
 
 - **Economy:** 16 pool, expand whenever drones are within 4 of filling every base (also when patches
   mine out), up to 70 drones. Just-in-time builder drones.
@@ -30,6 +36,9 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 | Expansion blockage classifier (debug-spawned walls) | rocks / hostile / walled all identified correctly, blockers listed |
 | Scenario suite (`scripts/run_scenarios.py`, 8 scenarios) | 24/24 over `--repeat 3`. Each deliberate break was caught: skipping the reachability check, empty `DIVE_FIRST`, `FIGHT_AT = 0`, no spores |
 | Step time vs AI Arena limits (`67daf7a`, Hard, `--jobs 1`, 12-min game) | 5.4 ms per game loop (13% of 40 ms), slowest step 85 ms (limit 30 s), startup 0.3 s |
+| Learning interface parity (`learning-interface` branch) | New observe/decide gave the same decision as `main`'s old rules on every one of 22,348 steps (4 games vs Hard): build, upgrades, attack, queens, spores, drone target |
+| Learning interface overhead | observe 0.9-1.4 ms/step avg (max ~48 ms on a fresh-grid recheck), decide 0.01 ms, recording 0.01 ms: ~0.5-0.7 ms per game loop, ~10% of step time |
+| Offline unit tests (`uv run pytest`) | 31 tests, < 1 s. Off-by-one in the pool rule and removing attack hysteresis were both caught |
 | VeryHard Terran games on this branch | 3 wins (`26ce39f` PersephoneAIE_v4, `bed03c7` LeyLinesAIE_v3, `75aba21` MagannathaAIE_v2). Several looked like the AI surrendering (few structures killed) |
 | Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
 
@@ -58,6 +67,11 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
   Cause unknown; benchmark crashes now keep a `.log` and replays, so the next one can be traced.
 
 ## Gotchas found along the way
+
+- `ExpansionAccess` caches reachability; now that `observe()` asks every step (from step 0), a
+  cache made before a wall went up hid the wall for up to 10 s (the `expansion_hostile` scenario
+  caught it). It now re-checks whenever any structure or rock appears/disappears, on a fresh
+  grid (ares' own ground grid lags up to 8 steps behind new structures).
 
 - AI Arena's time rules aren't on its wiki; they're in its match controller
   (`aiarena/sc2-ai-match-controller`, `sc2_controller/src/game/game_config.rs` and

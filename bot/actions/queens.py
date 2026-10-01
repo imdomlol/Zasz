@@ -13,15 +13,15 @@ from sc2.ids.buff_id import BuffId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.unit import Unit
 
-from bot.settings import CREEP_QUEENS, QUEEN_DEFEND_RANGE
+from bot.settings import QUEEN_DEFEND_RANGE
 
 
-def build_queens(ai: AresBot) -> None:
-    """One queen per hatchery (including ones still building), plus the creep queens."""
+def build_queens(ai: AresBot, wanted: int) -> None:
+    """Make queens (one at a time, from idle hatcheries) until we have `wanted` (`Decision.queens`)."""
     if not ai.structures(UnitTypeId.SPAWNINGPOOL).ready:
         return
     queens = ai.units(UnitTypeId.QUEEN).amount + ai.already_pending(UnitTypeId.QUEEN)
-    if queens < ai.townhalls.amount + CREEP_QUEENS and ai.can_afford(UnitTypeId.QUEEN):
+    if queens < wanted and ai.can_afford(UnitTypeId.QUEEN):
         for hatch in ai.townhalls.ready.idle:
             hatch.train(UnitTypeId.QUEEN)
             break

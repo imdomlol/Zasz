@@ -1,4 +1,4 @@
-"""Static defense: spore crawlers in each mineral line once the enemy shows air.
+"""Static defense: spore crawlers in each mineral line (how many is `Decision.spores_per_base`).
 
 Zerglings can't shoot up, so against air units the queens and spores are all we have.
 """
@@ -7,8 +7,6 @@ from ares import AresBot
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
-
-from bot.settings import SPORES_PER_BASE
 
 # Enemy tech that means air units are coming
 AIR_TECH = {
@@ -29,14 +27,14 @@ def enemy_has_air(ai: AresBot) -> bool:
     return any(u.is_flying and u.type_id not in HARMLESS_AIR for u in ai.mediator.get_cached_enemy_army)
 
 
-async def build_spores(ai: AresBot) -> None:
-    if not enemy_has_air(ai) or not ai.can_afford(UnitTypeId.SPORECRAWLER):
+async def build_spores(ai: AresBot, per_base: int) -> None:
+    if not per_base or not ai.can_afford(UnitTypeId.SPORECRAWLER):
         return
     if ai.already_pending(UnitTypeId.SPORECRAWLER) or ai.structure_pending(UnitTypeId.SPORECRAWLER):
         return  # one at a time
     spores = ai.structures(UnitTypeId.SPORECRAWLER)
     for hatch in ai.townhalls.ready:
-        if spores.closer_than(8, hatch).amount >= SPORES_PER_BASE:
+        if spores.closer_than(8, hatch).amount >= per_base:
             continue
         if spot := mineral_line_spot(ai, hatch):
             pos = await ai.find_placement(UnitTypeId.SPORECRAWLER, near=spot, max_distance=4)

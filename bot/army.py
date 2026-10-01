@@ -15,7 +15,7 @@ Threats are looked up around every unit in the squad (not just its center), and 
 are being shot from out of sight count as "under fire", so long-range units like sieged tanks
 can't hit the front of the squad unnoticed.
 
-Whether to attack at all is a decision (`Decisions.should_attack`); this module only executes.
+Whether to attack at all is a decision (`Decision.attack`); this module only executes.
 """
 
 from ares import AresBot

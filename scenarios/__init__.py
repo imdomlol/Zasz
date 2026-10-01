@@ -8,6 +8,7 @@ and is a small class:
 - `on_step(bot)`: optional upkeep every step (e.g. keep an enemy tank sieged)
 - `check(bot)`: called every step; return `passed()` / `failed(...)` to finish, or None to keep going
 - `on_timeout(bot)`: what running out of time means (a failure unless overridden)
+- `decisions()` / `recorder()`: optionally run the bot with other decisions, or record the game
 
 Debug quirks found so far:
 - Spawned units appear on the next step.
@@ -30,6 +31,8 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 from bot import ZaszBot
+from bot.decisions import Decisions
+from bot.recording import DecisionRecorder
 
 
 @dataclass
@@ -63,12 +66,19 @@ class Scenario:
     def on_timeout(self, bot: "ScenarioBot") -> Outcome:
         return failed(f"nothing decided within {self.time_limit:.0f}s")
 
+    def decisions(self) -> Decisions | None:
+        """Decisions to run the bot with (default: the scripted ones)."""
+        return None
+
+    def recorder(self) -> DecisionRecorder | None:
+        return None
+
 
 class ScenarioBot(ZaszBot):
     """ZaszBot with a scenario attached: sets it up, checks it every step, leaves when decided."""
 
     def __init__(self, scenario: Scenario):
-        super().__init__()
+        super().__init__(decisions=scenario.decisions(), recorder=scenario.recorder())
         self.scenario = scenario
         self.outcome: Outcome | None = None
 
@@ -102,6 +112,6 @@ class ScenarioBot(ZaszBot):
             tank(AbilityId.SIEGEMODE_SIEGEMODE)
 
 
-from scenarios import army, defense, expansions  # noqa: E402 (they import the classes above)
+from scenarios import army, decisions, defense, expansions  # noqa: E402 (they import the classes above)
 
-ALL: list[Scenario] = [*expansions.SCENARIOS, *defense.SCENARIOS, *army.SCENARIOS]
+ALL: list[Scenario] = [*expansions.SCENARIOS, *defense.SCENARIOS, *army.SCENARIOS, *decisions.SCENARIOS]

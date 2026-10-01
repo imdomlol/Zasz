@@ -1,32 +1,110 @@
-"""Decisions: what to do next (build order, when to expand, when to attack).
+"""Decisions: *what* to do next, as a function of what we can see.
 
-`ScriptedDecisions` is hand-written rules. A learned model can live next to it by
-implementing the same `Decisions` interface, then be swapped in `ZaszBot.__init__`.
+    observe(ai) -> Observation -> Decisions.decide(obs) -> Decision -> actions carry it out
+
+`ScriptedDecisions` is hand-written rules. A learned model implements the same `Decisions`
+interface and is passed to `ZaszBot(decisions=...)`. The rules every implementation follows:
+
+- `decide` only gets the `Observation` (never the bot), so it sees exactly what a model would
+  see, can be tested offline and replayed from recordings (`bot.recording`).
+- It returns a `Decision`: a fixed set of choices, with a fixed shape (`bot.spaces`), so a model
+  has a fixed set of outputs. How each choice is carried out (worker choice, placement, timing,
+  micro) stays scripted in `bot.actions` and `bot.army`.
+- Any new *what* choice gets a field on `Decision` (and whatever it needs to see on
+  `Observation`); don't make it inside the actions.
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Protocol
 
-from ares import AresBot
-from ares.behaviors.macro import MacroPlan
+from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 
-from bot.decisions.scripted import ScriptedDecisions
+from bot.observation import Observation
+from bot.settings import MAX_DRONES
+from bot.spaces import ARMY_UNITS, UPGRADES
+
+
+class Build(Enum):
+    """The one thing to save up for this step (everything else waits while we do)."""
+
+    NONE = "none"  # no saving: spend on drones and army
+    POOL = "pool"  # the spawning pool
+    EXPAND = "expand"  # the next base
+
+
+@dataclass(frozen=True)
+class Decision:
+    build: Build = Build.NONE
+    drone_target: int = 0  # make drones up to this many
+    army: dict[UnitTypeId, float] = field(default_factory=dict)  # proportions over `ARMY_UNITS`
+    upgrades: tuple[UpgradeId, ...] = ()  # wish list from `UPGRADES`, highest priority first
+    attack: bool = False  # attack, or stay home and defend
+    queens: int = 0  # total queens wanted (needs a spawning pool)
+    spores_per_base: int = 0  # spore crawlers in each mineral line
+
+    def to_dict(self) -> dict:
+        """JSON-friendly and lossless (see `from_dict`)."""
+        return {
+            "build": self.build.value,
+            "drone_target": self.drone_target,
+            "army": {unit.name: share for unit, share in self.army.items()},
+            "upgrades": [u.name for u in self.upgrades],
+            "attack": self.attack,
+            "queens": self.queens,
+            "spores_per_base": self.spores_per_base,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Decision:
+        return cls(
+            build=Build(d["build"]),
+            drone_target=d["drone_target"],
+            army={UnitTypeId[name]: share for name, share in d["army"].items()},
+            upgrades=tuple(UpgradeId[name] for name in d["upgrades"]),
+            attack=d["attack"],
+            queens=d["queens"],
+            spores_per_base=d["spores_per_base"],
+        )
+
+    def to_vector(self) -> list[float]:
+        """Model output/label, in `DECISION_NAMES` order. Upgrades are encoded by priority:
+        1.0 for the first wish, falling towards 0 down the list, 0 if not wanted."""
+        build = [float(self.build == b) for b in Build]
+        army = [float(self.army.get(unit, 0.0)) for unit in ARMY_UNITS]
+        n = len(UPGRADES)
+        upgrades = [(n - self.upgrades.index(u)) / n if u in self.upgrades else 0.0 for u in UPGRADES]
+        return [
+            *build,
+            self.drone_target / MAX_DRONES,
+            *army,
+            *upgrades,
+            float(self.attack),
+            float(self.queens),
+            float(self.spores_per_base),
+        ]
+
+
+DECISION_NAMES: list[str] = [
+    *(f"build.{b.name}" for b in Build),
+    "drone_target",
+    *(f"army.{u.name}" for u in ARMY_UNITS),
+    *(f"upgrades.{u.name}" for u in UPGRADES),
+    "attack",
+    "queens",
+    "spores_per_base",
+]
 
 
 class Decisions(Protocol):
-    def macro_plan(self, ai: AresBot) -> MacroPlan:
-        """What to spend on this step, highest priority first."""
-        ...
-
-    def should_attack(self, ai: AresBot) -> bool: ...
-
-    def upgrades(self, ai: AresBot) -> list[UpgradeId]:
-        """Upgrades we want, highest priority first. Can change every step.
-
-        Only the choice lives here; `actions.upgrades` handles gas, tech buildings and
-        research, so a model only has to output this list.
-        """
+    def decide(self, obs: Observation) -> Decision:
+        """What to do this step. Called every step; may keep its own state between calls."""
         ...
 
 
-__all__ = ["Decisions", "ScriptedDecisions"]
+from bot.decisions.scripted import ScriptedDecisions  # noqa: E402 (needs the classes above)
+
+__all__ = ["DECISION_NAMES", "Build", "Decision", "Decisions", "ScriptedDecisions"]
