@@ -11,6 +11,7 @@ from bot import army
 from bot.actions.defense import build_spores
 from bot.actions.drones import drone_target
 from bot.actions.queens import build_queens, control_queens
+from bot.actions.scouting import Scouting
 from bot.actions.upgrades import upgrade_plan, workers_per_gas
 from bot.decisions import Decisions, ScriptedDecisions
 from bot.settings import MAX_DRONES
@@ -30,6 +31,8 @@ class ZaszBot(AresBot):
         self.decisions: Decisions = decisions or ScriptedDecisions()
         # How many drones each extractor should have; follows the upgrade wish list
         self.workers_per_gas: int = 3
+        self.army = army.Army()
+        self.scouting = Scouting()
 
     async def on_start(self) -> None:
         await super().on_start()
@@ -58,12 +61,18 @@ class ZaszBot(AresBot):
         self.register_behavior(self.decisions.macro_plan(self))
 
         control_queens(self)
-        army.control(self, attacking=self.decisions.should_attack(self))
+        self.scouting.control(self)
+        self.army.control(self, attacking=self.decisions.should_attack(self))
 
     async def on_unit_created(self, unit: Unit) -> None:
         await super().on_unit_created(unit)
         if unit.type_id in army.ARMY_TYPES:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
+
+    async def on_unit_took_damage(self, unit: Unit, amount_damage_taken: float) -> None:
+        await super().on_unit_took_damage(unit, amount_damage_taken)
+        self.army.on_damage(self, unit)
+        self.scouting.on_damage(self, unit)
 
     async def on_building_construction_started(self, unit: Unit) -> None:
         await super().on_building_construction_started(unit)

@@ -12,6 +12,7 @@ from bot.settings import (
     MAX_DRONES,
     POOL_AT_DRONES,
     SCRIPTED_UPGRADES,
+    STOP_ATTACK_AT_ZERGLINGS,
 )
 
 
@@ -41,8 +42,19 @@ class ScriptedDecisions:
         plan.add(SpawnController(ARMY_COMPOSITION))
         return plan
 
+    def __init__(self) -> None:
+        self.attacking = False
+
     def should_attack(self, ai: AresBot) -> bool:
-        return ai.units(UnitTypeId.ZERGLING).amount >= ATTACK_AT_ZERGLINGS
+        """Start at ATTACK_AT_ZERGLINGS, keep going until the army drops below
+        STOP_ATTACK_AT_ZERGLINGS. The gap stops the army flip-flopping between attacking and
+        pulling back each time a few zerglings die or hatch."""
+        lings = ai.units(UnitTypeId.ZERGLING).amount
+        if lings >= ATTACK_AT_ZERGLINGS or ai.supply_used >= 190:
+            self.attacking = True
+        elif lings < STOP_ATTACK_AT_ZERGLINGS:
+            self.attacking = False
+        return self.attacking
 
     def upgrades(self, ai: AresBot) -> list[UpgradeId]:
         # Wait for the pool, otherwise ares' UpgradeController would build its own

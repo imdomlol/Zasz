@@ -12,23 +12,34 @@ POOL_AT_DRONES = 16  # start the spawning pool once we have (or are making) this
 EXPAND_WHEN_DRONES_WITHIN = 4
 
 # --- Army ---
-ATTACK_AT_ZERGLINGS = 16
+ATTACK_AT_ZERGLINGS = 16  # start attacking with this many zerglings...
+STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this many
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
-ENGAGE_RANGE = 14  # squads react to enemies this close
+ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
 SQUAD_RADIUS = 9  # zerglings this close together form one squad
 REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
-RETREAT_AT = EngagementResult.LOSS_CLOSE  # retreat if the combat sim predicts this or worse
+RETREAT_AT = EngagementResult.LOSS_CLOSE  # don't start a fight the combat sim rates this or worse
+ABANDON_AT = EngagementResult.LOSS_DECISIVE  # once committed, only back out at this or worse
+COMMIT_SECONDS = 4.0  # a squad that starts a fight sticks with it at least this long
+RETREAT_SECONDS = 3.0  # a retreating squad keeps going this long, to get fully out of range
+UNDER_FIRE_SECONDS = 1.5  # a unit damaged this recently counts as under fire
 
 # --- Queens and defense ---
 CREEP_QUEENS = 2  # queens beyond one per hatchery, used to spread creep
 QUEEN_DEFEND_RANGE = 12  # queens fight enemies this close while near our bases
 SPORES_PER_BASE = 1  # built in each mineral line once the enemy shows air
 
+# --- Scouting ---
+OVERLORD_SCOUTS = 4  # overlords posted near enemy expansions (natural, third, fourth, ...)
+SCOUT_POST_OFFSET = 9  # how far from the expansion spot an overlord waits, toward our side
+SCOUT_POST_COOLDOWN = 90  # seconds to avoid a post after an overlord got shot there
+
 # Upgrades the scripted decisions want, in priority order (once the spawning pool is down)
 SCRIPTED_UPGRADES = [
     UpgradeId.ZERGLINGMOVEMENTSPEED,
     UpgradeId.ZERGMELEEWEAPONSLEVEL1,
     UpgradeId.ZERGGROUNDARMORSLEVEL1,
+    UpgradeId.OVERLORDSPEED,  # faster scouting overlords, and they escape danger better
     UpgradeId.ZERGMELEEWEAPONSLEVEL2,
     UpgradeId.ZERGGROUNDARMORSLEVEL2,
 ]

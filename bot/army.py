@@ -3,10 +3,15 @@
 Zerglings get the ATTACKING role when they hatch (see `ZaszBot.on_unit_created`). ares groups
 them into squads; each squad then:
 
-1. Fights if enemies are close and the combat sim says we win (or we're defending a base),
-   each zergling hitting the weakest enemy in range instead of everyone chasing one target.
-2. Retreats to the rally point if the sim says the fight is lost.
+1. Fights if enemies are close and the combat sim says we win (or we're defending a base).
+   A squad that commits to a fight keeps fighting for a few seconds unless it's clearly
+   hopeless, and dives siege tanks first, instead of hovering at the edge of their range.
+2. Retreats if the sim says the fight is lost, and keeps retreating until it's out of range.
 3. Otherwise regroups with the main squad before moving on, so we don't trickle in.
+
+Threats are looked up around every unit in the squad (not just its center), and units that
+are being shot from out of sight count as "under fire", so long-range units like sieged tanks
+can't hit the front of the squad unnoticed.
 
 Whether to attack at all is a decision (`Decisions.should_attack`); this module only executes.
 """
@@ -14,94 +19,164 @@ Whether to attack at all is a decision (`Decisions.should_attack`); this module 
 from ares import AresBot
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, PathUnitToTarget, ShootTargetInRange
-from ares.consts import UnitRole, UnitTreeQueryType
+from ares.consts import TOWNHALL_TYPES, WORKER_TYPES, EngagementResult, UnitRole, UnitTreeQueryType
 from ares.managers.squad_manager import UnitSquad
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
 
-from bot.settings import DEFEND_RADIUS, ENGAGE_RANGE, REGROUP_DISTANCE, RETREAT_AT, SQUAD_RADIUS
+from bot.settings import (
+    ABANDON_AT,
+    COMMIT_SECONDS,
+    DEFEND_RADIUS,
+    ENGAGE_RANGE,
+    REGROUP_DISTANCE,
+    RETREAT_AT,
+    RETREAT_SECONDS,
+    SQUAD_RADIUS,
+    UNDER_FIRE_SECONDS,
+)
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
-# Workers and harmless units don't count as a threat worth fighting over
 IGNORED_THREATS = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTypeId.OVERSEER}
+# Long-range or splash units zerglings should dive first rather than trade with from range
+DIVE_FIRST = {UnitTypeId.SIEGETANKSIEGED, UnitTypeId.SIEGETANK, UnitTypeId.LURKERMPBURROWED, UnitTypeId.COLOSSUS}
+# Structures worth killing first once their defenders are dead: economy, then power/production
+PRIORITY_STRUCTURES = TOWNHALL_TYPES | {UnitTypeId.PYLON, UnitTypeId.SPAWNINGPOOL}
 
 
-def control(ai: AresBot, attacking: bool) -> None:
-    squads: list[UnitSquad] = ai.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=SQUAD_RADIUS)
-    if not squads:
-        return
+class Army:
+    """Keeps the per-unit memory that stops squads flip-flopping between fight and retreat."""
 
-    home_threats = [u for u in ai.mediator.get_main_ground_threats_near_townhall if u.type_id not in IGNORED_THREATS]
-    if home_threats:
-        # Defending always comes first
-        target = Point2(home_threats[0].position)
-    elif attacking:
-        target = attack_target(ai)
-    else:
-        target = rally_point(ai)
-    main_squad_position = ai.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
+    def __init__(self) -> None:
+        self.committed_until: dict[int, float] = {}  # unit tag -> keep fighting until this time
+        self.retreating_until: dict[int, float] = {}  # unit tag -> keep retreating until this time
+        self.last_damaged: dict[int, float] = {}  # unit tag -> last time it took damage
 
-    for squad in squads:
-        control_squad(ai, squad, target, attacking or bool(home_threats), main_squad_position)
+    def on_damage(self, ai: AresBot, unit: Unit) -> None:
+        self.last_damaged[unit.tag] = ai.time
 
+    def control(self, ai: AresBot, attacking: bool) -> None:
+        squads: list[UnitSquad] = ai.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=SQUAD_RADIUS)
+        if not squads:
+            return
 
-def control_squad(ai: AresBot, squad: UnitSquad, target: Point2, advancing: bool, main_position: Point2) -> None:
-    position = squad.squad_position
-    enemies = [
-        e
-        for e in ai.mediator.get_units_in_range(
-            start_points=[position], distances=ENGAGE_RANGE, query_tree=UnitTreeQueryType.EnemyGround
-        )[0]
-        if e.type_id not in IGNORED_THREATS
-    ]
-    threats = [e for e in enemies if not e.is_structure or e.can_attack_ground]
-
-    if threats:
-        near_home = ai.townhalls.closest_distance_to(position) < DEFEND_RADIUS
-        if near_home or can_win(ai, position, threats):
-            for unit in squad.squad_units:
-                fight(ai, unit, threats, enemies)
+        home_threats = [
+            u for u in ai.mediator.get_main_ground_threats_near_townhall if u.type_id not in IGNORED_THREATS
+        ]
+        if home_threats:
+            # Defending always comes first
+            target = Point2(home_threats[0].position)
+        elif attacking:
+            target = attack_target(ai)
         else:
-            for unit in squad.squad_units:
+            target = rally_point(ai)
+        main_squad_position = ai.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
+
+        for squad in squads:
+            self.control_squad(ai, squad, target, attacking or bool(home_threats), main_squad_position)
+
+    def control_squad(
+        self, ai: AresBot, squad: UnitSquad, target: Point2, advancing: bool, main_position: Point2
+    ) -> None:
+        units = squad.squad_units
+        enemies = enemies_near(ai, units)
+        threats = [e for e in enemies if not e.is_structure or e.can_attack_ground]
+        now = ai.time
+        retreating = sum(self.retreating_until.get(u.tag, 0) > now for u in units) > len(units) / 2
+        committed = sum(self.committed_until.get(u.tag, 0) > now for u in units) > len(units) / 2
+        under_fire = any(now - self.last_damaged.get(u.tag, -99) < UNDER_FIRE_SECONDS for u in units)
+
+        if retreating:
+            for unit in units:
                 retreat(ai, unit)
-        return
+            return
 
-    if advancing and not squad.main_squad and position.distance_to(main_position) > REGROUP_DISTANCE:
-        # Join the main squad before going further
-        for unit in squad.squad_units:
-            move(ai, unit, main_position)
-        return
-
-    for unit in squad.squad_units:
-        if advancing:
-            if enemies:
-                fight(ai, unit, threats, enemies)
+        if threats:
+            near_home = ai.townhalls.closest_distance_to(squad.squad_position) < DEFEND_RADIUS
+            result = fight_result(ai, units, threats)
+            # Start a fight only if we'd win it; once in, only back out if it's clearly lost
+            if near_home or result > (ABANDON_AT if committed else RETREAT_AT):
+                for unit in units:
+                    if not committed:
+                        self.committed_until[unit.tag] = now + COMMIT_SECONDS
+                    fight(ai, unit, threats, enemies)
             else:
-                ai.register_behavior(AMove(unit=unit, target=target))
-        elif unit.distance_to(target) > 5:
-            move(ai, unit, target)
+                for unit in units:
+                    self.retreating_until[unit.tag] = now + RETREAT_SECONDS
+                    retreat(ai, unit)
+            return
+
+        if under_fire and not advancing:
+            # Shot by something we can't see, and not attacking: get out of there
+            for unit in units:
+                self.retreating_until[unit.tag] = now + RETREAT_SECONDS
+                retreat(ai, unit)
+            return
+
+        if (
+            advancing
+            and not under_fire
+            and not squad.main_squad
+            and squad.squad_position.distance_to(main_position) > REGROUP_DISTANCE
+        ):
+            # Join the main squad before going further (but never stop while being shot)
+            for unit in units:
+                move(ai, unit, main_position)
+            return
+
+        for unit in units:
+            if advancing:
+                if enemies:
+                    fight(ai, unit, threats, enemies)
+                else:
+                    # Includes pushing forward when shot from out of sight, to reveal the shooter
+                    ai.register_behavior(AMove(unit=unit, target=target))
+            elif unit.distance_to(target) > 5:
+                move(ai, unit, target)
 
 
-def can_win(ai: AresBot, position: Point2, threats: list[Unit]) -> bool:
+def enemies_near(ai: AresBot, units: list[Unit]) -> list[Unit]:
+    """Enemy ground units/structures within ENGAGE_RANGE of any unit in the squad."""
+    found: dict[int, Unit] = {}
+    for group in ai.mediator.get_units_in_range(
+        start_points=[u.position for u in units], distances=ENGAGE_RANGE, query_tree=UnitTreeQueryType.EnemyGround
+    ):
+        for e in group:
+            if e.type_id not in IGNORED_THREATS:
+                found[e.tag] = e
+    return list(found.values())
+
+
+def fight_result(ai: AresBot, units: list[Unit], threats: list[Unit]) -> EngagementResult:
+    center = Point2((sum(u.position.x for u in units) / len(units), sum(u.position.y for u in units) / len(units)))
     own = [
         u
         for u in ai.mediator.get_units_in_range(
-            start_points=[position], distances=ENGAGE_RANGE + 4, query_tree=UnitTreeQueryType.AllOwn
+            start_points=[center], distances=ENGAGE_RANGE + 4, query_tree=UnitTreeQueryType.AllOwn
         )[0]
         if u.type_id in ARMY_TYPES or u.type_id == UnitTypeId.QUEEN
     ]
-    result = ai.mediator.can_win_fight(own_units=own, enemy_units=threats, workers_do_no_damage=True)
-    return result > RETREAT_AT
+    return ai.mediator.can_win_fight(own_units=own, enemy_units=threats, workers_do_no_damage=True)
 
 
 def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> None:
-    """Hit the weakest threat in range, then anything in range, else close in on the nearest
-    threat. Spreads zerglings over targets instead of piling onto one."""
+    """Target priority: anything in range that fights back > workers in range > key structures
+    in range > any structure in range. Otherwise close in, diving siege tanks and the like first.
+    Picking the weakest target in range spreads zerglings out instead of piling onto one."""
+    fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
+    workers = [e for e in threats if e.type_id in WORKER_TYPES]
+    structures = [e for e in enemies if e.is_structure]
+    key_structures = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
+
     maneuver = CombatManeuver()
-    maneuver.add(ShootTargetInRange(unit=unit, targets=threats))
-    maneuver.add(ShootTargetInRange(unit=unit, targets=enemies))
-    goal = min(threats or enemies, key=lambda e: e.distance_to(unit))
+    for targets in (fighters, workers, key_structures, structures):
+        if targets:
+            maneuver.add(ShootTargetInRange(unit=unit, targets=targets))
+
+    dive = [e for e in fighters if e.type_id in DIVE_FIRST]
+    goal_pool = dive or fighters or workers or key_structures or structures
+    goal = min(goal_pool, key=lambda e: e.distance_to(unit))
     maneuver.add(AMove(unit=unit, target=goal.position))
     ai.register_behavior(maneuver)
 
@@ -122,12 +197,24 @@ def rally_point(ai: AresBot) -> Point2:
 
 
 def attack_target(ai: AresBot) -> Point2:
-    """Nearest known enemy structure; if none are known, sweep expansions to find the rest."""
+    """Where to attack: the least defended known enemy base, preferring ones far from their main
+    (expansions are expensive and easier to hit, and hitting a far one pulls their army away).
+    Falls back to any known structure, then sweeps expansions to find hidden buildings."""
+    enemy_main = ai.enemy_start_locations[0]
+    bases = [s for s in ai.enemy_structures if s.type_id in TOWNHALL_TYPES]
+    if bases:
+        army = ai.mediator.get_cached_enemy_army
+
+        def defense(base: Unit) -> tuple[float, float]:
+            nearby_supply = sum(ai.calculate_supply_cost(u.type_id) for u in army if u.distance_to(base) < 15)
+            static = sum(1 for s in ai.enemy_structures if s.can_attack_ground and s.distance_to(base) < 10)
+            return nearby_supply + 4 * static, -base.distance_to(enemy_main)
+
+        return min(bases, key=defense).position
     if ai.enemy_structures:
         return ai.enemy_structures.closest_to(rally_point(ai)).position
-    enemy_start = ai.enemy_start_locations[0]
-    if not ai.is_visible(enemy_start):
-        return enemy_start
+    if not ai.is_visible(enemy_main):
+        return enemy_main
     # Visit expansions in turn, farthest from us first, changing every 20 seconds
     expansions = sorted(ai.expansion_locations_list, key=lambda p: -p.distance_to(ai.start_location))
     return expansions[int(ai.time // 20) % len(expansions)]
