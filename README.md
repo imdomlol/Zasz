@@ -56,6 +56,13 @@ are comparable either way.
 
 Every game is appended to `benchmarks/results.csv` with the git commit, so you can compare versions.
 
+**Step time** is measured on every game the way the AI Arena ladder measures it (the bot's own
+time per step, not time waiting on SC2) and checked against the ladder's limits: a step over 30 s
+loses the game by timeout, and the average per game loop should stay under the 40 ms the ladder
+reports against. The summary shows the worst game against each limit; a game over a limit keeps
+its replay and the run exits with 1. Parallel games slow each other down, so check a game that's
+over the limit with `--jobs 1`.
+
 If the bot crashes in a game, that game is recorded as `Crash` (with the error) and the run carries on.
 Replays are saved to `replays/benchmarks/<run>/`. By default (`--replays notable`) only losses, ties,
 crashes and unusually slow wins (over 1.5x the usual win time at that difficulty) are kept. Use

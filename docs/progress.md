@@ -29,6 +29,7 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 | Benchmark vs Hard (`59432bf`, reachability checks) | 6/6, no crashes, wins in 7.5-10.4 min game time |
 | Expansion blockage classifier (debug-spawned walls) | rocks / hostile / walled all identified correctly, blockers listed |
 | Scenario suite (`scripts/run_scenarios.py`, 8 scenarios) | 24/24 over `--repeat 3`. Each deliberate break was caught: skipping the reachability check, empty `DIVE_FIRST`, `FIGHT_AT = 0`, no spores |
+| Step time vs AI Arena limits (`67daf7a`, Hard, `--jobs 1`, 12-min game) | 5.4 ms per game loop (13% of 40 ms), slowest step 85 ms (limit 30 s), startup 0.3 s |
 | VeryHard Terran games on this branch | 3 wins (`26ce39f` PersephoneAIE_v4, `bed03c7` LeyLinesAIE_v3, `75aba21` MagannathaAIE_v2). Several looked like the AI surrendering (few structures killed) |
 | Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
 
@@ -57,6 +58,15 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
   Cause unknown; benchmark crashes now keep a `.log` and replays, so the next one can be traced.
 
 ## Gotchas found along the way
+
+- AI Arena's time rules aren't on its wiki; they're in its match controller
+  (`aiarena/sc2-ai-match-controller`, `sc2_controller/src/game/game_config.rs` and
+  `websocket/player.rs`): 30 s to answer any request (enforced, a timeout is a loss), games capped
+  at 80,640 loops (60 min), and `max_frame_time: 40` ms configured but not enforced (the average is
+  reported with each result). Re-check there if the limits change.
+- python-sc2's own step timer (`_total_time_in_on_step`) starts after `_prepare_step`, so it misses
+  observation parsing and per-step queries the ladder does count. The benchmark measures the full
+  bot time instead (`BenchmarkZasz` in `scripts/benchmark.py`).
 
 - `mediator.find_raw_path` returns `None` when the target is unreachable; handle it.
 
