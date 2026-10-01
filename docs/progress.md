@@ -28,6 +28,7 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 | Benchmark vs Hard (`9bcfdcb`, `--jobs 6` on Linux) | 6/6, no crashes, wins in 7.1-9.4 min game time, ~4 min real time total. Hard is now the benchmark default |
 | Benchmark vs Hard (`59432bf`, reachability checks) | 6/6, no crashes, wins in 7.5-10.4 min game time |
 | Expansion blockage classifier (debug-spawned walls) | rocks / hostile / walled all identified correctly, blockers listed |
+| Scenario suite (`scripts/run_scenarios.py`, 8 scenarios) | 24/24 over `--repeat 3`. Each deliberate break was caught: skipping the reachability check, empty `DIVE_FIRST`, `FIGHT_AT = 0`, no spores |
 | VeryHard Terran games on this branch | 3 wins (`26ce39f` PersephoneAIE_v4, `bed03c7` LeyLinesAIE_v3, `75aba21` MagannathaAIE_v2). Several looked like the AI surrendering (few structures killed) |
 | Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
 

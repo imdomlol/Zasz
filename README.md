@@ -74,6 +74,23 @@ game log.
 The default opponent used to be Medium. It's now Hard, because Medium was 6/6 every time and no longer
 caught regressions.
 
+## Scenarios
+
+Staged situations that check one behavior each in a few seconds of game time (the bot is
+debug-spawned into the situation against a passive VeryEasy AI). Faster and less noisy than a
+benchmark, so run them after any change to the bot:
+
+```sh
+uv run python scripts/run_scenarios.py                  # all of them (~25 s), exits 1 on a failure
+uv run python scripts/run_scenarios.py tank_dive -v     # one scenario, with its game log
+uv run python scripts/run_scenarios.py --repeat 3       # each 3 times (start locations are random)
+uv run python scripts/run_scenarios.py --list
+```
+
+Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`); see
+`scenarios/__init__.py` for how to write one and the debug quirks to watch for. Replays of failed
+scenarios are kept in `replays/scenarios/`.
+
 ## Layout
 
 ```
@@ -95,8 +112,10 @@ bot/
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
+scenarios/             # staged scenarios (expansions, defense, army), run by scripts/run_scenarios.py
 scripts/
 ├── benchmark.py       # win-rate benchmark
+├── run_scenarios.py   # scenario runner
 └── create_ladder_zip.py
 ares-sc2/              # git submodule, pinned to a known-good commit
 ```
