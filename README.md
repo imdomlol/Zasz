@@ -66,13 +66,16 @@ bot/
 ├── zasz.py            # ZaszBot: wires decisions and actions together each step
 ├── settings.py        # all tunables (POOL_AT_DRONES, EXPAND_WHEN_DRONES_WITHIN, ...)
 ├── decisions/         # WHAT to do: build order, when to expand/attack
-│   ├── __init__.py    #   `Decisions` interface
+│   ├── __init__.py    #   `Decisions` interface (macro plan, upgrade wish list, attack?)
 │   └── scripted.py    #   hand-written rules (a learned model would sit next to this)
 ├── actions/           # HOW to do it well: stays scripted
 │   ├── drones.py      #   BuildDrones (counts eggs), drone_target
-│   ├── building.py    #   just-in-time builder drones
-│   └── queens.py      #   one queen per hatchery, injects
-└── army.py            # attack / defend / all-in
+│   ├── building.py    #   just-in-time builder drones, next expansion spot
+│   ├── upgrades.py    #   gas, tech buildings and research for the upgrade wish list
+│   ├── queens.py      #   inject + creep queens; queens defend (our only anti-air unit)
+│   ├── defense.py     #   spore crawlers once enemy air shows up
+│   └── scouting.py    #   overlords posted at enemy expansions, kept out of anti-air
+└── army.py            # squads: commit/retreat memory, target priority, where to attack
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
