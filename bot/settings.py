@@ -19,6 +19,9 @@ ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
 SQUAD_RADIUS = 9  # zerglings this close together form one squad
 REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
 FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; retreat on any predicted loss
+# Leave a sieged tank out of the combat sim once this many zerglings are inside its minimum range
+# (the sim ignores minimum range). Judgement call: revert (set very high) if it causes big mistakes.
+TANK_NEUTRALIZED_BY = 3
 UNDER_FIRE_SECONDS = 1.5  # a unit damaged this recently counts as under fire
 
 # --- Queens and defense ---

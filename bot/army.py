@@ -33,10 +33,12 @@ from bot.settings import (
     FIGHT_AT,
     REGROUP_DISTANCE,
     SQUAD_RADIUS,
+    TANK_NEUTRALIZED_BY,
     UNDER_FIRE_SECONDS,
 )
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
+SIEGE_MIN_RANGE = 2.0  # sieged tanks can't fire at targets this close
 IGNORED_THREATS = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTypeId.OVERSEER}
 # Long-range or splash units zerglings should dive first rather than trade with from range
 DIVE_FIRST = {UnitTypeId.SIEGETANKSIEGED, UnitTypeId.SIEGETANK, UnitTypeId.LURKERMPBURROWED, UnitTypeId.COLOSSUS}
@@ -161,7 +163,31 @@ def fight_result(ai: AresBot, units: list[Unit], threats: list[Unit]) -> Engagem
         )[0]
         if u.type_id in ARMY_TYPES or u.type_id == UnitTypeId.QUEEN
     ]
+    threats = [t for t in threats if not tank_neutralized(t, own)]
+    if not threats:
+        return EngagementResult.VICTORY_EMPHATIC
     return ai.mediator.can_win_fight(own_units=own, enemy_units=threats, workers_do_no_damage=True)
+
+
+def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
+    """A sieged tank with several of our zerglings inside its minimum range.
+
+    ares' combat sim ignores minimum range, so it rates such a tank at full damage even though it
+    can't shoot those zerglings and will die before it can unsiege. We leave it out of the sim
+    (it's still first in the dive priority, so it keeps getting attacked).
+
+    NOTE: a judgement call that might need reverting if it causes big mistakes. The tank can
+    still shoot zerglings that aren't on top of it, and leaving it out also drops its health
+    from the sim, so predictions get a little optimistic. Requiring TANK_NEUTRALIZED_BY
+    zerglings in its minimum range limits this to tanks we're clearly already on top of.
+    """
+    if enemy.type_id != UnitTypeId.SIEGETANKSIEGED:
+        return False
+    reach = SIEGE_MIN_RANGE + enemy.radius
+    inside = sum(
+        1 for u in own if u.type_id in ARMY_TYPES and u.position.distance_to(enemy.position) < reach + u.radius
+    )
+    return inside >= TANK_NEUTRALIZED_BY
 
 
 def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> None:
