@@ -26,6 +26,8 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 | Benchmark vs Medium (`467ba00`, before this branch) | 6/6 |
 | Benchmark vs Medium (`75aba21`, this branch, `--jobs 3` on Windows) | 6/6, no crashes, wins in 6.6-8.8 min game time, ~8 min real time total |
 | Benchmark vs Hard (`9bcfdcb`, `--jobs 6` on Linux) | 6/6, no crashes, wins in 7.1-9.4 min game time, ~4 min real time total. Hard is now the benchmark default |
+| Benchmark vs Hard (`59432bf`, reachability checks) | 6/6, no crashes, wins in 7.5-10.4 min game time |
+| Expansion blockage classifier (debug-spawned walls) | rocks / hostile / walled all identified correctly, blockers listed |
 | VeryHard Terran games on this branch | 3 wins (`26ce39f` PersephoneAIE_v4, `bed03c7` LeyLinesAIE_v3, `75aba21` MagannathaAIE_v2). Several looked like the AI surrendering (few structures killed) |
 | Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
 
@@ -40,6 +42,9 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
   surviving under pressure.
 - **Built-in AI surrenders** when it's clearly losing, so a "Victory" can come with few kills. Check
   killed structure value / game length before reading much into a single win.
+- **Rock breaking** (next step for blocked expansions): `ExpansionAccess.blocked` already lists the
+  rocks per base. Torches' edge bases need a gate broken; also useful for backdoor rocks on LeyLines
+  and Magannatha.
 - **Ideas not done yet:** split attacks (pressure a far base while hitting the main), spine crawlers,
   more upgrades (+3 needs hive), imitation-learning model in `bot/decisions/`.
 

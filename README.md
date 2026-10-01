@@ -69,6 +69,7 @@ game log.
 | `75aba21` | Medium | 6/6 | overlord scouting, tank fixes, fighters-before-buildings; wins in 6.6-8.8 min, no crashes |
 | `931c39e` | Hard | 6/6 | from a sweep of every difficulty: 6/6 up to Hard, then Harder 3/6 (3 ties), VeryHard 4/6 |
 | `9bcfdcb` | Hard | 6/6 | tanks-and-scouting + no-path crash fix; wins in 7.1-9.4 min, no crashes |
+| `59432bf` | Hard | 6/6 | skip unreachable expansions; wins in 7.5-10.4 min, no crashes |
 
 The default opponent used to be Medium. It's now Hard, because Medium was 6/6 every time and no longer
 caught regressions.
@@ -85,6 +86,7 @@ bot/
 ├── actions/           # HOW to do it well: stays scripted
 │   ├── drones.py      #   BuildDrones (counts eggs), drone_target
 │   ├── building.py    #   just-in-time builder drones, next expansion spot
+│   ├── pathing.py     #   why an expansion can't be reached (rocks, enemy wall, ...)
 │   ├── upgrades.py    #   gas, tech buildings and research for the upgrade wish list
 │   ├── queens.py      #   inject + creep queens; queens defend (our only anti-air unit)
 │   ├── defense.py     #   spore crawlers once enemy air shows up
