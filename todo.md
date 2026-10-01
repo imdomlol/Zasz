@@ -1,148 +1,46 @@
-List:
+# Zasz todo
 
-- Figure out how to watch replays on linux
-- Allow more units to be utilized and create army composition logic
-- Ensure upgrade logic is tied to army composition
-- Ensure Zasz is always primed to implement the imitation learning when ready and we do not implement useless functions that need to be editted later to allow for this
-- Implement logic to determine optimal locations for spore / spine crawlers (near minerals, etc)
-- Implement logic to use a drone to build something when it is being attacked and may die, with the intention of salvaging it later to save the drone. This must take into account building cost to make sure it financially makes sense to build the item when compared to just making a drone. Furthermore, in the case that the drone would still not be safe when the building would complete, we should ensure that we choose a building like spine or spore crawlers that would help the situation after it was done. For example, reapers in the mineral line might lead to a drone saving itself by making a spore crawler, but if the reapers are still in the base when the spore crawler finishes, we lose a drone, get no refund on the building, and the building doesn't help our situation. Ideally the drone builds a spine crawler (unless its too expensive to be worth, im unsure).
-- Implement logic to determine total ally losses vs enemy losses, which helps us understand wasted resources better. When we train a model, this will be useful.
-- Implement logic to determine the number of resources mined per drone, like the rate we are gathering, so the model will be able to better understand and plan around incoming minerals (unless we already do this somehow?)
-- Implement logic to understand enemy army value vs ally army value to give model more information when deciding to attack or not (we will also adjust the ares packages that do this to advice the model similarly)
-- Implement vocalization of decisions in chat as well as reasoning (eg deciding to attack because army value is higher and success is high, or expanding because drones = 16, or skipping expansion because rocks are blocking, or skipping expansion because hostile controlled, or focusing attack onto enemy expansion because enemy army value is low nearby area, or deciding to attack with mutalisk for xyz as well as the outcome of that decision like lost 100 minerals but cost enemy 145 minerals and 55 potential minerals)
-- Implement a mutalisk worker-harass decision that takes into account the value of an individual worker (including training cost AND potential minerals lost while retraining workers), the value of a mutalisk, expected losses (from base defence like spore crawlers or a reacting army), the time it would take known army locations to move to respond, etc. Essentially harass the enemy economy when it would cause more damage to the enemy than ally.
-- Create a test that measures how efficiently Zasz uses his forces to destroy buildings / units, so we can make changes that improve unit usage. E.g. zerglings on a ramp where 5/100 can attack: many take unnecessary damage while the rest are stuck trying to get up the ramp (maybe attack, then stutter step during the attack cooldown so more zerglings flow in). Also zerglings spreading out breadth-first over a base instead of diving deeper, blocking the units behind them. Measure it with the army's estimated potential DPS vs actual damage done (enemy health): potential 50 DPS but only 1/5 zerglings attacking = 10 DPS, flagged as an inefficiency. Only flag it when the target doesn't change and isn't running away (no penalty for chasing a scouting worker or rerouting zerglings to other buildings).
-- Estimate the enemy's current supply, so when attacking an enemy base we can decide whether supply buildings are better targets than production. If the enemy uses 50 supply and we see 51 supply worth of supply buildings, killing one of them cuts off all future production and effectively disables many more buildings quickly.
+Each section is one **potential branch**: one idea, scoped so it can be reviewed and merged on its
+own. Branch off `main` with the name given; nothing is committed to `main` directly. Merge a branch
+into `main` when it's done (benchmark + `scripts/run_scenarios.py` passing), then remove its section
+here on that branch.
 
----
-
-## Review (2026-10-01)
+Numbers are fixed IDs (sections refer to each other by them), so finished items leave gaps.
 
 Impact is rated against where Zasz is now: 6/6 up to Hard, about 50% from Harder upward (difficulty
 sweep at `931c39e`), zergling-only. **High** = likely to move win rates at Harder+ or unblock the
 learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nice to have / tooling.
-Suggested order at the end. Numbers are fixed IDs (entries refer to each other by them), so
-finished items leave gaps.
 
-### 1. Watch replays on Linux
-**Revision:** Watching isn't possible with the headless build (no renderer). Options: watch on
-Windows (benchmarks now keep notable replays in `replays/benchmarks/<run>/`), or run the Windows
-client through Wine/Proton. More useful day to day: a `scripts/replay_summary.py` (sc2reader) that
-prints build timings, army supply over time and engagements, so most replays never need watching.
-**Impact:** Low directly, Medium as an enabler (faster diagnosis of losses).
-**Blockers:** Wine needs a Battle.net account and the 4.10 version download, which can be finicky.
-sc2reader gives events, not full game state, so it can't answer everything.
+## Branches, in suggested order
 
-### 2. More unit types + army composition logic
-**Revision:** Move from zergling-only to a composition that answers what we've scouted (e.g.
-roach/ravager vs ground, hydra/queen vs air, banelings vs light units). ares' `SpawnController`
-already takes a composition dict, so the decision can be a function from scouted info to
-`ARMY_COMPOSITION`. The real work is around it: tech path (lair, roach warren, hydra den), gas
-timings, and army control that copes with ranged units (squads assume melee today).
-**Impact:** **High.** It's the clearest gap: zerglings alone stall against Harder+ (ties at the
-20-minute limit, losses to siege tanks and air), and queens + spores are the only anti-air.
-**Blockers:** `bot/army.py` targeting/retreat logic is tuned for melee and needs ranged micro;
-`upgrades.py` currently only takes gas for upgrades; tech timing has to fit the expansion logic.
-Big enough to split into stages (mutalisks first since zergling/mutalisk is a strong combo).
+| # | Branch | Idea | Impact | Depends on |
+|---|---|---|---|---|
+| 13 | `damage-efficiency` | Damage efficiency: how much of the army's damage actually lands | High | - |
+| 4 | `learning-interface` | Keep Zasz ready for imitation learning | High | - |
+| 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | `learning-interface` |
+| 9 | `mining-rate` | Mining rate per drone | Low | `learning-interface` |
+| 10 | `army-value` | Army value: ours vs the enemy's | Medium | `learning-interface` |
+| 14 | `supply-targeting` | Target supply buildings when the enemy is near its supply cap | Medium | `army-value`, `damage-efficiency` |
+| 2 | `army-variety` | More unit types + army composition logic | High | - (`damage-efficiency` helps tune ranged/air control) |
+| 3 | `army-upgrading` | Upgrades tied to army composition | Medium | `army-variety` |
+| 11 | `decision-explanations` | Explain decisions in chat | Medium | `trade-tracking` (for outcomes) |
+| 12 | `mutalisk-harass` | Mutalisk worker harass, decided by expected value | Medium-High | `army-variety` (spire tech), `army-value` |
+| 1 | `replay-summary` | Watch replays on Linux | Low | - |
+| 6 | `static-defense-placement` | Better spore / spine placement | Low-Medium | - |
+| 7 | `drone-escape-building` | Drone saves itself by starting a building | Low-Medium | - |
 
-### 3. Upgrades tied to army composition
-**Revision:** Derive the upgrade list from the composition (melee vs missile vs flyer, plus unit
-upgrades like roach speed or hydra range). `Decisions.upgrades()` already returns a list that
-`actions.upgrades` turns into gas, tech and research, so this is mostly a mapping table once #2
-exists.
-**Impact:** Medium (it multiplies #2's impact; little on its own while we're zergling-only).
-**Blockers:** Depends on #2. Some upgrades need hive tech (+3 needs hive), which nothing builds yet.
+Why this order: `damage-efficiency` builds directly on the scenario suite and the bot is all melee
+today, so it's likely the biggest win-rate lever before new units. `learning-interface` comes early
+so `trade-tracking`, `mining-rate` and `army-value` land as features in its `observe()` rather than
+as scattered helpers. `static-defense-placement` and `drone-escape-building` wait until harass
+shows up in losses (check kept replays, summarised by `replay-summary`).
 
-### 4. Keep Zasz ready for imitation learning
-**Revision:** Make it a standing rule plus a concrete interface: (a) every *what* decision goes
-through `Decisions` (the macro plan, attack, upgrades; composition from #2 should be added);
-(b) one `observe(ai) -> features` function shared by the scripted rules, the model and logging;
-(c) actions stay scripted. Items #8-#10 then become features in that one function rather than
-scattered helpers.
-**Impact:** **High** for the long-term goal; zero win rate on its own.
-**Blockers:** **Training data is the big one.** The Linux headless build is 4.10 and can only
-replay 4.10 replays, so current human ladder replays can't be turned into observations here
-(Windows can, using its version downloads). AI Arena replays (4.10) and our own games are usable.
-A learned `macro_plan` also needs a fixed action space (a choice from a fixed set of options),
-since `MacroPlan` is open-ended today.
+## `damage-efficiency` (#13): Damage efficiency: how much of the army's damage actually lands
 
-### 6. Better spore / spine placement
-**Revision:** Spores already go between the hatchery and the minerals (`defense.py`). Improve: put
-each spore where it covers the most mineral patches and the queen/injection area; place spines on
-creep facing the likeliest attack path (ares can give the path from the enemy base), and only
-build them when scouting shows pressure.
-**Impact:** Low-Medium (matters against air/drops and early aggression; games vs the built-in AI
-rarely last long enough to need spores today).
-**Blockers:** Spines and spores need creep, so placement depends on creep spread. Spine
-crawlers aren't built at all yet, so the "when" logic is new.
+**Idea:** Create a test that measures how efficiently Zasz uses his forces to destroy buildings / units, so we can make changes that improve unit usage. E.g. zerglings on a ramp where 5/100 can attack: many take unnecessary damage while the rest are stuck trying to get up the ramp (maybe attack, then stutter step during the attack cooldown so more zerglings flow in). Also zerglings spreading out breadth-first over a base instead of diving deeper, blocking the units behind them. Measure it with the army's estimated potential DPS vs actual damage done (enemy health): potential 50 DPS but only 1/5 zerglings attacking = 10 DPS, flagged as an inefficiency. Only flag it when the target doesn't change and isn't running away (no penalty for chasing a scouting worker or rerouting zerglings to other buildings).
 
-### 7. Drone saves itself by starting a building
-**Revision:** When a drone is about to die, morph it into a building and cancel later. Cancelling a
-Zerg building in progress returns the drone and 75% of the cost, so the price of a save is 25% of
-the building (~19-25 minerals for a spore/spine) versus 50 minerals plus lost mining for a new
-drone. Pick the structure by what helps if the threat stays: a spine vs ground (reapers, lings), a
-spore vs air; an extractor on a free geyser is the cheapest option when one is in reach. If the
-building would die anyway, don't do it.
-**Impact:** Low-Medium. Real but small: usually 1-3 drones per harass, and only in games with
-harass.
-**Blockers:** **A morphing building starts with low HP and grows as it builds**, so a building
-started under fire often dies too: we lose the drone *and* the full cost. Needs a reliable "will
-this building survive" estimate (incoming DPS vs HP over time). Spine/spore also need creep and a
-Spawning Pool; the extractor needs a free geyser close by. The timing of the cancel needs
-tracking.
+**Depends on:** -
 
-### 8. Ally vs enemy losses (resource trades)
-**Revision:** Mostly already available: `state.score` has killed and lost values by category (the
-benchmark already records `killed_value` and `lost_value`). What's missing is *per-engagement*
-trades: snapshot the values when a squad engages and when it disengages. That gives "this fight
-cost X and killed Y", which #11 and the model can use.
-**Impact:** Medium (a good model feature and a good benchmark metric; no win rate on its own).
-**Blockers:** Defining where an engagement starts and ends. Enemy losses in the fog aren't
-reported.
-
-### 9. Mining rate per drone
-**Revision:** Partly there: `state.score.collection_rate_minerals/vespene` is the game's own income
-rate (`affordable_on_arrival` already uses it). Per drone = rate / mining drones. Add the
-"expected" rate from patch saturation (ares' `Mining` knows assignments), so the gap shows
-oversaturation, long-distance mining or harass.
-**Impact:** Low (cheap model feature; small decision value for scripted rules).
-**Blockers:** None significant. The game's collection rate lags (it's averaged), so it reacts slowly.
-
-### 10. Army value: ours vs the enemy's
-**Revision:** ares already does this in the combat simulator (`FIGHT_AT` uses it per fight). A
-whole-map value is easy to add (cost of our army vs cost of known enemy units, from ares' unit
-memory) and is a natural `observe()` feature for the attack decision.
-**Impact:** Medium. It improves the attack/defend decision, especially once there's more than one
-unit type (#2).
-**Blockers:** **Fog.** The enemy value is only what we've seen (plus memory), so it undercounts
-whatever we haven't scouted; it needs a "last seen" age or a scouting confidence. Changing ares'
-own advice means forking or wrapping ares code (it's a pinned submodule).
-
-### 11. Explain decisions in chat
-**Revision:** A small `explain(event, reason, outcome)` logger: always write to the log file
-(benchmarks keep logs for crashes), and send a short in-game chat line for key decisions only
-(attack, expand / skip expansion with the blockage reason, harass). Chat lines are saved in the
-replay, so this pairs well with #1. Close the loop for decisions that have an outcome by using
-the trade numbers from #8.
-**Impact:** Medium as a debugging tool, especially with replays and when the model starts making
-decisions; none on win rate.
-**Blockers:** Chat spam (rate-limit it; keep it opt-in, like ares' `Debug`/`ChatDebug`). Opponent
-bots can read chat on the ladder. "Outcome" attribution (which losses came from which decision)
-is the hard part, and needs #8's engagement tracking.
-
-### 12. Mutalisk worker harass, decided by expected value
-**Revision:** Harass when expected enemy loss > expected own loss. Enemy loss = workers killed ×
-(50 + mining lost while rebuilding) + supply/production lost; own loss = mutas expected to die vs
-known anti-air (spores, turrets, cannons, army) and the time until the enemy army can respond
-(path distance from known army positions). ares' air grid and `KeepUnitSafe` (already used for
-overlords) handle the avoidance part.
-**Impact:** Medium-High against the built-in AI at Harder+, which tends to defend harass poorly;
-it also forces the enemy to spread out. But it's a big tech switch.
-**Blockers:** **Needs a Spire** (lair, then spire, then heavy gas), which is #2/#3 tech work first.
-Muta micro (clumping, magic box vs thor/archon splash) is its own project. The value estimate
-inherits #10's fog problem.
-
-### 13. Damage efficiency: how much of the army's damage actually lands
 **Revision:** A metric plus scenarios to tune against, rather than a pass/fail test at first.
 
 *The metric.* Every step, for each zergling that is **committed** (its target hasn't changed for
@@ -193,7 +91,72 @@ to roaches and other units later (#2), and is a good model feature (#4).
 - **The built-in AI interferes:** it pulls SCVs to repair and moves units; use structures and
   `debug_control_enemy` upkeep as in `tank_dive`.
 
-### 14. Target supply buildings when the enemy is near its supply cap
+## `learning-interface` (#4): Keep Zasz ready for imitation learning
+
+**Idea:** Ensure Zasz is always primed to implement the imitation learning when ready and we do not implement useless functions that need to be editted later to allow for this
+
+**Depends on:** -
+
+**Revision:** Make it a standing rule plus a concrete interface: (a) every *what* decision goes
+through `Decisions` (the macro plan, attack, upgrades; composition from #2 should be added);
+(b) one `observe(ai) -> features` function shared by the scripted rules, the model and logging;
+(c) actions stay scripted. Items #8-#10 then become features in that one function rather than
+scattered helpers.
+**Impact:** **High** for the long-term goal; zero win rate on its own.
+**Blockers:** **Training data is the big one.** The Linux headless build is 4.10 and can only
+replay 4.10 replays, so current human ladder replays can't be turned into observations here
+(Windows can, using its version downloads). AI Arena replays (4.10) and our own games are usable.
+A learned `macro_plan` also needs a fixed action space (a choice from a fixed set of options),
+since `MacroPlan` is open-ended today.
+
+## `trade-tracking` (#8): Ally vs enemy losses (resource trades)
+
+**Idea:** Implement logic to determine total ally losses vs enemy losses, which helps us understand wasted resources better. When we train a model, this will be useful.
+
+**Depends on:** `learning-interface`
+
+**Revision:** Mostly already available: `state.score` has killed and lost values by category (the
+benchmark already records `killed_value` and `lost_value`). What's missing is *per-engagement*
+trades: snapshot the values when a squad engages and when it disengages. That gives "this fight
+cost X and killed Y", which #11 and the model can use.
+**Impact:** Medium (a good model feature and a good benchmark metric; no win rate on its own).
+**Blockers:** Defining where an engagement starts and ends. Enemy losses in the fog aren't
+reported.
+
+## `mining-rate` (#9): Mining rate per drone
+
+**Idea:** Implement logic to determine the number of resources mined per drone, like the rate we are gathering, so the model will be able to better understand and plan around incoming minerals (unless we already do this somehow?)
+
+**Depends on:** `learning-interface`
+
+**Revision:** Partly there: `state.score.collection_rate_minerals/vespene` is the game's own income
+rate (`affordable_on_arrival` already uses it). Per drone = rate / mining drones. Add the
+"expected" rate from patch saturation (ares' `Mining` knows assignments), so the gap shows
+oversaturation, long-distance mining or harass.
+**Impact:** Low (cheap model feature; small decision value for scripted rules).
+**Blockers:** None significant. The game's collection rate lags (it's averaged), so it reacts slowly.
+
+## `army-value` (#10): Army value: ours vs the enemy's
+
+**Idea:** Implement logic to understand enemy army value vs ally army value to give model more information when deciding to attack or not (we will also adjust the ares packages that do this to advice the model similarly)
+
+**Depends on:** `learning-interface`
+
+**Revision:** ares already does this in the combat simulator (`FIGHT_AT` uses it per fight). A
+whole-map value is easy to add (cost of our army vs cost of known enemy units, from ares' unit
+memory) and is a natural `observe()` feature for the attack decision.
+**Impact:** Medium. It improves the attack/defend decision, especially once there's more than one
+unit type (#2).
+**Blockers:** **Fog.** The enemy value is only what we've seen (plus memory), so it undercounts
+whatever we haven't scouted; it needs a "last seen" age or a scouting confidence. Changing ares'
+own advice means forking or wrapping ares code (it's a pinned submodule).
+
+## `supply-targeting` (#14): Target supply buildings when the enemy is near its supply cap
+
+**Idea:** Estimate the enemy's current supply, so when attacking an enemy base we can decide whether supply buildings are better targets than production. If the enemy uses 50 supply and we see 51 supply worth of supply buildings, killing one of them cuts off all future production and effectively disables many more buildings quickly.
+
+**Depends on:** `army-value`, `damage-efficiency`
+
 **Revision:** Estimate the enemy's supply **used** and supply **cap**, and when the margin is
 smaller than what one supply building provides, put that building type ahead of production in the
 target priority. Today the priority is fixed (`PRIORITY_STRUCTURES` in `bot/army.py`: townhalls,
@@ -232,12 +195,117 @@ finish), and the built-in AI rebuilds supply quickly.
 - Fits naturally with #10 (enemy army value: the same "known enemy units" estimate) and #4 (supply
   margin is a good model feature).
 
-### Suggested order
-1. **#13 damage efficiency**: builds directly on the scenario suite (`scripts/run_scenarios.py`),
-   and the bot is all melee today, so it's likely the biggest win-rate lever before new units.
-2. **#4 interface rule + `observe()`**, with #8, #9 and #10 as its first features (all small);
-   #14 builds on #10's enemy estimate and #13's target capping.
-3. **#2 composition, roaches first**, then **#3**.
-4. **#11 explain**, as the decision logic grows.
-5. **#12 mutalisk harass**, once lair tech exists.
-6. **#6** and **#7** when harass shows up in losses (check kept replays/summaries from #1).
+## `army-variety` (#2): More unit types + army composition logic
+
+**Idea:** Allow more units to be utilized and create army composition logic
+
+**Depends on:** - (`damage-efficiency` helps tune ranged/air control)
+
+**Revision:** Move from zergling-only to a composition that answers what we've scouted (e.g.
+roach/ravager vs ground, hydra/queen vs air, banelings vs light units). ares' `SpawnController`
+already takes a composition dict, so the decision can be a function from scouted info to
+`ARMY_COMPOSITION`. The real work is around it: tech path (lair, roach warren, hydra den), gas
+timings, and army control that copes with ranged units (squads assume melee today).
+**Impact:** **High.** It's the clearest gap: zerglings alone stall against Harder+ (ties at the
+20-minute limit, losses to siege tanks and air), and queens + spores are the only anti-air.
+**Blockers:** `bot/army.py` targeting/retreat logic is tuned for melee and needs ranged micro;
+`upgrades.py` currently only takes gas for upgrades; tech timing has to fit the expansion logic.
+Big enough to split into stages (mutalisks first since zergling/mutalisk is a strong combo).
+Scope: this branch builds the tech and adds the units to the army; the harass *decision* for
+mutalisks is `mutalisk-harass` (#12), and their upgrades are `army-upgrading` (#3).
+
+## `army-upgrading` (#3): Upgrades tied to army composition
+
+**Idea:** Ensure upgrade logic is tied to army composition
+
+**Depends on:** `army-variety`
+
+**Revision:** Derive the upgrade list from the composition (melee vs missile vs flyer, plus unit
+upgrades like roach speed or hydra range). `Decisions.upgrades()` already returns a list that
+`actions.upgrades` turns into gas, tech and research, so this is mostly a mapping table once #2
+exists.
+**Impact:** Medium (it multiplies #2's impact; little on its own while we're zergling-only).
+**Blockers:** Depends on #2. Some upgrades need hive tech (+3 needs hive), which nothing builds yet.
+
+## `decision-explanations` (#11): Explain decisions in chat
+
+**Idea:** Implement vocalization of decisions in chat as well as reasoning (eg deciding to attack because army value is higher and success is high, or expanding because drones = 16, or skipping expansion because rocks are blocking, or skipping expansion because hostile controlled, or focusing attack onto enemy expansion because enemy army value is low nearby area, or deciding to attack with mutalisk for xyz as well as the outcome of that decision like lost 100 minerals but cost enemy 145 minerals and 55 potential minerals)
+
+**Depends on:** `trade-tracking` (for outcomes)
+
+**Revision:** A small `explain(event, reason, outcome)` logger: always write to the log file
+(benchmarks keep logs for crashes), and send a short in-game chat line for key decisions only
+(attack, expand / skip expansion with the blockage reason, harass). Chat lines are saved in the
+replay, so this pairs well with #1. Close the loop for decisions that have an outcome by using
+the trade numbers from #8.
+**Impact:** Medium as a debugging tool, especially with replays and when the model starts making
+decisions; none on win rate.
+**Blockers:** Chat spam (rate-limit it; keep it opt-in, like ares' `Debug`/`ChatDebug`). Opponent
+bots can read chat on the ladder. "Outcome" attribution (which losses came from which decision)
+is the hard part, and needs #8's engagement tracking.
+
+## `mutalisk-harass` (#12): Mutalisk worker harass, decided by expected value
+
+**Idea:** Implement a mutalisk worker-harass decision that takes into account the value of an individual worker (including training cost AND potential minerals lost while retraining workers), the value of a mutalisk, expected losses (from base defence like spore crawlers or a reacting army), the time it would take known army locations to move to respond, etc. Essentially harass the enemy economy when it would cause more damage to the enemy than ally.
+
+**Depends on:** `army-variety` (spire tech), `army-value`
+
+**Revision:** Harass when expected enemy loss > expected own loss. Enemy loss = workers killed ×
+(50 + mining lost while rebuilding) + supply/production lost; own loss = mutas expected to die vs
+known anti-air (spores, turrets, cannons, army) and the time until the enemy army can respond
+(path distance from known army positions). ares' air grid and `KeepUnitSafe` (already used for
+overlords) handle the avoidance part.
+**Impact:** Medium-High against the built-in AI at Harder+, which tends to defend harass poorly;
+it also forces the enemy to spread out. But it's a big tech switch.
+**Blockers:** **Needs a Spire** (lair, then spire, then heavy gas), which is #2/#3 tech work first.
+Muta micro (clumping, magic box vs thor/archon splash) is its own project. The value estimate
+inherits #10's fog problem.
+
+## `replay-summary` (#1): Watch replays on Linux
+
+**Idea:** Figure out how to watch replays on linux
+
+**Depends on:** -
+
+**Revision:** Watching isn't possible with the headless build (no renderer). Options: watch on
+Windows (benchmarks now keep notable replays in `replays/benchmarks/<run>/`), or run the Windows
+client through Wine/Proton. More useful day to day: a `scripts/replay_summary.py` (sc2reader) that
+prints build timings, army supply over time and engagements, so most replays never need watching.
+**Impact:** Low directly, Medium as an enabler (faster diagnosis of losses).
+**Blockers:** Wine needs a Battle.net account and the 4.10 version download, which can be finicky.
+sc2reader gives events, not full game state, so it can't answer everything.
+
+## `static-defense-placement` (#6): Better spore / spine placement
+
+**Idea:** Implement logic to determine optimal locations for spore / spine crawlers (near minerals, etc)
+
+**Depends on:** -
+
+**Revision:** Spores already go between the hatchery and the minerals (`defense.py`). Improve: put
+each spore where it covers the most mineral patches and the queen/injection area; place spines on
+creep facing the likeliest attack path (ares can give the path from the enemy base), and only
+build them when scouting shows pressure.
+**Impact:** Low-Medium (matters against air/drops and early aggression; games vs the built-in AI
+rarely last long enough to need spores today).
+**Blockers:** Spines and spores need creep, so placement depends on creep spread. Spine
+crawlers aren't built at all yet, so the "when" logic is new.
+
+## `drone-escape-building` (#7): Drone saves itself by starting a building
+
+**Idea:** Implement logic to use a drone to build something when it is being attacked and may die, with the intention of salvaging it later to save the drone. This must take into account building cost to make sure it financially makes sense to build the item when compared to just making a drone. Furthermore, in the case that the drone would still not be safe when the building would complete, we should ensure that we choose a building like spine or spore crawlers that would help the situation after it was done. For example, reapers in the mineral line might lead to a drone saving itself by making a spore crawler, but if the reapers are still in the base when the spore crawler finishes, we lose a drone, get no refund on the building, and the building doesn't help our situation. Ideally the drone builds a spine crawler (unless its too expensive to be worth, im unsure).
+
+**Depends on:** -
+
+**Revision:** When a drone is about to die, morph it into a building and cancel later. Cancelling a
+Zerg building in progress returns the drone and 75% of the cost, so the price of a save is 25% of
+the building (~19-25 minerals for a spore/spine) versus 50 minerals plus lost mining for a new
+drone. Pick the structure by what helps if the threat stays: a spine vs ground (reapers, lings), a
+spore vs air; an extractor on a free geyser is the cheapest option when one is in reach. If the
+building would die anyway, don't do it.
+**Impact:** Low-Medium. Real but small: usually 1-3 drones per harass, and only in games with
+harass.
+**Blockers:** **A morphing building starts with low HP and grows as it builds**, so a building
+started under fire often dies too: we lose the drone *and* the full cost. Needs a reliable "will
+this building survive" estimate (incoming DPS vs HP over time). Spine/spore also need creep and a
+Spawning Pool; the extractor needs a free geyser close by. The timing of the cancel needs
+tracking.
