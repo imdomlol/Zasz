@@ -15,7 +15,11 @@ def affordable_on_arrival(ai: AresBot, structure: UnitTypeId, target: Point2) ->
     path = ai.mediator.find_raw_path(
         start=drone.position, target=target, grid=ai.mediator.get_ground_grid, sensitivity=1
     )
-    distance = sum(a.distance_to(b) for a, b in zip([drone.position, *path], path, strict=False))
+    if path:
+        distance = sum(a.distance_to(b) for a, b in zip([drone.position, *path], path, strict=False))
+    else:
+        # No ground path right now (e.g. the way is walled off); straight-line distance is close enough
+        distance = drone.distance_to(target)
     travel_seconds = distance / drone.real_speed
     income_per_second = ai.state.score.collection_rate_minerals / 60
     return ai.minerals + income_per_second * travel_seconds >= cost
