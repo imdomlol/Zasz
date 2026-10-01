@@ -18,9 +18,8 @@ DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
 SQUAD_RADIUS = 9  # zerglings this close together form one squad
 REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
-RETREAT_AT = EngagementResult.LOSS_CLOSE  # don't start a fight the combat sim rates this or worse
-ABANDON_AT = EngagementResult.LOSS_DECISIVE  # once committed, only back out at this or worse
-COMMIT_SECONDS = 4.0  # a squad that starts a fight sticks with it at least this long
+START_FIGHT_AT = EngagementResult.VICTORY_MARGINAL  # start a fight only if the sim predicts at least this
+KEEP_FIGHTING_AT = EngagementResult.TIE  # once fighting, retreat as soon as the sim predicts worse
 RETREAT_SECONDS = 3.0  # a retreating squad keeps going this long, to get fully out of range
 UNDER_FIRE_SECONDS = 1.5  # a unit damaged this recently counts as under fire
 

@@ -3,9 +3,9 @@
 Zerglings get the ATTACKING role when they hatch (see `ZaszBot.on_unit_created`). ares groups
 them into squads; each squad then:
 
-1. Fights if enemies are close and the combat sim says we win (or we're defending a base).
-   A squad that commits to a fight keeps fighting for a few seconds unless it's clearly
-   hopeless, and dives siege tanks first, instead of hovering at the edge of their range.
+1. Fights if enemies are close and the combat sim predicts a win (or we're defending a base),
+   and keeps fighting only while the sim predicts at least an even fight. Zerglings dive
+   siege tanks first instead of trading with them from the edge of their range.
 2. Retreats if the sim says the fight is lost, and keeps retreating until it's out of range.
 3. Otherwise regroups with the main squad before moving on, so we don't trickle in.
 
@@ -26,14 +26,13 @@ from sc2.position import Point2
 from sc2.unit import Unit
 
 from bot.settings import (
-    ABANDON_AT,
-    COMMIT_SECONDS,
     DEFEND_RADIUS,
     ENGAGE_RANGE,
+    KEEP_FIGHTING_AT,
     REGROUP_DISTANCE,
-    RETREAT_AT,
     RETREAT_SECONDS,
     SQUAD_RADIUS,
+    START_FIGHT_AT,
     UNDER_FIRE_SECONDS,
 )
 
@@ -49,7 +48,7 @@ class Army:
     """Keeps the per-unit memory that stops squads flip-flopping between fight and retreat."""
 
     def __init__(self) -> None:
-        self.committed_until: dict[int, float] = {}  # unit tag -> keep fighting until this time
+        self.fighting: set[int] = set()  # unit tags that were fighting last step
         self.retreating_until: dict[int, float] = {}  # unit tag -> keep retreating until this time
         self.last_damaged: dict[int, float] = {}  # unit tag -> last time it took damage
 
@@ -84,7 +83,7 @@ class Army:
         threats = [e for e in enemies if not e.is_structure or e.can_attack_ground]
         now = ai.time
         retreating = sum(self.retreating_until.get(u.tag, 0) > now for u in units) > len(units) / 2
-        committed = sum(self.committed_until.get(u.tag, 0) > now for u in units) > len(units) / 2
+        in_fight = sum(u.tag in self.fighting for u in units) > len(units) / 2
         under_fire = any(now - self.last_damaged.get(u.tag, -99) < UNDER_FIRE_SECONDS for u in units)
 
         if retreating:
@@ -95,17 +94,22 @@ class Army:
         if threats:
             near_home = ai.townhalls.closest_distance_to(squad.squad_position) < DEFEND_RADIUS
             result = fight_result(ai, units, threats)
-            # Start a fight only if we'd win it; once in, only back out if it's clearly lost
-            if near_home or result > (ABANDON_AT if committed else RETREAT_AT):
+            # Start a fight only if the sim predicts a win; stay only while it predicts at least
+            # an even fight. Never keep feeding units into a predicted loss. The gap between the
+            # two thresholds is what stops squads flip-flopping at the edge of enemy range.
+            if near_home or result >= (KEEP_FIGHTING_AT if in_fight else START_FIGHT_AT):
                 for unit in units:
-                    if not committed:
-                        self.committed_until[unit.tag] = now + COMMIT_SECONDS
+                    self.fighting.add(unit.tag)
                     fight(ai, unit, threats, enemies)
             else:
                 for unit in units:
+                    self.fighting.discard(unit.tag)
                     self.retreating_until[unit.tag] = now + RETREAT_SECONDS
                     retreat(ai, unit)
             return
+
+        for unit in units:
+            self.fighting.discard(unit.tag)
 
         if under_fire and not advancing:
             # Shot by something we can't see, and not attacking: get out of there
@@ -137,7 +141,12 @@ class Army:
 
 
 def enemies_near(ai: AresBot, units: list[Unit]) -> list[Unit]:
-    """Enemy ground units/structures within ENGAGE_RANGE of any unit in the squad."""
+    """Enemy ground units/structures within ENGAGE_RANGE of any unit in the squad.
+
+    Includes ares' memory of units last seen in the fog (e.g. a sieged tank revealed by firing).
+    Memory units aren't in python-sc2's per-frame distance cache, so always measure distances
+    to enemies with positions (`a.position.distance_to(b.position)`), never `unit.distance_to(unit)`.
+    """
     found: dict[int, Unit] = {}
     for group in ai.mediator.get_units_in_range(
         start_points=[u.position for u in units], distances=ENGAGE_RANGE, query_tree=UnitTreeQueryType.EnemyGround
@@ -176,7 +185,7 @@ def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> 
 
     dive = [e for e in fighters if e.type_id in DIVE_FIRST]
     goal_pool = dive or fighters or workers or key_structures or structures
-    goal = min(goal_pool, key=lambda e: e.distance_to(unit))
+    goal = min(goal_pool, key=lambda e: e.position.distance_to(unit.position))
     maneuver.add(AMove(unit=unit, target=goal.position))
     ai.register_behavior(maneuver)
 
@@ -206,9 +215,10 @@ def attack_target(ai: AresBot) -> Point2:
         army = ai.mediator.get_cached_enemy_army
 
         def defense(base: Unit) -> tuple[float, float]:
-            nearby_supply = sum(ai.calculate_supply_cost(u.type_id) for u in army if u.distance_to(base) < 15)
-            static = sum(1 for s in ai.enemy_structures if s.can_attack_ground and s.distance_to(base) < 10)
-            return nearby_supply + 4 * static, -base.distance_to(enemy_main)
+            spot = base.position
+            nearby_supply = sum(ai.calculate_supply_cost(u.type_id) for u in army if u.position.distance_to(spot) < 15)
+            static = sum(1 for s in ai.enemy_structures if s.can_attack_ground and s.position.distance_to(spot) < 10)
+            return nearby_supply + 4 * static, -spot.distance_to(enemy_main)
 
         return min(bases, key=defense).position
     if ai.enemy_structures:

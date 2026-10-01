@@ -77,7 +77,7 @@ def defend(ai: AresBot, queen: Unit) -> bool:
         return False
     maneuver = CombatManeuver()
     maneuver.add(ShootTargetInRange(unit=queen, targets=enemies))
-    maneuver.add(AMove(unit=queen, target=min(enemies, key=lambda e: e.distance_to(queen)).position))
+    maneuver.add(AMove(unit=queen, target=min(enemies, key=lambda e: e.position.distance_to(queen.position)).position))
     ai.register_behavior(maneuver)
     return True
 
