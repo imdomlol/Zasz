@@ -45,8 +45,8 @@ Play several games against the built-in AI and get win rates by race and map. Ru
 a change to catch regressions:
 
 ```sh
-uv run python scripts/benchmark.py                      # 6 games vs Medium, all races, all maps
-uv run python scripts/benchmark.py --games 12 --difficulty Hard --races Terran Protoss
+uv run python scripts/benchmark.py                      # 6 games vs Hard, all races, all maps
+uv run python scripts/benchmark.py --games 12 --difficulty VeryHard --races Terran Protoss
 uv run python scripts/benchmark.py --games 30 --jobs 6  # 6 games at a time (~1 core, ~1.5 GB each)
 ```
 
@@ -61,6 +61,11 @@ Every game is appended to `benchmarks/results.csv` with the git commit, so you c
 | `12faa25` | Medium | 4/6 | baseline: one-point attacks, no upgrades |
 | `467ba00` | Medium | 6/6 | squads + combat sim, per-unit targeting, upgrades, creep; all wins in 6.5-8.6 min |
 | `75aba21` | Medium | 6/6 | overlord scouting, tank fixes, fighters-before-buildings; wins in 6.6-8.8 min, no crashes |
+| `931c39e` | Hard | 6/6 | from a sweep of every difficulty: 6/6 up to Hard, then Harder 3/6 (3 ties), VeryHard 4/6 |
+| `9bcfdcb` | Hard | 6/6 | tanks-and-scouting + no-path crash fix; wins in 7.1-9.4 min, no crashes |
+
+The default opponent used to be Medium. It's now Hard, because Medium was 6/6 every time and no longer
+caught regressions.
 
 ## Layout
 

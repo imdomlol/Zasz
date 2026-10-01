@@ -25,6 +25,7 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 |---|---|
 | Benchmark vs Medium (`467ba00`, before this branch) | 6/6 |
 | Benchmark vs Medium (`75aba21`, this branch, `--jobs 3` on Windows) | 6/6, no crashes, wins in 6.6-8.8 min game time, ~8 min real time total |
+| Benchmark vs Hard (`9bcfdcb`, `--jobs 6` on Linux) | 6/6, no crashes, wins in 7.1-9.4 min game time, ~4 min real time total. Hard is now the benchmark default |
 | VeryHard Terran games on this branch | 3 wins (`26ce39f` PersephoneAIE_v4, `bed03c7` LeyLinesAIE_v3, `75aba21` MagannathaAIE_v2). Several looked like the AI surrendering (few structures killed) |
 | Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
 
@@ -43,6 +44,8 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
   more upgrades (+3 needs hive), imitation-learning model in `bot/decisions/`.
 
 ## Gotchas found along the way
+
+- `mediator.find_raw_path` returns `None` when the target is unreachable; handle it.
 
 - Never use `unit.distance_to(unit)` with enemy units: ares memory units (last seen in fog) aren't in
   python-sc2's per-frame distance cache and it crashes. Use `a.position.distance_to(b.position)`.

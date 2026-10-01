@@ -2,8 +2,8 @@
 
 Run this before and after a change to catch regressions:
 
-    uv run python scripts/benchmark.py                        # 6 games vs Medium
-    uv run python scripts/benchmark.py --games 12 --difficulty Hard --races Terran
+    uv run python scripts/benchmark.py                        # 6 games vs Hard
+    uv run python scripts/benchmark.py --games 12 --difficulty VeryHard --races Terran
     uv run python scripts/benchmark.py --games 30 --jobs 6    # 6 games at a time
 
 Each game's stats are appended to benchmarks/results.csv (gitignored). With --jobs, games run in parallel
@@ -146,7 +146,7 @@ def run_matchups(matchups: list[tuple[str, str]], args, commit: str, jobs: int):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=6)
-    parser.add_argument("--difficulty", default="Medium", choices=[d.name for d in Difficulty])
+    parser.add_argument("--difficulty", default="Hard", choices=[d.name for d in Difficulty])
     parser.add_argument("--races", nargs="+", default=["Terran", "Zerg", "Protoss"])
     parser.add_argument("--maps", nargs="+", default=None, help="Defaults to every installed map")
     parser.add_argument("--time-limit", type=int, default=20 * 60, help="Game seconds before calling it a tie")
