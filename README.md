@@ -44,7 +44,12 @@ a change to catch regressions:
 ```sh
 uv run python scripts/benchmark.py                      # 6 games vs Medium, all races, all maps
 uv run python scripts/benchmark.py --games 12 --difficulty Hard --races Terran Protoss
+uv run python scripts/benchmark.py --games 30 --jobs 6  # 6 games at a time (~1 core, ~1.5 GB each)
 ```
+
+With `--jobs`, games run in parallel, but logs and results are still reported in matchup order, the same
+as a sequential run. Bot behavior doesn't depend on wall-clock speed (games aren't realtime), so results
+are comparable either way.
 
 Every game is appended to `benchmarks/results.csv` with the git commit, so you can compare versions.
 

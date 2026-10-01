@@ -4,16 +4,21 @@ Run this before and after a change to catch regressions:
 
     uv run python scripts/benchmark.py                        # 6 games vs Medium
     uv run python scripts/benchmark.py --games 12 --difficulty Hard --races Terran
+    uv run python scripts/benchmark.py --games 30 --jobs 6    # 6 games at a time
 
-Each game's stats are appended to benchmarks/results.csv (gitignored).
+Each game's stats are appended to benchmarks/results.csv (gitignored). With --jobs, games run in parallel
+but their logs and results are reported in matchup order, exactly as a sequential run would.
 """
 
 import argparse
 import csv
+import io
 import itertools
+import multiprocessing
 import random
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -87,6 +92,57 @@ def current_commit() -> str:
         return "none"
 
 
+def play_game(map_name: str, race: str, difficulty: str, time_limit: int, commit: str) -> tuple[dict, float]:
+    bot = BenchmarkZasz()
+    started = time.monotonic()
+    result = run_game(
+        maps.get(map_name),
+        [Bot(Race.Zerg, bot, name="Zasz"), Computer(Race[race], Difficulty[difficulty])],
+        realtime=False,
+        game_time_limit=time_limit,
+    )
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "commit": commit,
+        "map": map_name,
+        "opponent_race": race,
+        "difficulty": difficulty,
+        "result": result.name if isinstance(result, Result) else str(result),
+        **bot.stats,
+    }
+    return row, time.monotonic() - started
+
+
+def play_game_buffered(game_args: tuple) -> tuple[dict, float, str]:
+    """Run play_game in a worker process, capturing its log so the parent can print it in order."""
+    log = io.StringIO()
+    # Same sink settings python-sc2 uses (sc2/main.py), so the replayed log matches a sequential run
+    logger.remove()
+    logger.add(log, level="INFO", colorize=sys.stdout.isatty())
+    row, real_time = play_game(*game_args)
+    return row, real_time, log.getvalue()
+
+
+def run_matchups(matchups: list[tuple[str, str]], args, commit: str, jobs: int):
+    """Yield (row, real_time) per matchup, in matchup order."""
+    game_args = [(map_name, race, args.difficulty, args.time_limit, commit) for map_name, race in matchups]
+    if jobs == 1:
+        for a in game_args:
+            yield play_game(*a)
+        return
+
+    # One fresh process per game (python-sc2 keeps per-process state). `map` returns results in submission
+    # order, so a game that finishes early waits for the ones before it to be reported.
+    with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
+        try:
+            for row, real_time, log in pool.map(play_game_buffered, game_args):
+                sys.stdout.write(log)
+                yield row, real_time
+        except KeyboardInterrupt:
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=6)
@@ -94,6 +150,9 @@ def main() -> None:
     parser.add_argument("--races", nargs="+", default=["Terran", "Zerg", "Protoss"])
     parser.add_argument("--maps", nargs="+", default=None, help="Defaults to every installed map")
     parser.add_argument("--time-limit", type=int, default=20 * 60, help="Game seconds before calling it a tie")
+    parser.add_argument(
+        "--jobs", type=int, default=1, help="Games to run at once (each uses ~1 CPU core and ~1.5 GB of RAM)"
+    )
     args = parser.parse_args()
 
     map_names = args.maps or installed_maps()
@@ -111,30 +170,14 @@ def main() -> None:
         if new_file:
             writer.writeheader()
 
-        for i, (map_name, race) in enumerate(matchups, 1):
-            bot = BenchmarkZasz()
-            started = time.monotonic()
-            result = run_game(
-                maps.get(map_name),
-                [Bot(Race.Zerg, bot, name="Zasz"), Computer(Race[race], Difficulty[args.difficulty])],
-                realtime=False,
-                game_time_limit=args.time_limit,
-            )
-            row = {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "commit": commit,
-                "map": map_name,
-                "opponent_race": race,
-                "difficulty": args.difficulty,
-                "result": result.name if isinstance(result, Result) else str(result),
-                **bot.stats,
-            }
+        jobs = max(1, min(args.jobs, len(matchups)))
+        for i, (row, real_time) in enumerate(run_matchups(matchups, args, commit, jobs), 1):
             writer.writerow(row)
             f.flush()
             rows.append(row)
             logger.success(
-                f"[{i}/{len(matchups)}] {row['result']} vs {race} on {map_name} "
-                f"({row.get('game_time', '?')}s game, {time.monotonic() - started:.0f}s real)"
+                f"[{i}/{len(matchups)}] {row['result']} vs {row['opponent_race']} on {row['map']} "
+                f"({row.get('game_time', '?')}s game, {real_time:.0f}s real)"
             )
 
     print_summary(rows)

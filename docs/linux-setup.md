@@ -41,8 +41,15 @@ The full list of Linux packages is in the
 
 ## 3. Add the maps
 
-Put the ladder `.SC2Map` files directly in `~/StarCraftII/Maps/` (create the folder if it's missing;
-python-sc2 accepts `Maps` or `maps`). Either download the current pack from
+Put the ladder `.SC2Map` files directly in `~/StarCraftII/Maps/`. The Linux game looks for maps in
+lowercase `maps/` and paths are case-sensitive, so also add a symlink, or games fail with
+`InvalidMapPath`:
+
+```sh
+ln -s Maps ~/StarCraftII/maps
+```
+
+Then get the maps: either download the current pack from
 https://aiarena.net/wiki/maps/ or copy them from the Windows install
 (`F:\Games\Blizzard\StarCraft II\Maps\`), e.g. over the network:
 
@@ -83,7 +90,7 @@ uv run python scripts/benchmark.py --games 6 --difficulty Medium
 - **Replays:** games recorded on Linux use version 4.10. To watch one on Windows, open it in the
   normal game client, which downloads that old version the first time.
 - **Resources:** each game uses roughly 1 CPU core and 1–1.5 GB of RAM, which sets how many can run
-  in parallel.
+  in parallel with `scripts/benchmark.py --jobs N`.
 - **Alternative:** AI Arena's Docker image `aiarena/arenaclient-sc2-base` has SC2 preinstalled. It's
   more setup, but useful later for bot-vs-bot matches with AI Arena's match runner
   ([sc2-ai-match-controller](https://github.com/aiarena/sc2-ai-match-controller)).
