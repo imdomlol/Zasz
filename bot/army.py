@@ -3,10 +3,12 @@
 Zerglings get the ATTACKING role when they hatch (see `ZaszBot.on_unit_created`). ares groups
 them into squads; each squad then:
 
-1. Fights if enemies are close and the combat sim predicts a win (or we're defending a base),
-   and keeps fighting only while the sim predicts at least an even fight. Zerglings dive
-   siege tanks first instead of trading with them from the edge of their range.
-2. Retreats if the sim says the fight is lost, and keeps retreating until it's out of range.
+1. Fights if enemies are close and the combat sim predicts at least an even fight (or we're
+   defending a base). Zerglings dive siege tanks first instead of trading with them from the
+   edge of their range.
+2. Retreats as soon as the sim predicts a loss, but only until it's out of known enemy range,
+   then re-engages if the fight looks winnable. Flip-flopping keeps pressure on; the rule is
+   that units never stand in enemy fire without either fighting or leaving.
 3. Otherwise regroups with the main squad before moving on, so we don't trickle in.
 
 Threats are looked up around every unit in the squad (not just its center), and units that
@@ -28,11 +30,9 @@ from sc2.unit import Unit
 from bot.settings import (
     DEFEND_RADIUS,
     ENGAGE_RANGE,
-    KEEP_FIGHTING_AT,
+    FIGHT_AT,
     REGROUP_DISTANCE,
-    RETREAT_SECONDS,
     SQUAD_RADIUS,
-    START_FIGHT_AT,
     UNDER_FIRE_SECONDS,
 )
 
@@ -48,8 +48,7 @@ class Army:
     """Keeps the per-unit memory that stops squads flip-flopping between fight and retreat."""
 
     def __init__(self) -> None:
-        self.fighting: set[int] = set()  # unit tags that were fighting last step
-        self.retreating_until: dict[int, float] = {}  # unit tag -> keep retreating until this time
+        self.retreating: set[int] = set()  # unit tags retreating until they're out of enemy range
         self.last_damaged: dict[int, float] = {}  # unit tag -> last time it took damage
 
     def on_damage(self, ai: AresBot, unit: Unit) -> None:
@@ -82,39 +81,35 @@ class Army:
         enemies = enemies_near(ai, units)
         threats = [e for e in enemies if not e.is_structure or e.can_attack_ground]
         now = ai.time
-        retreating = sum(self.retreating_until.get(u.tag, 0) > now for u in units) > len(units) / 2
-        in_fight = sum(u.tag in self.fighting for u in units) > len(units) / 2
+        grid = ai.mediator.get_ground_grid
+        if sum(u.tag in self.retreating for u in units) > len(units) / 2:
+            # Keep retreating only until every unit is out of known enemy range, then re-engage
+            # right away if the fight looks winnable again: constant pressure, no free damage
+            if any(not ai.mediator.is_position_safe(grid=grid, position=u.position) for u in units):
+                for unit in units:
+                    retreat(ai, unit)
+                return
+            self.retreating.difference_update(u.tag for u in units)
         under_fire = any(now - self.last_damaged.get(u.tag, -99) < UNDER_FIRE_SECONDS for u in units)
-
-        if retreating:
-            for unit in units:
-                retreat(ai, unit)
-            return
 
         if threats:
             near_home = ai.townhalls.closest_distance_to(squad.squad_position) < DEFEND_RADIUS
             result = fight_result(ai, units, threats)
-            # Start a fight only if the sim predicts a win; stay only while it predicts at least
-            # an even fight. Never keep feeding units into a predicted loss. The gap between the
-            # two thresholds is what stops squads flip-flopping at the edge of enemy range.
-            if near_home or result >= (KEEP_FIGHTING_AT if in_fight else START_FIGHT_AT):
+            # Fight while the sim predicts at least an even fight; any predicted loss means
+            # retreat, so we never keep feeding units into a losing fight
+            if near_home or result >= FIGHT_AT:
                 for unit in units:
-                    self.fighting.add(unit.tag)
                     fight(ai, unit, threats, enemies)
             else:
                 for unit in units:
-                    self.fighting.discard(unit.tag)
-                    self.retreating_until[unit.tag] = now + RETREAT_SECONDS
+                    self.retreating.add(unit.tag)
                     retreat(ai, unit)
             return
-
-        for unit in units:
-            self.fighting.discard(unit.tag)
 
         if under_fire and not advancing:
             # Shot by something we can't see, and not attacking: get out of there
             for unit in units:
-                self.retreating_until[unit.tag] = now + RETREAT_SECONDS
+                self.retreating.add(unit.tag)
                 retreat(ai, unit)
             return
 
