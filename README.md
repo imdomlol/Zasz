@@ -78,6 +78,7 @@ game log.
 | `931c39e` | Hard | 6/6 | from a sweep of every difficulty: 6/6 up to Hard, then Harder 3/6 (3 ties), VeryHard 4/6 |
 | `9bcfdcb` | Hard | 6/6 | tanks-and-scouting + no-path crash fix; wins in 7.1-9.4 min, no crashes |
 | `59432bf` | Hard | 6/6 | skip unreachable expansions; wins in 7.5-10.4 min, no crashes |
+| `1cc08d0` | Hard | 6/6 | learning interface (observe -> decide -> act), same decisions as before; wins in 6.4-9.6 min |
 
 The default opponent used to be Medium. It's now Hard, because Medium was 6/6 every time and no longer
 caught regressions.
