@@ -16,6 +16,7 @@ ATTACK_AT_ZERGLINGS = 16  # start attacking with this many zerglings...
 STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this many
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
+FIGHTER_PRIORITY_RANGE = 10  # enemy units that fight back this close beat buildings/workers as targets
 SQUAD_RADIUS = 9  # zerglings this close together form one squad
 REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
 FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; retreat on any predicted loss

@@ -20,7 +20,7 @@ Whether to attack at all is a decision (`Decisions.should_attack`); this module 
 
 from ares import AresBot
 from ares.behaviors.combat import CombatManeuver
-from ares.behaviors.combat.individual import AMove, PathUnitToTarget, ShootTargetInRange
+from ares.behaviors.combat.individual import AMove, AttackTarget, PathUnitToTarget, ShootTargetInRange
 from ares.consts import TOWNHALL_TYPES, WORKER_TYPES, EngagementResult, UnitRole, UnitTreeQueryType
 from ares.managers.squad_manager import UnitSquad
 from sc2.ids.unit_typeid import UnitTypeId
@@ -31,6 +31,7 @@ from bot.settings import (
     DEFEND_RADIUS,
     ENGAGE_RANGE,
     FIGHT_AT,
+    FIGHTER_PRIORITY_RANGE,
     REGROUP_DISTANCE,
     SQUAD_RADIUS,
     TANK_NEUTRALIZED_BY,
@@ -191,24 +192,48 @@ def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
 
 
 def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> None:
-    """Target priority: anything in range that fights back > workers in range > key structures
-    in range > any structure in range. Otherwise close in, diving siege tanks and the like first.
-    Picking the weakest target in range spreads zerglings out instead of piling onto one."""
+    """Target priority for one zergling.
+
+    If enemy units that fight back are within FIGHTER_PRIORITY_RANGE, they're the only targets:
+    hit the weakest one in range, otherwise go straight at the closest (siege tanks and other
+    DIVE_FIRST units first). Buildings and workers wait until no fighters are near, so zerglings
+    don't chew on a barracks while marines and tanks shoot them.
+
+    Otherwise: workers > key structures > any structure in range, then close in on the nearest.
+    Picking the weakest target in range spreads zerglings out instead of piling onto one.
+    """
+    position = unit.position
     fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
-    workers = [e for e in threats if e.type_id in WORKER_TYPES]
-    structures = [e for e in enemies if e.is_structure]
-    key_structures = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
+    near_fighters = [e for e in fighters if e.position.distance_to(position) < FIGHTER_PRIORITY_RANGE]
 
     maneuver = CombatManeuver()
-    for targets in (fighters, workers, key_structures, structures):
-        if targets:
-            maneuver.add(ShootTargetInRange(unit=unit, targets=targets))
-
-    dive = [e for e in fighters if e.type_id in DIVE_FIRST]
-    goal_pool = dive or fighters or workers or key_structures or structures
-    goal = min(goal_pool, key=lambda e: e.position.distance_to(unit.position))
-    maneuver.add(AMove(unit=unit, target=goal.position))
+    if near_fighters:
+        maneuver.add(ShootTargetInRange(unit=unit, targets=near_fighters))
+        pool = [e for e in near_fighters if e.type_id in DIVE_FIRST] or near_fighters
+    else:
+        workers = [e for e in threats if e.type_id in WORKER_TYPES]
+        structures = [e for e in enemies if e.is_structure]
+        key_structures = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
+        for targets in (workers, key_structures, structures):
+            if targets:
+                maneuver.add(ShootTargetInRange(unit=unit, targets=targets))
+        pool = fighters or workers or key_structures or structures
+    goal = min(pool, key=lambda e: e.position.distance_to(position))
+    if chase := chase_behavior(unit, goal):
+        maneuver.add(chase)
     ai.register_behavior(maneuver)
+
+
+def chase_behavior(unit: Unit, goal: Unit) -> AttackTarget | AMove | None:
+    """Go attack `goal`. Visible units get a direct attack order (only re-issued if the zergling
+    isn't already on it). Remembered units in the fog can't be targeted directly, so attack-move
+    to their last known spot; `success_at_distance=0` because AMove's default does nothing within
+    7 of the target, which left zerglings stuck on their previous target."""
+    if goal.is_memory:
+        return AMove(unit=unit, target=goal.position, success_at_distance=0)
+    if unit.order_target == goal.tag:
+        return None
+    return AttackTarget(unit=unit, target=goal)
 
 
 def retreat(ai: AresBot, unit: Unit) -> None:
