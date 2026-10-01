@@ -26,6 +26,8 @@ Download them from https://aiarena.net/wiki/maps/.
 
 Developing on Linux (headless SC2, faster benchmarks): see [docs/linux-setup.md](docs/linux-setup.md).
 
+Current state, verified results and open items: see [docs/progress.md](docs/progress.md).
+
 ## Run
 
 Run from the repo root (ares reads `config.yml` from the working directory):
@@ -58,6 +60,7 @@ Every game is appended to `benchmarks/results.csv` with the git commit, so you c
 |---|---|---|---|
 | `12faa25` | Medium | 4/6 | baseline: one-point attacks, no upgrades |
 | `467ba00` | Medium | 6/6 | squads + combat sim, per-unit targeting, upgrades, creep; all wins in 6.5-8.6 min |
+| `75aba21` | Medium | 6/6 | overlord scouting, tank fixes, fighters-before-buildings; wins in 6.6-8.8 min, no crashes |
 
 ## Layout
 
