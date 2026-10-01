@@ -16,6 +16,7 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
 | 13 | `damage-efficiency` | Damage efficiency: how much of the army's damage actually lands | High | - |
+| 15 | `external-opponents` | Play against other people's bots | High | - |
 | 4 | `learning-interface` | Keep Zasz ready for imitation learning | High | - |
 | 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | `learning-interface` |
 | 9 | `mining-rate` | Mining rate per drone | Low | `learning-interface` |
@@ -30,7 +31,9 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 | 7 | `drone-escape-building` | Drone saves itself by starting a building | Low-Medium | - |
 
 Why this order: `damage-efficiency` builds directly on the scenario suite and the bot is all melee
-today, so it's likely the biggest win-rate lever before new units. `learning-interface` comes early
+today, so it's likely the biggest win-rate lever before new units. `external-opponents` next,
+because everything after it should be judged against real bots, not just the built-in AI (which
+Zasz now beats 6/6 up to Hard). `learning-interface` comes early
 so `trade-tracking`, `mining-rate` and `army-value` land as features in its `observe()` rather than
 as scattered helpers. `static-defense-placement` and `drone-escape-building` wait until harass
 shows up in losses (check kept replays, summarised by `replay-summary`).
@@ -90,6 +93,47 @@ to roaches and other units later (#2), and is a good model feature (#4).
   enemy's own main) or verify the spawned layout before measuring.
 - **The built-in AI interferes:** it pulls SCVs to repair and moves units; use structures and
   `debug_control_enemy` upkeep as in `tank_dive`.
+
+## `external-opponents` (#15): Play against other people's bots
+
+**Idea:** Figure out how to enable battling other models that other people have put forth.
+
+**Depends on:** -
+
+**Revision:** Two levels, cheapest first:
+1. **Ladder:** upload Zasz to AI Arena (aiarena.net) and let it play the ranked ladder against
+   everyone's bots. The pieces exist (`scripts/create_ladder_zip.py`, `ladder.py`,
+   `ladderbots.json`); this is mostly checking the zip runs and setting up an account and bot
+   entry. Results come back as match history and replays (4.10, so they play here headless and
+   feed `replay-summary` #1 and training data for `learning-interface` #4).
+2. **Local bot-vs-bot:** add `--opponent <bot folder>` to `scripts/benchmark.py`. python-sc2's
+   `BotProcess` already launches any bot that speaks the standard ladder protocol (`--LadderServer`,
+   `--GamePort`, `--StartPort`), in any language, which every AI Arena bot does. Opponents come from
+   AI Arena bots whose authors made them downloadable, or open-source bots on GitHub, kept in an
+   `opponents/` folder (gitignored) with their `ladderbots.json` read for the launch command and
+   race. The rest of the benchmark (parallel jobs, crash handling, kept replays, results.csv) works
+   as is, with the opponent's name in place of the difficulty. For bots with heavy dependencies,
+   AI Arena's local-play setup (Docker, `aiarena/arenaclient-sc2-base` / sc2-ai-match-controller)
+   runs them the same way the ladder does.
+
+**Impact:** **High.** The built-in AI is a narrow and predictable opponent (and the harder levels
+cheat); tuning only against it risks overfitting. Real bots punish different weaknesses (early
+rushes, cannon/bunker rushes, mass air, proxy builds), and the ladder gives a rating to track over
+time. It also gives #4 its most realistic training data.
+**Blockers:**
+- **Getting opponents:** only bots their authors mark downloadable on AI Arena can be fetched, and
+  some need an AI Arena account. Respect each bot's license; don't redistribute them (keep
+  `opponents/` out of git).
+- **Running them:** each bot brings its own runtime (Python version and packages, .NET, Java, C++
+  binaries, sometimes PyTorch/GPU for ML bots). Linux binaries are fine here (AI Arena runs
+  Linux); Python bots can conflict with our venv, so give each its own (or use the Docker setup).
+- **Two bots = two SC2 instances per game:** roughly double the CPU/RAM of a vs-AI game, so fewer
+  parallel `--jobs` on this machine (8 cores, 30 GB).
+- **Ladder rules:** ares `Debug: False` for uploads (already noted in `config.yml`); the ladder's
+  map pool and Python version (3.12) have to match; chat that other bots can read (#11).
+- **Timing:** AI Arena enforces per-step time limits; a slow `on_step` (e.g. lots of pathfinding,
+  #13 metrics) can lose games by timeout on the ladder even when it wins locally. Worth measuring
+  step time in the benchmark.
 
 ## `learning-interface` (#4): Keep Zasz ready for imitation learning
 
