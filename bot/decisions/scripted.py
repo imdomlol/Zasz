@@ -1,10 +1,11 @@
 from ares import AresBot
-from ares.behaviors.macro import AutoSupply, BuildStructure, ExpansionController, MacroPlan, SpawnController
+from ares.behaviors.macro import AutoSupply, BuildStructure, MacroPlan, SpawnController
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 
-from bot.actions.building import affordable_on_arrival, next_expansion_location
+from bot.actions.building import ExpandTo, affordable_on_arrival, next_expansion_location
 from bot.actions.drones import BuildDrones, drone_target
+from bot.actions.pathing import ExpansionAccess
 from bot.settings import (
     ARMY_COMPOSITION,
     ATTACK_AT_ZERGLINGS,
@@ -33,9 +34,9 @@ class ScriptedDecisions:
                 plan.add(BuildStructure(base_location=ai.start_location, structure_id=UnitTypeId.SPAWNINGPOOL))
             return plan
 
-        if self.expansion_wanted(ai) and (location := next_expansion_location(ai)):
+        if self.expansion_wanted(ai) and (location := next_expansion_location(ai, self.expansions)):
             if affordable_on_arrival(ai, UnitTypeId.HATCHERY, location):
-                plan.add(ExpansionController(to_count=ai.townhalls.ready.amount + 1, can_afford_check=False))
+                plan.add(ExpandTo(to_count=ai.townhalls.ready.amount + 1, can_afford_check=False, location=location))
             return plan
 
         plan.add(BuildDrones(to_count=drone_target(ai)))
@@ -44,6 +45,7 @@ class ScriptedDecisions:
 
     def __init__(self) -> None:
         self.attacking = False
+        self.expansions = ExpansionAccess()
 
     def should_attack(self, ai: AresBot) -> bool:
         """Start at ATTACK_AT_ZERGLINGS, keep going until the army drops below

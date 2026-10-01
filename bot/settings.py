@@ -29,6 +29,7 @@ UNDER_FIRE_SECONDS = 1.5  # a unit damaged this recently counts as under fire
 CREEP_QUEENS = 2  # queens beyond one per hatchery, used to spread creep
 QUEEN_DEFEND_RANGE = 12  # queens fight enemies this close while near our bases
 SPORES_PER_BASE = 1  # built in each mineral line once the enemy shows air
+EXPANSION_RECHECK_SECONDS = 10  # how often to re-check whether a blocked expansion is reachable again
 
 # --- Scouting ---
 OVERLORD_SCOUTS = 4  # overlords posted near enemy expansions (natural, third, fourth, ...)
