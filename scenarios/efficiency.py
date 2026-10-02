@@ -224,6 +224,7 @@ class CrampedMain(StructureAssault):
     description = "48 zerglings up the ramp into a 5x3 gateway grid (1-tile gaps), zealots/stalkers at the back"
     time_limit = 180
     LINGS = 48
+    ZEALOTS = 4
     COLUMNS = (-8, -4, 0, 4, 8)  # gateways are 3x3: 4 apart leaves a 1-tile gap
     ROWS = (6, 10, 14)  # depth past the ramp top
 
@@ -233,11 +234,16 @@ class CrampedMain(StructureAssault):
         self.origin: Point2 | None = None
 
     def frame(self, bot: ScenarioBot) -> tuple[Point2, Point2, Point2, Point2]:
-        """Ramp top, bottom, 'up' (into the main) and 'side' unit vectors."""
+        """Ramp top, bottom, 'up' (into the main) and 'side' unit vectors, snapped to the map axes:
+        a grid rotated with a diagonal ramp lands its 3x3 footprints on whole tiles unevenly and
+        the 1-tile gaps close up into a solid wall."""
         ramp = bot.mediator.get_enemy_ramp
         top, bottom = ramp.top_center, ramp.bottom_center
-        up = bottom.towards(top, 1) - bottom
-        return top, bottom, up, across(up)
+        raw = bottom.towards(top, 1) - bottom
+        up = Point2((1 if raw.x > 0 else -1, 0)) if abs(raw.x) >= abs(raw.y) else Point2((0, 1 if raw.y > 0 else -1))
+        # 3x3 buildings sit on half-tile centers
+        anchor = Point2((int(top.x) + 0.5, int(top.y) + 0.5))
+        return anchor, bottom, up, across(up)
 
     def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
         top, bottom, up, side = self.frame(bot)
@@ -247,11 +253,20 @@ class CrampedMain(StructureAssault):
         return positions, bottom - up * 8
 
     def unit_spots(self, bot: ScenarioBot) -> tuple[list[Point2], list[Point2]]:
-        """Zealots in the 1-tile gaps of the back row, stalkers behind the back row."""
+        """Zealots in the 1-tile gaps (back row first, then the middle row), stalkers behind the
+        back row; only spots on walkable ground (a gap against a cliff edge would push the unit
+        somewhere else entirely)."""
         _, _, up, side = self.frame(bot)
-        back = self.ROWS[-1]
-        zealots = [self.origin + side * dx + up * back for dx in (-6, -2, 2, 6)]
-        stalkers = [self.origin + side * dx + up * (back + 3) for dx in (-6, -2, 2, 6)]
+        back, middle = self.ROWS[-1], self.ROWS[-2]
+        gaps = [self.origin + side * dx + up * row for row in (back, middle) for dx in (-6, -2, 2, 6)]
+        zealots = [g for g in gaps if bot.in_pathing_grid(g)][: self.ZEALOTS]
+        stalkers = []
+        for dx in (-6, -2, 2, 6):
+            for depth in (3, 2):
+                spot = self.origin + side * dx + up * (back + depth)
+                if bot.in_pathing_grid(spot):
+                    stalkers.append(spot)
+                    break
         return zealots, stalkers
 
     async def on_step(self, bot: ScenarioBot) -> None:
@@ -300,7 +315,18 @@ class CrampedMain(StructureAssault):
             if built != self.expected:
                 return failed(f"setup: {built} of {self.expected} gateways spawned")
             if units < 6:
-                return failed(f"setup: only {units} of 8 zealots/stalkers spawned")
+                return failed(f"setup: only {units} zealots/stalkers spawned")
+            positions, _ = self.layout(bot)
+            gateways = bot.enemy_structures(UnitTypeId.GATEWAY)
+            moved = [p for p in positions if not gateways.closer_than(0.6, p)]
+            if moved:
+                return failed(f"setup: {len(moved)} gateways not where planned (gaps would be off)")
+            zealot_spots, stalker_spots = self.unit_spots(bot)
+            placed = bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})
+            off = [p for p in zealot_spots + stalker_spots if not placed.closer_than(2.5, p)]
+            if off:
+                where = ", ".join(str(u.position.rounded) for u in placed)
+                return failed(f"setup: {len(off)} units not where planned {[p.rounded for p in off]}; units at {where}")
         if self.phase != "fight" or bot.time - self.fight_started < 1:
             return None
         if not self.alive(bot):

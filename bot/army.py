@@ -264,10 +264,23 @@ class Army:
         return any(spot.distance_to(p) < r for p, r in self.avoided(ai))
 
     def known_target(self, ai: AresBot) -> Point2 | None:
-        """A known enemy base (least defended, far from their main first) or structure outside the
-        areas we were turned back from; None if there isn't one."""
+        """Where to attack: a known enemy base (least defended, far from their main first), else
+        another structure, both outside the areas we were turned back from (or inside one but
+        hittable from outside known enemy range), else known enemy ground units. Only things our
+        army can hit: zerglings can't hit a floating building, so it isn't a target (it would pull
+        the whole army to it). None if there's nothing."""
+        anti_air = any(u.can_attack_air for u in ai.units if u.type_id in ARMY_TYPES)
+
+        def hittable(e: Unit) -> bool:
+            return anti_air or not e.is_flying
+
         enemy_main = ai.enemy_start_locations[0]
-        bases = [s for s in ai.enemy_structures if s.type_id in TOWNHALL_TYPES and not self.blocked(ai, s.position)]
+        rally = rally_point(ai)
+        bases = [
+            s
+            for s in ai.enemy_structures
+            if s.type_id in TOWNHALL_TYPES and hittable(s) and not self.blocked(ai, s.position)
+        ]
         if bases:
             army = ai.mediator.get_cached_enemy_army
 
@@ -280,19 +293,23 @@ class Army:
                 return supply + 4 * static, -spot.distance_to(enemy_main)
 
             return min(bases, key=defense).position
-        structures = [s for s in ai.enemy_structures if not self.blocked(ai, s.position)]
+        structures = [s for s in ai.enemy_structures if hittable(s) and not self.blocked(ai, s.position)]
         if structures:
-            return min(structures, key=lambda s: s.position.distance_to(rally_point(ai))).position
+            return min(structures, key=lambda s: s.position.distance_to(rally)).position
         # Inside an avoided area, but hittable from outside known enemy range: still fair game
         grid = ai.mediator.get_ground_grid
-        rally = rally_point(ai)
         safe = [
             s
             for s in ai.enemy_structures
-            if ai.mediator.is_position_safe(grid=grid, position=s.position.towards(rally, s.radius + 0.6))
+            if hittable(s)
+            and ai.mediator.is_position_safe(grid=grid, position=s.position.towards(rally, s.radius + 0.6))
         ]
         if safe:
             return min(safe, key=lambda s: s.position.distance_to(rally)).position
+        # No structures we can hit: hunt the enemy units we know about
+        units = [u for u in ai.mediator.get_cached_enemy_army if hittable(u) and not self.blocked(ai, u.position)]
+        if units:
+            return min(units, key=lambda u: u.position.distance_to(rally)).position
         return None
 
     def attack_target(self, ai: AresBot) -> Point2:

@@ -58,3 +58,35 @@ and never switched to the stalkers they could have reached by going around.
 - Keep the current target only if it's in the best tier that has a reachable target with room.
 
 Result: 0/4, much worse (blocked 52-71%, 3-16 dmg/s in three runs). Investigating.
+
+### 4. Instrumentation (Army.debug counters, logged every 3 s by the gateway scenario)
+
+The 0/4 with detours: zerglings almost only targeted units ("unit" ~1100 per 3 s) but only 2-15% were
+in range; 48 fell to 21 in 24 s and no target died. The zealots in the gaps plug the 1-tile lanes, but
+pathing ignores units, so every stalker behind the grid *looked* reachable.
+
+### 5. Reachability map + surround-only unit targets + safe-first clearing
+
+- `ReachMap` (bot/targeting.py): BFS over the ground grid around the fight with enemy units as
+  obstacles, from every zergling. An enemy unit is a target only with >= 3 reachable open cells
+  around it (or touching us); its melee slots are capped by those cells.
+- Fighters around but none surroundable: clear structures, those hittable from outside enemy range
+  first (front gateways before the back row next to the stalkers).
+- Structures hittable from outside enemy range stay targets even inside an avoided area.
+
+1/4 then 1/2. A clear pattern: losses barely differ between passes and fails (~900-1100 damage
+taken); fails are what happens *after* the sim calls a retreat at ~0:30: the split-up plan took over
+and the leftovers stalled next to the grid.
+
+### 6. Scenario fixes (the test itself was wrong on one side)
+
+- On the side where the ramp is diagonal, the rotated grid snapped its 3x3 footprints onto whole tiles
+  and the 1-tile gaps closed into a solid wall. The grid is now aligned to the map axes.
+- A zealot planned for a gap against a cliff edge got pushed to (30, 104), far outside the main:
+  every run on that side ended "1 of 23 alive". Unit spots are now checked for walkable ground and the
+  setup fails loudly if a unit isn't where planned.
+- Bot bug found through it: the flying keep-alive barracks counted as an attack target, pulling idle
+  zerglings to the map corner. Targets are now only things our army can hit; with no hittable
+  structure the army hunts known enemy ground units.
+
+With a valid scenario on both sides: 2/4 (passes in 133-134 s).
