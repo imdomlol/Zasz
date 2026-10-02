@@ -69,11 +69,12 @@ difference on the ramp.
 - **Mutalisks** (#12): add an overkill cap for ranged attackers in `attack_capacity`, and a
   scenario (mutalisks vs workers/structures) to measure bounce and spread.
 - **Real games are noisy** (queens, regeneration, repair, vision): compare in scenarios.
-- **Real-game number looks off:** a VeryHard win at `4ec2259` logged efficiency 32% (blocked 51%,
-  idle 17%) vs 60-70% in scenarios. Check whether that's real congestion or the metric: zerglings
-  chasing a unit that moves *sideways* aren't closing in, so they count as blocked (only targets
-  moving away are excluded). The game-end dmg/s is averaged over the whole game, so it only means
-  something in scenarios.
+- **Real games read lower than scenarios:** a VeryHard win at `4ec2259` logged efficiency 32%
+  (blocked 51%). Zerglings chasing a unit moving *sideways* counted as blocked; fixed in `6a51dd5`
+  (chasing any moving target isn't blocked), after which a VeryHard win read 45% (blocked 35%). The
+  rest of the gap to 60-70% may be real congestion in messy fights: worth a scenario with enemy
+  *units* (e.g. zerglings vs a marine ball) next. The game-end dmg/s is averaged over the whole
+  game, so it only means something in scenarios.
 
 ## `external-opponents` (#15): Play against other people's bots
 

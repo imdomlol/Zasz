@@ -50,9 +50,8 @@ from each unit's own weapon; ranged/air attackers uncapped). Details and open it
 
 ## Open items / watch list
 
-- **Damage efficiency in real games** reads much lower than in scenarios (32% vs 60-70%, blocked 51%
-  in a VeryHard win). Might be real congestion or the metric (sideways-moving targets count as
-  blocked); see todo #13 before trusting it.
+- **Damage efficiency in real games** reads lower than in scenarios: 45% (blocked 35%) in a VeryHard
+  win after fixing sideways chases counting as blocked (was 32%); see todo #13.
 
 - **`TANK_NEUTRALIZED_BY = 3`** (`bot/settings.py`, `tank_neutralized` in `bot/army.py`): sieged tanks
   with 3+ of our zerglings inside their minimum range are left out of the combat sim (the sim
