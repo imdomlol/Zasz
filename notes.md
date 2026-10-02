@@ -190,3 +190,18 @@ Both remaining failures are on the bottom side and look alike: ~23 of 48 zerglin
 30 s (about 10 at a time "breaking through" the gateway next to them, inside stalker range, because
 every stalker slot was full), then slow attrition next to the back-row zealots, ending with 4-6
 targets (zealots plus the gateways beside them) alive.
+
+### 12. After the approach fix: the bottom side's leftovers
+
+- **F: fighters all full -> clear safe structures within 10 instead of the one within 3**: top 9/9,
+  bottom 2/7. Worse. Reverted.
+- Debug log now also lists the enemies we see (by type) every 3 s. That showed the real loss on the
+  bottom side: the stalkers are all dead by 0:24 (48 -> 31 zerglings), and then **15 zerglings die to
+  the four zealots on hold in the back-row gaps** in the next 30 s. Those zealots survive to the end
+  (the "2-7 left" failures are zealots and the gateways next to them). A zealot in a 1-tile gap has 2
+  open cells; zerglings touching it fought it there ("hit back whatever touches you"), 1-2 at a
+  time, and lost every trade.
+- **G: step out of reach of a melee unit plugging a gap** (touching, < 3 open cells) instead of
+  hitting it back; ranged units right next to us still get hit back. **15/16: top 6/6, bottom 9/10**,
+  and bottom-side passes went from 110-156 s to 88-102 s (zealots now get swarmed once the
+  gateways beside them fall). Kept.

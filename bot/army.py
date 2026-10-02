@@ -134,8 +134,11 @@ class Army:
             self.counts_logged_at = ai.time
             mode = "plan" if self.avoided(ai) else "army"
             lings = len([u for u in ai.units if u.type_id in ARMY_TYPES])
+            seen = Counter(u.type_id.name.lower() for u in ai.enemy_units if not u.is_memory)
+            seen.update(s.type_id.name.lower() for s in ai.enemy_structures if not s.is_memory)
             summary = ", ".join(f"{k} {v}" for k, v in sorted(self.counts.items()))
-            logger.info(f"{ai.time_formatted} army debug: mode {mode}, {lings} zerglings | {summary}")
+            enemy = " ".join(f"{k} {v}" for k, v in sorted(seen.items()))
+            logger.info(f"{ai.time_formatted} army debug: mode {mode}, {lings} zerglings vs {enemy} | {summary}")
             self.counts.clear()
         home_threats = [
             u for u in ai.mediator.get_main_ground_threats_near_townhall if u.type_id not in IGNORED_THREATS
@@ -534,12 +537,23 @@ def fight(
         structures = [s for s in structures if slots.reach.reachable(s)]
 
         # Only enemy units we can surround (enough open cells reachable around them); fighting one
-        # through a 1-tile gap is a 1-on-1 we lose. Exception: one right next to us, hit it back.
-        def surroundable(e: Unit) -> bool:
-            touching = e.position.distance_to(position) - e.radius - unit.radius < 0.75
-            return touching or slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
+        # through a 1-tile gap is a 1-on-1 we lose. Exception: a ranged one right next to us, hit it
+        # back (stepping away doesn't get us out of its range). A melee one plugging a gap (a zealot
+        # between two gateways): step out of its reach instead, it gets surrounded once the
+        # buildings next to it fall
+        def touching(e: Unit) -> bool:
+            return e.position.distance_to(position) - e.radius - unit.radius < 0.75
 
-        near_fighters = [e for e in near_fighters if surroundable(e)]
+        def surroundable(e: Unit) -> bool:
+            return slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
+
+        pinned = [e for e in near_fighters if touching(e) and not surroundable(e) and e.ground_range <= 1]
+        if pinned:
+            nearest = min(pinned, key=lambda e: e.position.distance_to(position))
+            COUNTS["step away (gap)"] += 1
+            unit.move(nearest.position.towards(position, nearest.radius + unit.radius + 2.0))
+            return
+        near_fighters = [e for e in near_fighters if surroundable(e) or touching(e)]
         workers = [e for e in workers if slots.reach.reachable(e)]
     if near_fighters:
         dive = [e for e in near_fighters if e.type_id in DIVE_FIRST]

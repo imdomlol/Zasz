@@ -260,7 +260,8 @@ class CrampedMain(StructureAssault):
         somewhere else entirely)."""
         _, _, up, side = self.frame(bot)
         back, middle = self.ROWS[-1], self.ROWS[-2]
-        gaps = [self.origin + side * dx + up * row for row in (back, middle) for dx in (-6, -2, 2, 6)]
+        gaps = [self.origin + side * dx + up * back for dx in (-6, -2, 2, 6)]
+        gaps += [self.origin + side * dx + up * middle for dx in (-2, 2, -6, 6)]  # center first
         zealots = [g for g in gaps if bot.in_pathing_grid(g)][: self.ZEALOTS]
         stalkers = []
         for dx in (-6, -2, 2, 6):
@@ -364,4 +365,12 @@ class CrampedMain(StructureAssault):
         )
 
 
-SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain()]
+class CrampedMainMoreZealots(CrampedMain):
+    """The packed main with two more zealots, in the two center gaps of the middle row."""
+
+    name = "efficiency_cramped_more_zealots"
+    description = "efficiency_cramped_main with 6 zealots (2 more in the middle row's center gaps)"
+    ZEALOTS = 6
+
+
+SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain(), CrampedMainMoreZealots()]
