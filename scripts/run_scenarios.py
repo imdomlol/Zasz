@@ -9,10 +9,12 @@ Exits with 1 if any scenario fails, so it can gate a commit. Replays of failed s
 replays/scenarios/<run>/.
 """
 
+import _thread
 import argparse
 import io
 import multiprocessing
 import sys
+import threading
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor
@@ -33,6 +35,9 @@ from sc2.player import Bot, Computer
 from scenarios import ALL, ScenarioBot
 
 REPLAYS_DIR = ROOT / "replays" / "scenarios"
+# Watchdog: a scenario taking longer than time_limit * FACTOR + MARGIN real seconds is stuck
+WATCHDOG_FACTOR = 3
+WATCHDOG_MARGIN = 120
 
 
 @dataclass
@@ -45,7 +50,7 @@ class Report:
     log: str
 
 
-def run_scenario(name: str, replay: str) -> Report:
+def run_scenario(name: str, replay: str, watchdog: float | None = None) -> Report:
     """Play one scenario in this process (a worker); its log is captured, not printed."""
     logger.remove()
     log = io.StringIO()
@@ -53,6 +58,19 @@ def run_scenario(name: str, replay: str) -> Report:
     scenario = next(s for s in ALL if s.name == name)
     bot = ScenarioBot(scenario)
     started = time.monotonic()
+    # If StarCraft II crashes mid-game, python-sc2 waits on the dead connection forever and the
+    # whole run hangs. A watchdog interrupts this worker after far more real time than the
+    # scenario could need, so it's reported as an ERROR and the run carries on.
+    deadline = watchdog or scenario.time_limit * WATCHDOG_FACTOR + WATCHDOG_MARGIN
+    fired = threading.Event()
+
+    def bark() -> None:
+        fired.set()
+        _thread.interrupt_main()
+
+    watchdog = threading.Timer(deadline, bark)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         run_game(
             maps.get(scenario.map),
@@ -64,9 +82,16 @@ def run_scenario(name: str, replay: str) -> Report:
             status, message = "ERROR", "the game ended before the scenario was decided"
         else:
             status, message = ("PASS" if bot.outcome.passed else "FAIL"), bot.outcome.message
-    except Exception as e:
+    except (KeyboardInterrupt, Exception) as e:
         status, message = "ERROR", f"{type(e).__name__}: {e}"
         logger.error(traceback.format_exc())
+    finally:
+        watchdog.cancel()
+    if fired.is_set():
+        # python-sc2 turns the interrupt into other errors (e.g. ConnectionAlreadyClosed)
+        status = "ERROR"
+        message = f"no result after {deadline:.0f}s real time (StarCraft II probably crashed or hung)"
+        logger.error(message)
     game_time = bot.time if getattr(bot, "state", None) else 0.0
     return Report(name, status, message, game_time, time.monotonic() - started, log.getvalue())
 
@@ -78,6 +103,13 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1, help="Run each scenario this many times")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every scenario's game log")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit")
+    parser.add_argument(
+        "--watchdog",
+        type=float,
+        default=None,
+        help="Real seconds before a stuck scenario (e.g. StarCraft II crashed) is reported as an ERROR "
+        f"(default: time limit x {WATCHDOG_FACTOR} + {WATCHDOG_MARGIN})",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -101,7 +133,7 @@ def main() -> None:
     jobs = max(1, min(args.jobs, len(runs)))
     # One fresh process per scenario (python-sc2 keeps per-process state); reported in order
     with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
-        futures = {run: pool.submit(run_scenario, run[0], str(replays[run])) for run in runs}
+        futures = {run: pool.submit(run_scenario, run[0], str(replays[run]), args.watchdog) for run in runs}
         for run, future in futures.items():
             try:
                 report = future.result()
