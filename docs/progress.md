@@ -31,17 +31,26 @@ melee attackers over structures and fill from the back (`bot/targeting.py`, `STR
 scenario-runner watchdog for crashed/frozen StarCraft II. Written to carry over to mutalisks (ranges
 from each unit's own weapon; ranged/air attackers uncapped). Details and open items: todo #13.
 
-**On branch `alternate-targets` (built on `damage-efficiency`, not merged yet):** the army plan
-(`bot/army_plan.py`). Fixes the army freezing in front of the enemy natural for ~30 s at a time
-(retreat out of range, ares' memory of their army pulls it back in, repeat) while a third mined
-freely. Every 2 s each zergling gets a task: group up only for a visible enemy group the whole army
-beats but half doesn't; otherwise spread out: peek at remembered groups from just outside their range
-(avoid the area if their range beats zergling sight), sized fights, sim-sized raids on bases away from
-groups we can't beat (and on their main while nothing in it is known), scouts, watchers, and the bulk
-waits forward on the field. Turned-back areas are avoided for 45 s; threats only count near their
-weapon range. Scenario `alternate_target` (fog, unbeatable army at their natural, open base elsewhere):
-old code lost 13/24 zerglings and failed; new code passed 4/4 with 16-23 alive. Also todo #18
-(`safe-build-location`) and #19 (`creep-to-natural`) were added there.
+**On branch `alternate-targets` (built on `damage-efficiency`, not merged yet):** fixes the army
+freezing in front of the enemy natural for ~30 s at a time (retreat out of range, ares' memory of their
+army pulls it back in, repeat) while a third mined freely.
+- By default the army still moves as one (it wins fastest vs the built-in AI), with 2 scout zerglings
+  running ahead to their natural and expansions.
+- Every 2 s, known enemy groups the whole army can't beat become avoid areas (their spread + range),
+  so we stop *before* walking in; a fight we're turned back from adds one too (45 s).
+- While an avoid area is active, the army plan (`bot/army_plan.py`) takes over: peek at remembered
+  armies from just outside their range (or avoid them if their range beats zergling sight), sim-sized
+  raids on bases away from them (and their main while nothing in it is known), scouts, watchers, the
+  bulk waiting forward on the field, and grouping up only for a fight that needs everyone.
+- Threats only count near their weapon range, so squads can go around an army.
+
+Results: scenario `alternate_target` (fog, unbeatable army at their natural, open base elsewhere): old
+code failed (13/24 zerglings lost); final: 3/3, base killed at 38 s with 24/24 alive. Hard 6/6 (wins in
+7.6-9.2 min). VeryHard 4/6 + 2 ties, no losses (baseline `damage-efficiency`: 5/6; an earlier version
+with the plan *always* on: 2/6, so it's now only used after a turn-back). Both ties lost ~39k vs ~14k
+killed in 20-minute games: likely todo #17 (squads near our bases always fight); worth checking the
+kept replays. Step time in those long games peaked at ~25 ms per game loop (limit 40) with 2 games in
+parallel. Also todo #18 (`safe-build-location`) and #19 (`creep-to-natural`) were added there.
 
 ## Verified
 

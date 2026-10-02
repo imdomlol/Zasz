@@ -6,10 +6,11 @@ A Zerg StarCraft II bot built on [ares-sc2](https://aressc2.github.io/ares-sc2/)
 Strategy: make 16 drones and a spawning pool, then keep expanding whenever the drones are about to fill
 every base (or patches mine out), up to 70 drones. Research zergling speed, make a queen per hatchery
 (injecting larva) plus creep queens, pump zerglings, and attack once there are 16 (until the army drops
-below 8). The army groups up only for a fight that needs everyone; otherwise it spreads out: raids sized
-by the combat sim on bases away from armies it can't beat, single zerglings peeking at remembered enemy
-armies from outside their range, scouting expansions and watching the routes to our bases. Overlords
-watch the enemy's expansions from safe spots.
+below 8), with two zerglings scouting ahead. The army moves as one until it meets (or scouts find) an
+enemy army it can't beat; then it splits: raids sized by the combat sim on bases away from that army,
+single zerglings peeking at remembered armies from outside their range, scouting and watching the routes
+to our bases, grouping up again only for a fight that needs everyone. Overlords watch the enemy's
+expansions from safe spots.
 
 ## Setup
 
