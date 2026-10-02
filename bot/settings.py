@@ -17,6 +17,31 @@ STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this m
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
 FIGHTER_PRIORITY_RANGE = 10  # enemy units that fight back this close beat buildings/workers as targets
+# After a squad is turned back by a fight the sim says we'd lose, attack targets inside that enemy
+# group's reach (its spread + weapon range + AVOID_MARGIN) are skipped for AVOID_SECONDS: try other
+# bases instead of walking back into it
+AVOID_SECONDS = 45
+AVOID_MARGIN = 3
+CHECK_AGAIN_SECONDS = 60  # an enemy expansion spot seen empty isn't checked again for this long
+APPROACH_DISTANCE = 12  # advancing squads path around known enemy fire until this close to the target
+# Enemies only count as a threat to a squad within their weapon range + this of one of its units, so
+# a squad going *around* an army at a safe distance isn't turned back by it
+VISIBLE_THREAT_MARGIN = 6
+MEMORY_THREAT_MARGIN = 4  # remembered enemies (last seen in the fog) can't be chasing us as well
+LOOKOUT_FLEE_MARGIN = 0.5  # lookouts back off within an enemy's range + this (less than PEEK_MARGIN)
+# Army plan (`bot/army_plan.py`): grouping only when necessary
+PLAN_SECONDS = 2.0  # re-plan who does what this often
+ENEMY_GROUP_RADIUS = 10  # enemy units this close together are one group
+RAID_MIN = 6  # smallest fighting detachment; raids grow in steps of this until the sim says they win
+MAX_RAIDS = 2  # enemy bases raided at once
+MAX_SCOUTS = 3  # single zerglings checking the enemy main and expansions
+MAX_WATCHERS = 4  # single zerglings watching known enemy groups
+PEEK_MARGIN = 1.5  # peeking zerglings stop this far outside the remembered enemy's range
+PEEK_AGAIN_SECONDS = 20  # don't peek at the same remembered group more often than this
+WATCH_MARGIN = 6  # watchers sit this far outside an enemy group's range
+STAGING_MARGIN = 6  # when grouping up, gather this far outside the enemy's range
+GATHERED_FRACTION = 0.8  # engage once this share of the army has gathered
+FORWARD_FRACTIONS = (0.5, 0.4, 0.3)  # waiting spots, as a share of the way from our rally to their natural
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
 MELEE_SURROUND_FRACTION = 0.5

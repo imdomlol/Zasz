@@ -61,6 +61,8 @@ class TargetSlots:
         squad's position moves as it advances, so re-picking "deepest" every step would send
         attackers back and forth). If every candidate is full: the closest.
         """
+        if not candidates:
+            raise ValueError("TargetSlots.pick needs at least one candidate")
         by_distance = sorted(candidates, key=lambda e: e.position.distance_to(attacker.position))
         current = next((e for e in candidates if e.tag == attacker.order_target), None)
         if current is not None and self.has_room(attacker, current):

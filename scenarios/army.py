@@ -101,4 +101,64 @@ class FightWinnable(Scenario):
         return failed(f"{bot.enemy_units(UnitTypeId.MARINE).amount} marines still alive")
 
 
-SCENARIOS = [TankDive(), RetreatFromLosingFight(), FightWinnable()]
+class AlternateTarget(Scenario):
+    """No map reveal, like a real game: the zerglings head for the enemy, run into an army they
+    can't beat at the natural, and have to find (and kill) an unprotected third on their own instead
+    of hovering in front of the natural."""
+
+    name = "alternate_target"
+    description = "Fog: an unbeatable army at the enemy natural; zerglings find and kill an unprotected base"
+    time_limit = 180
+
+    def __init__(self) -> None:
+        self.third = None
+        self.lings_at_start = 24
+        self.third_seen = False
+
+    async def setup(self, bot: ScenarioBot) -> None:
+        await bot.client.debug_control_enemy()
+        natural = bot.mediator.get_enemy_nat
+        # Their closest expansion well away from the natural (out of the army's reach); on some maps
+        # the third sits right next to the natural, inside siege tank range
+        self.third = next(
+            (spot for spot, _ in bot.mediator.get_enemy_expansions[2:] if spot.distance_to(natural) > 30),
+            bot.mediator.get_enemy_expansions[2][0],
+        )
+        # An army 24 zerglings can't beat, at their natural, between us and their main
+        toward_us = natural.towards(bot.start_location, 1) - natural
+        await bot.spawn(UnitTypeId.SIEGETANK, natural + toward_us * 3, amount=2, enemy=True)
+        await bot.spawn(UnitTypeId.MARINE, natural + toward_us * 6, amount=16, enemy=True)
+        # ...and a third base with nothing defending it
+        await bot.spawn(UnitTypeId.COMMANDCENTER, self.third, enemy=True)
+        ours = bot.mediator.get_own_nat
+        await bot.spawn(UnitTypeId.ZERGLING, ours.towards(bot.game_info.map_center, 8), amount=self.lings_at_start)
+
+    async def on_step(self, bot: ScenarioBot) -> None:
+        # Keep the army in place once we can see it (we can only command what we see)
+        bot.siege_enemy_tanks()
+        for marine in bot.enemy_units(UnitTypeId.MARINE):
+            marine.hold_position()
+
+    def third_cc(self, bot: ScenarioBot):
+        return bot.enemy_structures(UnitTypeId.COMMANDCENTER).closer_than(3, self.third)
+
+    def check(self, bot: ScenarioBot) -> Outcome | None:
+        if bot.time < 3:
+            return None
+        lings = bot.units(UnitTypeId.ZERGLING).amount
+        if lings < self.lings_at_start // 2:
+            return failed(f"lost {self.lings_at_start - lings} of {self.lings_at_start} zerglings (fed into the army?)")
+        self.third_seen |= bool(self.third_cc(bot))
+        # Killed = we found it, and now we can see the spot and it's gone
+        if self.third_seen and bot.is_visible(self.third) and not self.third_cc(bot):
+            return passed(f"base found and killed at {bot.time:.0f}s with {lings} zerglings left")
+        return None
+
+    def on_timeout(self, bot: ScenarioBot) -> Outcome:
+        state = "found but alive" if self.third_seen else "never found"
+        return failed(
+            f"third {state} after {self.time_limit:.0f}s, {bot.units(UnitTypeId.ZERGLING).amount} zerglings left"
+        )
+
+
+SCENARIOS = [TankDive(), RetreatFromLosingFight(), FightWinnable(), AlternateTarget()]
