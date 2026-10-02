@@ -34,6 +34,11 @@ from sc2.unit import Unit
 from bot.army_plan import ArmyPlan, Task, center_of, enemy_groups, wins
 from bot.settings import (
     APPROACH_DISTANCE,
+    ASSAULT_COMMIT_SECONDS,
+    ASSAULT_GATHER_RADIUS,
+    ASSAULT_MAX_WAIT,
+    ASSAULT_MIN,
+    ASSAULT_SHARE,
     AVOID_MARGIN,
     AVOID_SECONDS,
     CHECK_AGAIN_SECONDS,
@@ -43,6 +48,7 @@ from bot.settings import (
     EXPOSURE_MARGIN,
     FIGHT_AT,
     FIGHTER_PRIORITY_RANGE,
+    FIGHTERS_FIRST,
     FLANK_DISTANCE,
     LEVEL_TOLERANCE,
     LOOKOUT_FLEE_MARGIN,
@@ -62,6 +68,7 @@ from bot.targeting import BlockTracker, Detours, ReachMap, TargetSlots, pick_tie
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
 COUNTS: Counter[str] = Counter()  # debug: zergling decisions since the last log (see Army.debug)
+LAST_DECISION: dict[int, str] = {}  # debug: zergling tag -> what it was last told to do
 SIEGE_MIN_RANGE = 2.0  # sieged tanks can't fire at targets this close
 IGNORED_THREATS = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTypeId.OVERSEER}
 # Long-range or splash units zerglings should dive first rather than trade with from range
@@ -98,6 +105,7 @@ class Army:
         self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
         self.detours = Detours()  # routes around our own crowd for blocked zerglings
         self.reach_cache: dict[tuple[int, int], tuple[float, ReachMap]] = {}  # area -> (built at, map)
+        self.assault = Assault()  # gather out of range, then go in together
         # Debug: count what zerglings decide, logged every few seconds (scenarios switch this on)
         self.debug = False
         self.counts = COUNTS
@@ -105,8 +113,10 @@ class Army:
         self.scouts: dict[int, Point2] = {}  # scouting zergling tag -> spot it's checking
         self.armies_checked_at = -999.0
 
-    def on_damage(self, ai: AresBot, unit: Unit) -> None:
+    def on_damage(self, ai: AresBot, unit: Unit, amount: float = 0.0) -> None:
         self.last_damaged[unit.tag] = ai.time
+        if self.debug and unit.type_id in ARMY_TYPES:
+            COUNTS[f"DMG {LAST_DECISION.get(unit.tag, 'other')}"] += round(amount)
 
     def control(self, ai: AresBot, attacking: bool) -> None:
         """Defend first. Otherwise one army moving together (attack, or hold at the rally point):
@@ -114,12 +124,20 @@ class Army:
         turned back by an army we can't beat (an active avoid area) does the army plan take over:
         peek, raid around it, scout, watch (`ArmyPlan`), until those areas expire."""
         alive = {u.tag for u in ai.units}
+        if self.debug:
+            for u in ai.units:
+                if u.type_id in ARMY_TYPES:
+                    COUNTS["ling samples"] += 1
+                    COUNTS["swinging"] += u.weapon_cooldown > 0
         self.blocks.forget_dead(alive)
         self.detours.forget_dead(alive)
         if self.debug and ai.time - self.counts_logged_at >= 3:
             self.counts_logged_at = ai.time
             mode = "plan" if self.avoided(ai) else "army"
             lings = len([u for u in ai.units if u.type_id in ARMY_TYPES])
+            swinging = self.counts.pop("swinging", 0)
+            samples = self.counts.pop("ling samples", 0)
+            COUNTS["% swinging"] = round(100 * swinging / samples) if samples else 0
             summary = ", ".join(f"{k} {v}" for k, v in sorted(self.counts.items()))
             logger.info(f"{ai.time_formatted} army debug: mode {mode}, {lings} zerglings | {summary}")
             self.counts.clear()
@@ -342,6 +360,7 @@ class Army:
             if any(not ai.mediator.is_position_safe(grid=grid, position=u.position) for u in units):
                 COUNTS["squad: keep retreating"] += len(units)
                 for unit in units:
+                    LAST_DECISION[unit.tag] = "retreating"
                     retreat(ai, unit)
                 return
             self.retreating.difference_update(u.tag for u in units)
@@ -355,7 +374,9 @@ class Army:
             if near_home or result >= FIGHT_AT:
                 slots = TargetSlots(self.reach_map(ai, units, enemies))
                 for unit in front_first(units, enemies):
-                    fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
+                    fight(
+                        ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours, self.assault
+                    )
             else:
                 self.turned_back(ai, threats)
                 COUNTS[f"retreat ({result.name})"] += len(units)
@@ -388,7 +409,9 @@ class Army:
         for unit in front_first(units, enemies):
             if advancing:
                 if threats or any(e.is_structure for e in enemies):
-                    fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
+                    fight(
+                        ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours, self.assault
+                    )
                 elif under_fire or unit.distance_to(target) < APPROACH_DISTANCE:
                     # Close to the target (or shot from out of sight): attack-move in
                     ai.register_behavior(AMove(unit=unit, target=target))
@@ -399,6 +422,49 @@ class Army:
             elif unit.distance_to(target) > 5:
                 COUNTS["squad: hold, move"] += 1
                 move(ai, unit, target)
+
+
+class Assault:
+    """Coordinated arrival on enemy fighters. Zerglings whose target is an enemy fighter they aren't
+    already next to gather at the last safe cell before it (`ReachMap.gather_point`: reachable,
+    outside every fighter's weapon range, closest by walking distance) and go in together once
+    ASSAULT_MIN (or ASSAULT_SHARE of those heading there) have gathered, or after ASSAULT_MAX_WAIT.
+    Without it they arrive one by one along paths of different length and die in the fire."""
+
+    def __init__(self) -> None:
+        self.point: Point2 | None = None
+        self.point_at = -999.0
+        self.started = -999.0
+        self.released_until = -999.0
+        self.heading: set[int] = set()  # zerglings that wanted to go in at the last check
+        self.ready: set[int] = set()  # ...and of those, the ones at the gather point
+
+    def hold(self, ai: AresBot, unit: Unit, goal: Unit, fighters: list[Unit], reach: ReachMap) -> Point2 | None:
+        """Where `unit` should wait, or None if it can go in now."""
+        now = ai.time
+        if now < self.released_until:
+            return None  # the assault is on
+        if now - self.point_at >= REACH_SECONDS or self.point is None:
+            # A new check: count who gathered since the last one, then refresh the gather point
+            if self.heading and (
+                len(self.ready) >= min(ASSAULT_MIN, len(self.heading))
+                or len(self.ready) >= ASSAULT_SHARE * len(self.heading)
+                or now - self.started >= ASSAULT_MAX_WAIT
+            ):
+                self.released_until = now + ASSAULT_COMMIT_SECONDS
+                self.heading, self.ready, self.started = set(), set(), now
+                return None
+            if not self.heading:
+                self.started = now
+            self.point = reach.gather_point([goal], fighters, EXPOSURE_MARGIN + 1.0)
+            self.point_at = now
+            self.heading, self.ready = set(), set()
+        if self.point is None:
+            return None  # no safe spot to gather (already in the fight): just go
+        self.heading.add(unit.tag)
+        if unit.distance_to(self.point) < ASSAULT_GATHER_RADIUS:
+            self.ready.add(unit.tag)
+        return self.point
 
 
 def front_first(units: list[Unit], enemies: list[Unit]) -> list[Unit]:
@@ -435,14 +501,18 @@ def enemies_near(ai: AresBot, units: list[Unit]) -> list[Unit]:
 
 
 def fight_result(ai: AresBot, units: list[Unit], threats: list[Unit]) -> EngagementResult:
-    center = Point2((sum(u.position.x for u in units) / len(units), sum(u.position.y for u in units) / len(units)))
+    """The combat sim's verdict for a fight against `threats`, counting every army unit of ours near
+    them (not just this squad: ares squads are small clusters, and judging each on its own against
+    the whole enemy group made every one of them retreat from a fight the army as a whole wins)."""
+    center = center_of(threats)
     own = [
         u
         for u in ai.mediator.get_units_in_range(
-            start_points=[center], distances=ENGAGE_RANGE + 4, query_tree=UnitTreeQueryType.AllOwn
+            start_points=[center], distances=ENGAGE_RANGE + 12, query_tree=UnitTreeQueryType.AllOwn
         )[0]
         if u.type_id in ARMY_TYPES or u.type_id == UnitTypeId.QUEEN
     ]
+    own = own or list(units)
     threats = [t for t in threats if not tank_neutralized(t, own)]
     if not threats:
         return EngagementResult.VICTORY_EMPHATIC
@@ -479,6 +549,7 @@ def fight(
     squad_position: Point2,
     blocks: BlockTracker,
     detours: Detours,
+    assault: Assault | None = None,
 ) -> None:
     """Target choice for one zergling, in priority tiers; it takes the best-tier target that still
     has room (`TargetSlots`: melee attackers per target are capped by the space around it):
@@ -527,18 +598,21 @@ def fight(
             return slots.reach is None or slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
 
         in_reach = [s for s in structures if s.position.distance_to(position) - s.radius < CLEAR_THE_WAY_RANGE]
-        safe, unsafe = split_by_safety(in_reach, unit, [e for e in threats if e.type_id not in WORKER_TYPES])
+        enemy_fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
+        safe, unsafe = split_by_safety(in_reach, unit, enemy_fighters)
+        if unsafe:
+            # Breaking through under fire: everyone on the same structure, the one opening the way to
+            # their fighters (closest to them), most damaged first: a hole as fast as possible
+            fighters_at = center_of(enemy_fighters)
+            unsafe.sort(key=lambda s: (round(s.position.distance_to(fighters_at)), s.health + s.shield))
         hitting_us = [e for e in near_fighters if touching(e)]
         surround = [e for e in near_fighters if not touching(e) and surroundable(e)]
         dive = [e for e in surround if e.type_id in DIVE_FIRST]
-        tiers = [
-            (hitting_us, False),
-            (safe, False),
-            (dive, True),
-            ([e for e in surround if e not in dive], True),
-            (workers, False),
-            (unsafe, False),
-        ]
+        fighters_tiers = [(dive, True), ([e for e in surround if e not in dive], True)]
+        if FIGHTERS_FIRST:
+            tiers = [(hitting_us, False), *fighters_tiers, (safe, False), (workers, False), (unsafe, False)]
+        else:
+            tiers = [(hitting_us, False), (safe, False), *fighters_tiers, (workers, False), (unsafe, False)]
     else:
         key = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
         tiers = [(fighters, True), (workers, True), (key, True), ([s for s in structures if s not in key], True)]
@@ -574,7 +648,7 @@ def fight(
         depth_from = squad_position if TARGET_FILL == "back" else None
         goal, flank = pick_tiered(slots, blocks, unit, tiers, depth_from, now)
     if goal is None:
-        return
+        return wait_for_slot(ai, unit, threats)
     same_level = goal.is_flying or abs(ai.get_terrain_z_height(unit) - ai.get_terrain_z_height(goal)) < LEVEL_TOLERANCE
     if not flank and blocks.update(unit, goal, now, same_level):
         # Just got stuck on this one. An enemy unit: go around our own crowd to it if there's a
@@ -582,10 +656,31 @@ def fight(
         crowd = [u for u in ai.units if u.tag != unit.tag and u.type_id in ARMY_TYPES and u.distance_to(unit) < 8]
         if not goal.is_structure and not goal.is_memory and detours.plan(ai, unit, goal, crowd, now):
             COUNTS["detour planned"] += 1
-            fight(ai, unit, threats, enemies, slots, squad_position, blocks, detours)
+            fight(ai, unit, threats, enemies, slots, squad_position, blocks, detours, assault)
             return
         COUNTS["blocked, repick"] += 1
         goal, flank = pick_tiered(slots, blocks, unit, tiers, None, now)
+    if goal is None:
+        return wait_for_slot(ai, unit, threats)
+    if (
+        assault is not None
+        and slots.reach is not None
+        and not flank
+        and not goal.is_structure
+        and goal.type_id not in WORKER_TYPES
+        and not unit.target_in_range(goal, 1.0)
+    ):
+        enemy_fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
+        hold_at = assault.hold(ai, unit, goal, enemy_fighters, slots.reach)
+        if hold_at is not None:
+            COUNTS["assault: gather"] += 1
+            LAST_DECISION[unit.tag] = "assault gather"
+            if unit.distance_to(hold_at) > 1.5:
+                ai.register_behavior(
+                    PathUnitToTarget(unit=unit, grid=ai.mediator.get_ground_grid, target=hold_at, sense_danger=False)
+                )
+            return
+        COUNTS["assault: go"] += 1
     if flank:
         category = "flank"
     elif goal.is_structure and any(e.type_id not in WORKER_TYPES for e in threats):
@@ -597,6 +692,7 @@ def fight(
         if unit.target_in_range(goal, 0.25):
             COUNTS["unit in range"] += 1
     COUNTS[category] += 1
+    LAST_DECISION[unit.tag] = category
     if not ai.mediator.is_position_safe(grid=ai.mediator.get_ground_grid, position=position):
         COUNTS[f"UNSAFE {category}"] += 1
 
@@ -615,15 +711,37 @@ def fight(
     ai.register_behavior(maneuver)
 
 
+def wait_for_slot(ai: AresBot, unit: Unit, threats: list[Unit]) -> None:
+    """Every target in reach is full: wait for a slot, out of enemy fire."""
+    position = unit.position
+    # Every target in reach is full: wait for a slot, out of enemy fire
+    enemy_fighters = [e for e in threats if e.type_id not in WORKER_TYPES and e.can_attack_ground]
+    exposed = any(
+        f.position.distance_to(position) < f.ground_range + f.radius + unit.radius + EXPOSURE_MARGIN
+        for f in enemy_fighters
+    )
+    if exposed:
+        COUNTS["wait (step out)"] += 1
+        LAST_DECISION[unit.tag] = "wait (step out)"
+        ai.register_behavior(KeepUnitSafe(unit=unit, grid=ai.mediator.get_ground_grid))
+    else:
+        COUNTS["wait"] += 1
+        LAST_DECISION[unit.tag] = "wait"
+        if unit.orders:
+            unit.stop()
+
+
 def split_by_safety(structures: list[Unit], unit: Unit, fighters: list[Unit]) -> tuple[list[Unit], list[Unit]]:
-    """(structures this unit can hit from outside the enemy fighters' actual weapon range, the rest),
-    each closest first. Exposure is computed from the fighters directly: ares' danger grid pads every
-    range by a 4-tile buffer, which marks almost a whole cramped base as unsafe."""
+    """(structures whose whole attack ring is outside the enemy fighters' actual weapon range, the
+    rest), each closest first. The whole ring, not just the side facing us: zerglings spread all the
+    way around a building, and the ones on the far side were taking stalker shots. Exposure is
+    computed from the fighters directly: ares' danger grid pads every range by a 4-tile buffer,
+    which marks almost a whole cramped base as unsafe."""
     safe, unsafe = [], []
     for s in sorted(structures, key=lambda s: s.position.distance_to(unit.position)):
-        near_side = s.position.towards(unit.position, s.radius + unit.radius + 0.2)
+        ring = s.radius + 2 * unit.radius
         exposed = any(
-            f.position.distance_to(near_side) < f.ground_range + f.radius + unit.radius + EXPOSURE_MARGIN
+            f.position.distance_to(s.position) - ring < f.ground_range + f.radius + EXPOSURE_MARGIN
             for f in fighters
             if f.can_attack_ground
         )

@@ -296,6 +296,19 @@ class CrampedMain(StructureAssault):
         elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
             self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
             self.targets |= {s.tag for s in bot.enemy_structures(UnitTypeId.GATEWAY)}
+            # Debug: what the zerglings can actually reach at the start (no gateway broken yet)
+            from loguru import logger
+
+            from bot.targeting import ReachMap
+
+            lings = list(bot.units(UnitTypeId.ZERGLING))
+            enemies = list(bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}))
+            try:
+                reach = ReachMap(bot.mediator.get_ground_grid, lings, enemies, bot.get_terrain_z_height, margin=30)
+                report = ", ".join(f"{e.type_id.name}@{e.position.rounded}:{reach.open_sides(e)}" for e in enemies)
+                logger.info(f"reach at start (open cells per unit): {report}")
+            except TypeError:
+                pass  # older bot code (comparisons) has a different ReachMap
             bot.damage.reset(bot.time)
             self.fight_started = bot.time
             self.phase = "fight"

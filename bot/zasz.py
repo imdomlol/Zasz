@@ -92,7 +92,7 @@ class ZaszBot(AresBot):
 
     async def on_unit_took_damage(self, unit: Unit, amount_damage_taken: float) -> None:
         await super().on_unit_took_damage(unit, amount_damage_taken)
-        self.army.on_damage(self, unit)
+        self.army.on_damage(self, unit, amount_damage_taken)
         self.scouting.on_damage(self, unit)
         self.damage.on_damage_taken(unit, amount_damage_taken)
 
