@@ -276,6 +276,7 @@ class CrampedMain(StructureAssault):
                 await bot.client.debug_kill_unit(others)
             _, start = self.layout(bot)
             await bot.spawn(UnitTypeId.ZERGLING, start, amount=self.LINGS)
+            bot.army.debug = True  # log what the zerglings decide
             self.phase = "zerglings"
         elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
             self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
@@ -309,7 +310,17 @@ class CrampedMain(StructureAssault):
         return None
 
     def on_timeout(self, bot: ScenarioBot) -> Outcome:
-        return self.report(bot, failed, f"{self.alive(bot)} of {len(self.targets)} targets still alive")
+        known = {u.tag: u for u in bot.enemy_units} | {s.tag: s for s in bot.enemy_structures}
+        left = [known[t] for t in self.targets if t in known]
+        what = ", ".join(f"{u.type_id.name}@{u.position.rounded}" for u in left)
+        orders = {}
+        for ling in bot.units(UnitTypeId.ZERGLING):
+            target = known.get(ling.order_target) if isinstance(ling.order_target, int) else None
+            key = f"{target.type_id.name}@{target.position.rounded}" if target else str(ling.order_target)
+            orders[key] = orders.get(key, 0) + 1
+        return self.report(
+            bot, failed, f"{len(left)} of {len(self.targets)} targets still alive ({what}); zergling orders: {orders}"
+        )
 
 
 SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain()]

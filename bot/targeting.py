@@ -17,8 +17,10 @@ picks another one it can reach, or goes around.
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass
 
+import numpy as np
 from sc2.position import Point2
 from sc2.unit import Unit
 
@@ -34,6 +36,7 @@ from bot.settings import (
     MELEE_SURROUND_FRACTION,
     MELEE_UNIT_SURROUND_FRACTION,
     PROGRESS_STEP,
+    REACH_WINDOW_MARGIN,
 )
 
 MELEE_RANGE = 1.0  # weapon range at or below this counts as melee
@@ -58,11 +61,15 @@ def attack_capacity(attacker: Unit, target: Unit) -> int | None:
 class TargetSlots:
     """Per squad, per step: how many attackers each target already has."""
 
-    def __init__(self) -> None:
+    def __init__(self, reach: ReachMap | None = None) -> None:
         self.taken: dict[int, int] = {}
+        self.reach = reach
 
     def has_room(self, attacker: Unit, target: Unit) -> bool:
         capacity = attack_capacity(attacker, target)
+        if capacity is not None and self.reach is not None and not target.is_structure and not target.is_memory:
+            # A unit plugging a gap only has room for as many attackers as open cells touch it
+            capacity = min(capacity, max(1, self.reach.open_sides(target, attacker.radius)))
         return capacity is None or self.taken.get(target.tag, 0) < capacity
 
     def take(self, target: Unit) -> None:
@@ -147,7 +154,8 @@ def pick_tiered(
 ) -> tuple[Unit | None, bool]:
     """The best target for `attacker`: the first tier (highest priority) with a reachable target
     that still has room. Each tier is (targets, fill_from_back): fill from the back takes the deepest
-    one from `depth_from`, otherwise the closest. An attacker keeps its current target while that
+    one from `depth_from` (or the closest without one); otherwise the tier's own order is kept.
+    An attacker keeps its current target while that
     still has room and isn't blocked.
 
     Returns (target, flank): flank=True means every target is blocked for this attacker (go around
@@ -176,8 +184,10 @@ def pick_tiered(
         reachable = blocks.reachable(attacker, tier, now)
         if back and depth_from is not None:
             ordered = sorted(reachable, key=lambda e: -e.position.distance_to(depth_from))
-        else:
+        elif back:
             ordered = sorted(reachable, key=lambda e: e.position.distance_to(attacker.position))
+        else:
+            ordered = reachable  # already in the caller's preferred order
         if choice := next((e for e in ordered if slots.has_room(attacker, e)), None):
             slots.take(choice)
             return choice, False
@@ -246,3 +256,68 @@ class Detours:
 
     def forget_dead(self, alive: set[int]) -> None:
         self.routes = {t: r for t, r in self.routes.items() if t in alive}
+
+
+class ReachMap:
+    """Which enemy units our melee attackers can actually get to, right now.
+
+    Pathing ignores units, so a zealot standing in a 1-tile gap between two gateways looks like an
+    open lane. This does a breadth-first search over the ground pathing grid around the fight, with
+    enemy ground units marked as obstacles, starting from every one of our attackers. A target is
+    reachable if an open cell next to it was reached, and the number of such cells is how many melee
+    attackers can stand around it (a zealot plugging a gap: one or two).
+    """
+
+    def __init__(self, grid, own: list[Unit], enemies: list[Unit], margin: int = REACH_WINDOW_MARGIN) -> None:
+        points = [u.position for u in own] + [e.position for e in enemies]
+        width, height = grid.shape
+        self.x0 = max(0, int(min(p.x for p in points)) - margin)
+        self.y0 = max(0, int(min(p.y for p in points)) - margin)
+        x1 = min(width, int(max(p.x for p in points)) + margin + 1)
+        y1 = min(height, int(max(p.y for p in points)) + margin + 1)
+        walkable = np.isfinite(grid[self.x0 : x1, self.y0 : y1])
+        for e in enemies:
+            if not e.is_structure and not e.is_flying:
+                for cell in self._cells_within(e.position, e.radius + 0.1, walkable.shape):
+                    walkable[cell] = False
+        self.walkable = walkable
+        self.reached = np.zeros_like(walkable, dtype=bool)
+        queue: deque[tuple[int, int]] = deque()
+        for u in own:
+            cell = (int(u.position.x) - self.x0, int(u.position.y) - self.y0)
+            if 0 <= cell[0] < walkable.shape[0] and 0 <= cell[1] < walkable.shape[1] and not self.reached[cell]:
+                self.reached[cell] = True  # start from our units even if the grid says blocked
+                queue.append(cell)
+        w, h = walkable.shape
+        while queue:
+            cx, cy = queue.popleft()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                nx, ny = cx + dx, cy + dy
+                if 0 <= nx < w and 0 <= ny < h and walkable[nx, ny] and not self.reached[nx, ny]:
+                    if dx and dy and not (walkable[cx + dx, cy] or walkable[cx, cy + dy]):
+                        continue  # no squeezing diagonally between two blocked cells
+                    self.reached[nx, ny] = True
+                    queue.append((nx, ny))
+        self._open: dict[int, int] = {}
+
+    def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
+        cells = []
+        for x in range(int(center.x - radius) - 1, int(center.x + radius) + 2):
+            for y in range(int(center.y - radius) - 1, int(center.y + radius) + 2):
+                if (x + 0.5 - center.x) ** 2 + (y + 0.5 - center.y) ** 2 <= radius**2:
+                    lx, ly = x - self.x0, y - self.y0
+                    if 0 <= lx < shape[0] and 0 <= ly < shape[1]:
+                        cells.append((lx, ly))
+        return cells
+
+    def open_sides(self, target: Unit, attacker_radius: float = 0.375) -> int:
+        """Reached cells an attacker could stand on to hit `target` (0 = unreachable)."""
+        if target.tag not in self._open:
+            ring = self._cells_within(target.position, target.radius + 2 * attacker_radius + 0.6, self.walkable.shape)
+            self._open[target.tag] = sum(1 for c in ring if self.walkable[c] and self.reached[c])
+        return self._open[target.tag]
+
+    def reachable(self, target: Unit) -> bool:
+        if target.is_structure or target.is_flying or target.is_memory:
+            return True  # structures are always approachable from somewhere; air isn't our problem here
+        return self.open_sides(target) > 0
