@@ -98,7 +98,19 @@ uv run python scripts/run_scenarios.py --list
 
 Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`); see
 `scenarios/__init__.py` for how to write one and the debug quirks to watch for. Replays of failed
-scenarios are kept in `replays/scenarios/`.
+scenarios are kept in `replays/scenarios/`. If StarCraft II crashes or freezes mid-scenario, a
+watchdog reports it as an ERROR and the run carries on (`--watchdog SECONDS` to change the limit).
+
+**Damage efficiency** (`efficiency_*` scenarios): 30 zerglings vs structures on open ground, in a
+4-deep base and up the enemy's main ramp. They pass when everything is dead and report kill time,
+damage per second, and how much of the army's damage potential landed (delivered vs blocked vs
+idle, from `bot/efficiency.py`), appended to `benchmarks/efficiency.csv` with the commit:
+
+```sh
+uv run python scripts/run_scenarios.py efficiency_open_field efficiency_deep_base efficiency_ramp --repeat 2
+```
+
+Real games log the same summary at the end ("Army damage: ...").
 
 ## Decisions and the learning interface
 
@@ -137,6 +149,8 @@ bot/
 ├── observation.py     # Observation + observe(): what decisions get to see
 ├── spaces.py          # the fixed unit/upgrade/race lists behind observations and decisions
 ├── recording.py       # save / load (observation, decision) pairs
+├── efficiency.py      # damage efficiency: how much of the army's damage potential lands
+├── targeting.py       # target slots: spread melee attackers over structures (fill from the back)
 ├── decisions/         # WHAT to do
 │   ├── __init__.py    #   Decision (the action space) and the Decisions interface
 │   └── scripted.py    #   hand-written rules (a learned model would sit next to this)
@@ -153,7 +167,7 @@ bot/
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
-scenarios/             # staged scenarios (expansions, defense, army, decisions), run by scripts/run_scenarios.py
+scenarios/             # staged scenarios (expansions, defense, army, decisions, efficiency), run by scripts/run_scenarios.py
 tests/                 # offline unit tests (uv run pytest)
 scripts/
 ├── benchmark.py       # win-rate benchmark

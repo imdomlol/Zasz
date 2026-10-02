@@ -25,6 +25,12 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 - **Scouting:** up to 4 overlords posted next to enemy expansions, kept out of known anti-air.
 - **Defense:** a spore per mineral line once enemy air shows up.
 
+**On branch `damage-efficiency` (not merged yet):** damage-efficiency metric (`bot/efficiency.py`,
+logged at game end and an observation feature), `efficiency_*` scenarios, target slots that spread
+melee attackers over structures and fill from the back (`bot/targeting.py`, `STRUCTURE_FILL`), and a
+scenario-runner watchdog for crashed/frozen StarCraft II. Written to carry over to mutalisks (ranges
+from each unit's own weapon; ranged/air attackers uncapped). Details and open items: todo #13.
+
 ## Verified
 
 | What | Result |
@@ -43,6 +49,10 @@ Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings 
 | Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
 
 ## Open items / watch list
+
+- **Damage efficiency in real games** reads much lower than in scenarios (32% vs 60-70%, blocked 51%
+  in a VeryHard win). Might be real congestion or the metric (sideways-moving targets count as
+  blocked); see todo #13 before trusting it.
 
 - **`TANK_NEUTRALIZED_BY = 3`** (`bot/settings.py`, `tank_neutralized` in `bot/army.py`): sieged tanks
   with 3+ of our zerglings inside their minimum range are left out of the combat sim (the sim

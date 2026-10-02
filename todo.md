@@ -15,7 +15,7 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
-| 13 | `damage-efficiency` | Damage efficiency: how much of the army's damage actually lands | High | - |
+| 13 | `damage-efficiency` | Damage efficiency (metric, scenarios, target slots done; ramp open) | High | - |
 | 15 | `external-opponents` | Play against other people's bots | High | - |
 | 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | - |
 | 9 | `mining-rate` | Mining rate per drone | Low | - |
@@ -39,59 +39,41 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 
 ## `damage-efficiency` (#13): Damage efficiency: how much of the army's damage actually lands
 
-**Idea:** Create a test that measures how efficiently Zasz uses his forces to destroy buildings / units, so we can make changes that improve unit usage. E.g. zerglings on a ramp where 5/100 can attack: many take unnecessary damage while the rest are stuck trying to get up the ramp (maybe attack, then stutter step during the attack cooldown so more zerglings flow in). Also zerglings spreading out breadth-first over a base instead of diving deeper, blocking the units behind them. Measure it with the army's estimated potential DPS vs actual damage done (enemy health): potential 50 DPS but only 1/5 zerglings attacking = 10 DPS, flagged as an inefficiency. Only flag it when the target doesn't change and isn't running away (no penalty for chasing a scouting worker or rerouting zerglings to other buildings).
+**Status (branch `damage-efficiency`):** metric, scenarios and a first fix are in; the ramp is still
+open.
 
-**Depends on:** -
+**Done:**
+- `bot/efficiency.py`: per committed unit (same target >= 1 s, not travelling, not chasing a fleeing
+  unit), potential DPS (`calculate_dps_vs_target`) split into delivered / blocked / idle, plus damage
+  dealt/taken and dmg/s. Not melee-specific: ranges come from each unit's own ground/air weapon, so
+  it carries over to mutalisks (their bounce isn't counted as potential). Logged at game end ("Army
+  damage: ..."); the 10 s rolling efficiency is the `damage_efficiency` observation feature.
+- `scenarios/efficiency.py`: `efficiency_open_field`, `efficiency_deep_base`, `efficiency_ramp`
+  (30 zerglings vs engineering bays; results appended to `benchmarks/efficiency.csv`).
+- `bot/targeting.py`: target slots. A structure takes only as many melee attackers as fit around
+  it; with `STRUCTURE_FILL = "back"` the first attackers in go deepest and later ones fill toward the
+  front. Ranged/air attackers and unit targets aren't capped (`attack_capacity` is where a mutalisk
+  overkill cap would go).
 
-**Revision:** A metric plus scenarios to tune against, rather than a pass/fail test at first.
+**Results** (kill time, 2-3 runs each): open field off 31-32s / back 30s; deep base 64-65s / 59-62s;
+ramp 35-36s / 34-38s. Slots cut blocking where there's room to spread out; target choice makes no
+difference on the ramp.
 
-*The metric.* Every step, for each zergling that is **committed** (its target hasn't changed for
-the last ~1 s, and the target isn't moving away from it, so chasing a scouting worker or switching
-to another building doesn't count):
-- potential = `unit.calculate_dps_vs_target(target)` (python-sc2; accounts for armor and upgrades)
-- attacking = it fired recently (`unit.weapon_cooldown > 0`), i.e. it's actually swinging
-
-Efficiency = attacking committed DPS / potential committed DPS (your 50 DPS vs 10 DPS example
-reads as 20%). Cross-check it against what really landed: the drop in enemy health + shields over
-the same window. Also report damage taken per damage dealt, and time to kill the target set.
-Per-zergling cooldown is better than health deltas alone, because it says *which* zerglings are
-idle (back of the ramp vs stuck behind the front line).
-
-*The scenarios* (same `scenarios/` framework, reported as numbers and logged per commit like the
-benchmark):
-- **open field:** N zerglings vs a cluster of structures on flat ground: the baseline/upper bound
-- **ramp:** the same structures on a high-ground main, zerglings starting below the ramp
-- **deep base:** structures several layers deep, to catch the breadth-first spread: the front
-  layer gets surrounded and the zerglings behind can't get through
-
-Ramp efficiency / open-field efficiency then measures the ramp problem directly, and a change can
-be judged by whether it raises the number without raising damage taken.
-
-*Fixes to try with it:*
-- **Saturation-capped targets:** a melee target can only be hit by as many zerglings as fit
-  around it (about its perimeter / zergling width). Once a target is full, the next zergling picks
-  the next target *deeper* in, which addresses the breadth-first spread and keeps the ramp moving.
-- **Stutter step during cooldown:** worth testing, but the zergling cooldown is short (~0.5 s
-  game time), so stepping away and back may cost more swings than it frees up; the metric decides.
-- **Wait out of range:** zerglings that can't reach any free spot hold back out of range instead
-  of standing in the line of fire at the bottom of the ramp.
-
-**Impact:** **High** while Zasz is zergling-only: all its damage is melee, and congestion limits
-exactly that (it's likely part of why Harder+ games stall into ties). The metric also carries over
-to roaches and other units later (#2), and is a good model feature (an `Observation` field).
-**Blockers:**
-- **Health deltas are noisy:** SCV repair, shield regen, zerg regeneration, and damage from
-  queens all change enemy health. Keep scenario armies to zerglings only and repair-free targets,
-  and treat the per-zergling cooldown measure as the main one.
-- **Only what we can see:** health and positions update only with vision (fine in staged
-  scenarios with `debug_show_map`, but in real games it undercounts).
-- **"Committed" is a judgement call:** target unchanged for ~1 s and not moving away needs tuning,
-  so it doesn't flag a zergling just walking up to its target.
-- **Debug setup on high ground is unreliable:** enemy supply depots failed to spawn on our high
-  ground, and spawns that don't fit get moved. Use a real main (e.g. a scenario inside the
-  enemy's own main) or verify the spawned layout before measuring.
-- **The built-in AI interferes:** it pulls SCVs to repair and moves units; use structures and
-  `debug_control_enemy` upkeep as in `tank_dive`.
+**Still open:**
+- **Ramp throughput** (~15% blocked): it's traffic on the ramp itself, not target choice. Ideas: hold
+  the back of the army out of range (or keep it moving to a second ramp/flank) instead of queueing;
+  only send as many up as the top can use. Measure with `efficiency_ramp`.
+- **Idle ~24% everywhere** is mostly the melee wind-up (cooldown hits 0 before the next hit lands);
+  a better "swinging" signal would make this number meaningful.
+- **Stutter step during cooldown**: not tried; the metric can decide.
+- **Mutalisks** (#12): add an overkill cap for ranged attackers in `attack_capacity`, and a
+  scenario (mutalisks vs workers/structures) to measure bounce and spread.
+- **Real games are noisy** (queens, regeneration, repair, vision): compare in scenarios.
+- **Real-game number looks off:** a VeryHard win at `4ec2259` logged efficiency 32% (blocked 51%,
+  idle 17%) vs 60-70% in scenarios. Check whether that's real congestion or the metric: zerglings
+  chasing a unit that moves *sideways* aren't closing in, so they count as blocked (only targets
+  moving away are excluded). The game-end dmg/s is averaged over the whole game, so it only means
+  something in scenarios.
 
 ## `external-opponents` (#15): Play against other people's bots
 
