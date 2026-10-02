@@ -1,5 +1,15 @@
 # Notes: zergling blocking (branch `blocked-zerglings`)
 
+**Summary (for when you're back):**
+- `efficiency_cramped_main` (5x3 gateway grid, 4 zealots, 4 stalkers): **25/25** in a row (73-108 s).
+- `efficiency_cramped_more_zealots` (+2 zealots in the middle row): **10/10** (78-112 s). The army
+  only takes this fight when the scenario sets `Army.committed`: the combat sim calls it a loss and
+  the bot otherwise never attacks (section 14; your call whether the real decision should change).
+- The big wins: walking around enemy units to reach them (section 11) and not trading 1-on-1 with a
+  zealot plugging a gap (section 12). Everything that was tried and dropped is logged below.
+- Not fixed: `fight_winnable` fails (it already did before this branch), `tank_dive` is flaky
+  (section 16).
+
 Running log of what was tried against the packed-gateway scenario and what happened. Newest at the
 bottom. Goal: `efficiency_cramped_main` 25/25, then with extra zealots in the gateway gaps 10/10.
 
@@ -254,3 +264,12 @@ here (e.g. discount enemy units that are walled in or can't reach us) is a separ
 Once the army actually takes the fight, the two extra zealots in the middle row are handled like the
 others: step out of their reach, clear the gateways beside them, swarm them once they have room
 around them.
+
+### 16. Full scenario suite on the final code
+
+13/15. Of the two failures:
+- `fight_winnable` (6 zerglings vs 2 marines; 0 damage dealt, they never engage) fails the same way
+  on `856dc28`, the code this branch started from, so it isn't caused by this branch. Cause not
+  investigated yet.
+- `tank_dive` failed once ("never engaged") and passed when re-run: flaky, worth a look.
+The other efficiency scenarios (open field, deep base, ramp) all pass with no damage taken.
