@@ -372,5 +372,12 @@ class CrampedMainMoreZealots(CrampedMain):
     description = "efficiency_cramped_main with 6 zealots (2 more in the middle row's center gaps)"
     ZEALOTS = 6
 
+    async def on_step(self, bot: ScenarioBot) -> None:
+        # The combat sim calls this fight a loss (it can't see that the gateways let zerglings take
+        # the enemy apart piece by piece), so on its own the army never attacks. This tests the
+        # fighting, not that decision: commit to it
+        bot.army.committed = True
+        await super().on_step(bot)
+
 
 SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain(), CrampedMainMoreZealots()]

@@ -229,3 +229,28 @@ What made the difference, in order of impact:
 
 What didn't help: work orders, gathering before going in, focus fire, wider clear-the-way ranges,
 safe-only targeting, waiting for free slots (all in `5b18f41` or reverted).
+
+## Phase 2: two more zealots (`efficiency_cramped_more_zealots`)
+
+Same grid; 6 zealots: the 4 back-row gaps plus the 2 center gaps of the middle row.
+
+### 14. First try: 0/10, and the army never really attacked
+
+Bottom side: 25 of 25 targets alive. The whole-army combat sim calls 48 zerglings vs 4 stalkers + 6
+zealots a loss, so `avoid_armies_we_cannot_beat` marks it as an area to avoid and the army plan
+holds at home all game. Top side: the plan flips between fighting and staging, then squads retreat
+on the sim's call (LOSS_MARGINAL/LOSS_CLOSE).
+
+That judgment isn't crazy: in an open field 6 zealots + 4 stalkers do beat 48 slow zerglings. What
+the sim can't see is that the gateways let zerglings clear buildings for free and take on the units
+a couple at a time. This test is about executing the fight, not deciding whether to take it, so I
+added `Army.committed` (attack, ignore avoid areas and sim retreats), set **only by this scenario**.
+The 4-zealot 25/25 runs don't use it. **Your call:** whether the real decision should get smarter
+here (e.g. discount enemy units that are walled in or can't reach us) is a separate question.
+
+### 15. Committed: 10/10
+
+**10/10** (top 6/6 in 78-89 s, bottom 4/4 in 88-112 s), with no targeting changes beyond phase 1.
+Once the army actually takes the fight, the two extra zealots in the middle row are handled like the
+others: step out of their reach, clear the gateways beside them, swarm them once they have room
+around them.

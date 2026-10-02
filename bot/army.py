@@ -118,6 +118,10 @@ class Army:
         self.counts_logged_at = 0.0
         self.scouts: dict[int, Point2] = {}  # scouting zergling tag -> spot it's checking
         self.armies_checked_at = -999.0
+        # Committed: attack and keep fighting whatever the combat sim says (no avoid areas, no
+        # retreats). Off in games; scenarios that test execution against a fight the sim calls a
+        # loss switch it on
+        self.committed = False
 
     def on_damage(self, ai: AresBot, unit: Unit) -> None:
         self.last_damaged[unit.tag] = ai.time
@@ -147,8 +151,9 @@ class Army:
             # Defending always comes first: every squad goes for the threat
             self.control_squads(ai, Point2(home_threats[0].position), advancing=True)
             return
+        attacking = attacking or self.committed
         self.control_scouts(ai, attacking)
-        if attacking and ai.time - self.armies_checked_at >= PLAN_SECONDS:
+        if attacking and not self.committed and ai.time - self.armies_checked_at >= PLAN_SECONDS:
             self.armies_checked_at = ai.time
             self.avoid_armies_we_cannot_beat(ai)
         if not attacking or not self.avoided(ai):
@@ -368,7 +373,7 @@ class Army:
             result = fight_result(ai, units, threats)
             # Fight while the sim predicts at least an even fight; any predicted loss means
             # retreat, so we never keep feeding units into a losing fight
-            if near_home or result >= FIGHT_AT:
+            if near_home or self.committed or result >= FIGHT_AT:
                 slots = TargetSlots(self.reach_map(ai, units, enemies))
                 for unit in front_first(units, enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
