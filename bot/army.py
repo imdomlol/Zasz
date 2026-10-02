@@ -29,18 +29,21 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
 
-from bot.army_plan import ArmyPlan, Task, center_of
+from bot.army_plan import ArmyPlan, Task, center_of, enemy_groups, wins
 from bot.settings import (
     APPROACH_DISTANCE,
     AVOID_MARGIN,
     AVOID_SECONDS,
+    CHECK_AGAIN_SECONDS,
     DEFEND_RADIUS,
     ENGAGE_RANGE,
     FIGHT_AT,
     FIGHTER_PRIORITY_RANGE,
     LOOKOUT_FLEE_MARGIN,
     MEMORY_THREAT_MARGIN,
+    PLAN_SECONDS,
     REGROUP_DISTANCE,
+    SCOUT_ZERGLINGS,
     SQUAD_RADIUS,
     STRUCTURE_FILL,
     TANK_NEUTRALIZED_BY,
@@ -83,21 +86,30 @@ class Army:
         self.turned_back_at: list[tuple[Point2, float, float]] = []  # (center, radius, until)
         self.checked_empty: dict[Point2, float] = {}  # expansion spot -> when we saw nothing there
         self.plan = ArmyPlan()  # what each zergling does: fight, stage, peek, scout, watch, hold
+        self.scouts: dict[int, Point2] = {}  # scouting zergling tag -> spot it's checking
+        self.armies_checked_at = -999.0
 
     def on_damage(self, ai: AresBot, unit: Unit) -> None:
         self.last_damaged[unit.tag] = ai.time
 
     def control(self, ai: AresBot, attacking: bool) -> None:
+        """Defend first. Otherwise one army moving together (attack, or hold at the rally point):
+        against most opponents a single ball of zerglings wins fastest. Only once an attack has been
+        turned back by an army we can't beat (an active avoid area) does the army plan take over:
+        peek, raid around it, scout, watch (`ArmyPlan`), until those areas expire."""
         home_threats = [
             u for u in ai.mediator.get_main_ground_threats_near_townhall if u.type_id not in IGNORED_THREATS
         ]
         if home_threats:
             # Defending always comes first: every squad goes for the threat
-            squads: list[UnitSquad] = ai.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=SQUAD_RADIUS)
-            target = Point2(home_threats[0].position)
-            main_squad_position = ai.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
-            for squad in squads:
-                self.control_squad(ai, squad, target, True, main_squad_position)
+            self.control_squads(ai, Point2(home_threats[0].position), advancing=True)
+            return
+        self.control_scouts(ai, attacking)
+        if attacking and ai.time - self.armies_checked_at >= PLAN_SECONDS:
+            self.armies_checked_at = ai.time
+            self.avoid_armies_we_cannot_beat(ai)
+        if not attacking or not self.avoided(ai):
+            self.control_squads(ai, self.attack_target(ai) if attacking else rally_point(ai), advancing=attacking)
             return
 
         lings = [u for u in ai.mediator.get_units_from_role(role=UnitRole.ATTACKING) if u.type_id in ARMY_TYPES]
@@ -116,6 +128,60 @@ class Army:
             else:
                 for unit in units:
                     self.lookout(ai, unit, task)
+
+    def avoid_armies_we_cannot_beat(self, ai: AresBot) -> None:
+        """Mark every known enemy group (seen now or remembered) the whole army can't beat as an
+        area to avoid, before walking into it rather than after losing half the zerglings."""
+        lings = [u for u in ai.mediator.get_units_from_role(role=UnitRole.ATTACKING) if u.type_id in ARMY_TYPES]
+        for group in enemy_groups(ai):
+            if not wins(ai, lings, group.units):
+                self.turned_back(ai, group.units)
+
+    def control_scouts(self, ai: AresBot, attacking: bool) -> None:
+        """While attacking, SCOUT_ZERGLINGS zerglings run ahead as lookouts: their natural first,
+        then expansions we haven't seen lately, so the army sees what's out there before it walks
+        in. They rejoin the army when we stop attacking."""
+        alive = {u.tag: u for u in ai.units(UnitTypeId.ZERGLING)}
+        self.scouts = {tag: spot for tag, spot in self.scouts.items() if tag in alive}
+        if not attacking:
+            for tag in self.scouts:
+                ai.mediator.assign_role(tag=tag, role=UnitRole.ATTACKING)
+            self.scouts = {}
+            return
+        army = [u for u in ai.mediator.get_units_from_role(role=UnitRole.ATTACKING) if u.type_id in ARMY_TYPES]
+        while len(self.scouts) < SCOUT_ZERGLINGS and len(army) > SCOUT_ZERGLINGS:
+            spot = self.next_scout_spot(ai)
+            scout = min(army, key=lambda u: u.position.distance_to(spot))
+            army.remove(scout)
+            ai.mediator.assign_role(tag=scout.tag, role=UnitRole.SCOUTING)
+            self.scouts[scout.tag] = spot
+        for tag, spot in list(self.scouts.items()):
+            unit = alive[tag]
+            if unit.distance_to(spot) < 4 or ai.is_visible(spot):
+                if not ai.enemy_structures.closer_than(8, spot):
+                    self.checked_empty[spot] = ai.time
+                spot = self.scouts[tag] = self.next_scout_spot(ai)
+            self.lookout(ai, unit, Task("scout", spot))
+
+    def next_scout_spot(self, ai: AresBot) -> Point2:
+        """Their natural, then their expansions, skipping spots another scout has or that we've
+        seen empty in the last minute."""
+        taken = set(self.scouts.values())
+        spots = [spot for spot, _ in ai.mediator.get_enemy_expansions]
+        for spot in spots[1:] + spots[:1]:
+            if spot in taken or ai.time - self.checked_empty.get(spot, -999) < CHECK_AGAIN_SECONDS:
+                continue
+            return spot
+        return ai.mediator.get_enemy_nat
+
+    def control_squads(self, ai: AresBot, target: Point2, advancing: bool) -> None:
+        """Every ares squad toward one target; squads away from the main one regroup with it first."""
+        squads: list[UnitSquad] = ai.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=SQUAD_RADIUS)
+        if not squads:
+            return
+        main_squad_position = ai.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
+        for squad in squads:
+            self.control_squad(ai, squad, target, advancing, main_squad_position)
 
     def lookout(self, ai: AresBot, unit: Unit, task: Task) -> None:
         """Peek, scout and watch: single zerglings that look, never fight. They back off from any

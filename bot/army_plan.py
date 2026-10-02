@@ -1,7 +1,12 @@
 """Army plan: what each zergling does, every PLAN_SECONDS. Grouping only when necessary.
 
+Used while attacking after the army has been turned back by an enemy army it can't beat (see
+`Army.control`); until then, and when not attacking, the army moves as one, which wins fastest
+against most opponents. A VeryHard benchmark with the plan always on went 2/6 (vs 5/6 without):
+splitting into minimum-size raids all the time spread the pressure too thin.
+
 The known enemy army is clustered into groups (visible units and ares' memory of units last seen
-in the fog). Then, when attacking:
+in the fog). Then:
 
 - **Group up** only when there's a visible enemy group we can beat with the whole army but not
   with half of it: everyone gathers at a staging point outside its range, then engages together.

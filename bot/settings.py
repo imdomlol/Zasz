@@ -35,6 +35,7 @@ ENEMY_GROUP_RADIUS = 10  # enemy units this close together are one group
 RAID_MIN = 6  # smallest fighting detachment; raids grow in steps of this until the sim says they win
 MAX_RAIDS = 2  # enemy bases raided at once
 MAX_SCOUTS = 3  # single zerglings checking the enemy main and expansions
+SCOUT_ZERGLINGS = 2  # while attacking, zerglings that run ahead as lookouts (outside the army plan)
 MAX_WATCHERS = 4  # single zerglings watching known enemy groups
 PEEK_MARGIN = 1.5  # peeking zerglings stop this far outside the remembered enemy's range
 PEEK_AGAIN_SECONDS = 20  # don't peek at the same remembered group more often than this
