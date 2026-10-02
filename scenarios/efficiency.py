@@ -1,0 +1,214 @@
+"""Damage efficiency (`bot/efficiency.py`): zerglings vs a cluster of structures in different layouts.
+
+These measure rather than judge: a scenario passes when every structure is dead in time, and
+its message (also appended to `benchmarks/efficiency.csv` with the commit) reports how much of
+the zerglings' damage potential landed. Compare layouts with each other (ramp vs open field is the
+ramp problem) and commits with each other.
+
+Setup: enemy engineering bays are spawned (they can't lift off), then the enemy's command center
+and SCVs are removed (no repair, no workers wandering in; the bays keep the game going), then our
+zerglings appear and the bays are checked to be in place. Measuring starts when the zerglings
+appear.
+"""
+
+import csv
+from datetime import datetime
+from pathlib import Path
+
+from sc2.ids.unit_typeid import UnitTypeId
+from sc2.position import Point2
+
+from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+
+ROOT = Path(__file__).resolve().parent.parent
+RESULTS_FILE = ROOT / "benchmarks" / "efficiency.csv"
+STRUCTURE = UnitTypeId.ENGINEERINGBAY  # 3x3, can't lift off
+KEEP_ALIVE = UnitTypeId.SENSORTOWER  # one more enemy building far away, so killing the layout doesn't end the game
+ZERGLINGS = 30
+FIELDS = ["timestamp", "commit", "scenario", "kill_time", "efficiency", "blocked", "idle", "dealt", "taken"]
+
+
+def current_commit() -> str:
+    head = ROOT / ".git" / "HEAD"
+    try:
+        ref = head.read_text().strip()
+        if ref.startswith("ref: "):
+            return (ROOT / ".git" / ref[5:]).read_text().strip()[:7]
+        return ref[:7]
+    except OSError:
+        return "none"
+
+
+class StructureAssault(Scenario):
+    """Base: spawn the layout, clear the enemy's workers and command center, then the zerglings."""
+
+    time_limit = 90
+
+    def __init__(self) -> None:
+        self.phase = "spawn"
+        self.spawned_at = 0.0
+        self.fight_started = 0.0
+        self.expected = 0
+
+    def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
+        """Structure positions and where the zerglings start."""
+        raise NotImplementedError
+
+    async def setup(self, bot: ScenarioBot) -> None:
+        await bot.client.debug_show_map()
+        await bot.client.debug_control_enemy()
+
+    async def on_step(self, bot: ScenarioBot) -> None:
+        # Spawn the layout first: removing the enemy's command center while it has no other
+        # structure would end the game
+        if self.phase == "spawn":
+            positions, _ = self.layout(bot)
+            self.expected = len(positions)
+            for position in positions:
+                await bot.spawn(STRUCTURE, position, enemy=True)
+            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, positions), enemy=True)
+            self.spawned_at = bot.time
+            self.phase = "clear"
+        elif self.phase == "clear" and bot.time - self.spawned_at > 1:
+            # Everything else the enemy has (command center, SCVs) goes: no repair, no workers
+            keep = {STRUCTURE, KEEP_ALIVE}
+            others = {u.tag for u in bot.enemy_units} | {s.tag for s in bot.enemy_structures if s.type_id not in keep}
+            if others:
+                await bot.client.debug_kill_unit(others)
+            _, start = self.layout(bot)
+            await bot.spawn(UnitTypeId.ZERGLING, start, amount=ZERGLINGS)
+            self.phase = "zerglings"
+        elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
+            bot.damage.reset()
+            self.fight_started = bot.time
+            self.phase = "fight"
+
+    def check(self, bot: ScenarioBot) -> Outcome | None:
+        if self.phase == "zerglings":
+            built = bot.enemy_structures(STRUCTURE).amount
+            if built != self.expected:
+                return failed(f"setup: {built} of {self.expected} structures spawned")
+            if not bot.enemy_structures(KEEP_ALIVE):
+                return failed("setup: the keep-alive structure didn't spawn")
+        if self.phase != "fight":
+            return None
+        if not bot.enemy_structures(STRUCTURE):
+            return self.report(bot, passed, f"all {self.expected} structures dead in {self.elapsed(bot):.0f}s")
+        if not bot.units(UnitTypeId.ZERGLING):
+            return self.report(bot, failed, "all zerglings died")
+        return None
+
+    def on_timeout(self, bot: ScenarioBot) -> Outcome:
+        left = bot.enemy_structures(STRUCTURE).amount
+        return self.report(bot, failed, f"{left} of {self.expected} structures still alive")
+
+    def elapsed(self, bot: ScenarioBot) -> float:
+        return bot.time - self.fight_started
+
+    def report(self, bot: ScenarioBot, verdict, text: str) -> Outcome:
+        t = bot.damage.total
+        RESULTS_FILE.parent.mkdir(exist_ok=True)
+        new_file = not RESULTS_FILE.exists()
+        with RESULTS_FILE.open("a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDS)
+            if new_file:
+                writer.writeheader()
+            writer.writerow(
+                {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "commit": current_commit(),
+                    "scenario": self.name,
+                    "kill_time": round(self.elapsed(bot), 1) if verdict is passed else "",
+                    "efficiency": round(t.efficiency or 0, 3),
+                    "blocked": round(t.share(t.blocked), 3),
+                    "idle": round(t.share(t.idle), 3),
+                    "dealt": round(t.damage_dealt),
+                    "taken": round(t.damage_taken),
+                }
+            )
+        return verdict(f"{text}; {t.summary()}")
+
+
+def fits(bot: ScenarioBot, center: Point2, size: int = 3) -> bool:
+    """Every cell of a size x size footprint centred here is buildable."""
+    half = size / 2
+    return all(
+        bot.in_placement_grid(Point2((center.x - half + 0.5 + dx, center.y - half + 0.5 + dy)))
+        for dx in range(size)
+        for dy in range(size)
+    )
+
+
+def keep_alive_spot(bot: ScenarioBot, layout: list[Point2]) -> Point2:
+    """Behind the layout as seen from our base, so the bot (which attacks the known structure
+    closest to its rally point) always reaches it last."""
+    far = max(layout, key=lambda p: p.distance_to(bot.start_location))
+    behind = far.towards(bot.start_location, -12)
+    for radius in range(0, 15):
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                p = Point2((behind.x + dx, behind.y + dy))
+                if fits(bot, p, size=1) and min(p.distance_to(q) for q in layout) > 6:
+                    return p
+    return behind
+
+
+def placed_layout(bot: ScenarioBot, offsets: list[Point2], origin: Point2) -> list[Point2]:
+    """The layout at the closest spot to `origin` where every structure fits (debug spawns that
+    don't fit get moved or dropped)."""
+    for radius in range(0, 20):
+        for dx in range(-radius, radius + 1):
+            for dy in (-radius, radius) if abs(dx) != radius else range(-radius, radius + 1):
+                shifted = Point2((origin.x + dx, origin.y + dy))
+                positions = [shifted + o for o in offsets]
+                if all(fits(bot, p) for p in positions):
+                    return positions
+    return [origin + o for o in offsets]
+
+
+def toward_us(bot: ScenarioBot, origin: Point2) -> Point2:
+    """Unit vector from `origin` toward our main."""
+    return origin.towards(bot.start_location, 1) - origin
+
+
+def across(direction: Point2) -> Point2:
+    return Point2((-direction.y, direction.x))
+
+
+class OpenField(StructureAssault):
+    name = "efficiency_open_field"
+    description = "30 zerglings vs 6 engineering bays spread out on flat ground (the upper bound)"
+
+    def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
+        center = bot.game_info.map_center
+        back, side = toward_us(bot, center), across(toward_us(bot, center))
+        # 2 rows of 3, 2 tiles apart: room to surround every one
+        positions = placed_layout(bot, [side * dx - back * dy for dx in (-5, 0, 5) for dy in (0, 5)], center)
+        return positions, positions[0] + side * 5 + back * 12
+
+
+class DeepBase(StructureAssault):
+    name = "efficiency_deep_base"
+    description = "30 zerglings vs 12 engineering bays packed 4 rows deep, 1-tile gaps (breadth-first spread)"
+
+    def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
+        center = bot.game_info.map_center
+        back, side = toward_us(bot, center), across(toward_us(bot, center))
+        positions = placed_layout(bot, [side * dx - back * dy for dx in (-4, 0, 4) for dy in (0, 4, 8, 12)], center)
+        return positions, positions[0] + side * 4 + back * 12
+
+
+class Ramp(StructureAssault):
+    name = "efficiency_ramp"
+    description = "30 zerglings below the enemy's main ramp vs 6 engineering bays at the top"
+
+    def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
+        ramp = bot.mediator.get_enemy_ramp
+        top, bottom = ramp.top_center, ramp.bottom_center
+        up = bottom.towards(top, 1) - bottom
+        side = across(up)
+        positions = [top + up * dy + side * dx for dx in (-4, 0, 4) for dy in (6, 10)]
+        return positions, bottom - up * 8
+
+
+SCENARIOS = [OpenField(), DeepBase(), Ramp()]

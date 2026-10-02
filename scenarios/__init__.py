@@ -112,6 +112,12 @@ class ScenarioBot(ZaszBot):
             tank(AbilityId.SIEGEMODE_SIEGEMODE)
 
 
-from scenarios import army, decisions, defense, expansions  # noqa: E402 (they import the classes above)
+from scenarios import army, decisions, defense, efficiency, expansions  # noqa: E402 (they import the classes above)
 
-ALL: list[Scenario] = [*expansions.SCENARIOS, *defense.SCENARIOS, *army.SCENARIOS, *decisions.SCENARIOS]
+ALL: list[Scenario] = [
+    *expansions.SCENARIOS,
+    *defense.SCENARIOS,
+    *army.SCENARIOS,
+    *decisions.SCENARIOS,
+    *efficiency.SCENARIOS,
+]

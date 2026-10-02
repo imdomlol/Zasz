@@ -65,6 +65,10 @@ class Observation:
     enemy_structures: int = 0
     enemy_has_air: bool = False  # air units or air tech seen
 
+    # How well the army uses its damage (`bot.efficiency`): delivered / potential DPS of committed
+    # units over the last 10 s; 1.0 when nothing was committed
+    damage_efficiency: float = 1.0
+
     def __post_init__(self) -> None:
         # Count fields always hold every key of their fixed list (missing ones are 0), so there's
         # one representation, e.g. `Observation(own_units={ZERGLING: 20})` in tests
@@ -141,4 +145,5 @@ def observe(ai: ZaszBot) -> Observation:
         enemy_bases=ai.enemy_structures.of_type(TOWNHALL_TYPES).amount,
         enemy_structures=ai.enemy_structures.amount,
         enemy_has_air=enemy_has_air(ai),
+        damage_efficiency=ai.damage.recent_efficiency,
     )

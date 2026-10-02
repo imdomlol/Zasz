@@ -16,6 +16,7 @@ from bot.actions.queens import build_queens, control_queens
 from bot.actions.scouting import Scouting
 from bot.actions.upgrades import upgrade_plan, workers_per_gas
 from bot.decisions import Decision, Decisions, ScriptedDecisions
+from bot.efficiency import DamageTracker
 from bot.observation import Observation, observe
 from bot.recording import DecisionRecorder
 from bot.settings import MAX_DRONES
@@ -46,6 +47,7 @@ class ZaszBot(AresBot):
         self.army = army.Army()
         self.scouting = Scouting()
         self.expansions = ExpansionAccess()  # which expansions we can walk to, and why not
+        self.damage = DamageTracker(army.ARMY_TYPES)  # how much of the army's damage lands
 
     async def on_start(self) -> None:
         await super().on_start()
@@ -53,6 +55,7 @@ class ZaszBot(AresBot):
 
     async def on_step(self, iteration: int) -> None:
         await super().on_step(iteration)
+        self.damage.update(self)
 
         if iteration == 0:
             await self.chat_send("(glhf)")
@@ -91,6 +94,11 @@ class ZaszBot(AresBot):
         await super().on_unit_took_damage(unit, amount_damage_taken)
         self.army.on_damage(self, unit)
         self.scouting.on_damage(self, unit)
+        self.damage.on_damage_taken(unit, amount_damage_taken)
+
+    async def on_unit_destroyed(self, unit_tag: int) -> None:
+        await super().on_unit_destroyed(unit_tag)
+        self.damage.on_unit_destroyed(unit_tag)
 
     async def on_building_construction_started(self, unit: Unit) -> None:
         await super().on_building_construction_started(unit)
@@ -107,5 +115,6 @@ class ZaszBot(AresBot):
     async def on_end(self, game_result: Result) -> None:
         await super().on_end(game_result)
         logger.info(f"{self.NAME} game ended: {game_result}")
+        logger.info(f"Army damage: {self.damage.total.summary()}")
         if self.recorder:
             self.recorder.close(game_result)
