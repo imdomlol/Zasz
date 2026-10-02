@@ -162,7 +162,7 @@ def pick_tiered(
     still has room and isn't blocked.
 
     Returns (target, flank): flank=True means every target is blocked for this attacker (go around
-    the returned one). (None, False) if every reachable target is full: wait for a free slot.
+    the returned one). If every reachable target is full, the closest one in the best tier.
     """
     candidates = [t for tier, _ in tiers for t in tier]
     if not candidates:
@@ -194,10 +194,12 @@ def pick_tiered(
         if choice := next((e for e in ordered if slots.has_room(attacker, e)), None):
             slots.take(choice)
             return choice, False
-    # Everything reachable is full: don't crowd it (the extra attackers just stand around, often in
-    # enemy fire); wait, and take a slot when one frees up
-    if any(blocks.reachable(attacker, tier, now) for tier, _ in tiers):
-        return None, False
+    # Everything reachable is full: the closest reachable one in the best tier that has any
+    for tier, _ in tiers:
+        if reachable := blocks.reachable(attacker, tier, now):
+            choice = min(reachable, key=lambda e: e.position.distance_to(attacker.position))
+            slots.take(choice)
+            return choice, False
     # Blocked from everything: go around the closest
     return min(candidates, key=lambda e: e.position.distance_to(attacker.position)), True
 
@@ -334,31 +336,3 @@ class ReachMap:
         if target.is_flying or target.is_memory:
             return True  # air isn't a melee problem; remembered units: we don't know where they stand
         return self.open_sides(target) > 0
-
-    def gather_point(self, targets: list[Unit], fighters: list[Unit], margin: float) -> Point2 | None:
-        """The cell our attackers can reach that's outside every fighter's weapon range (+ margin)
-        and closest, by walking distance, to `targets`: where to gather before going in together."""
-        w, h = self.walkable.shape
-        dist = np.full((w, h), np.inf)
-        queue: deque[tuple[int, int]] = deque()
-        for t in targets:
-            for cell in self._cells_within(t.position, t.radius + 1.5, (w, h)):
-                if self.walkable[cell] and dist[cell] == np.inf:
-                    dist[cell] = 0
-                    queue.append(cell)
-        while queue:
-            cx, cy = queue.popleft()
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
-                nx, ny = cx + dx, cy + dy
-                if 0 <= nx < w and 0 <= ny < h and self.walkable[nx, ny] and dist[nx, ny] == np.inf:
-                    dist[nx, ny] = dist[cx, cy] + (1.4 if dx and dy else 1.0)
-                    queue.append((nx, ny))
-        best, best_dist = None, np.inf
-        reach = [(f.position, f.ground_range + f.radius + margin) for f in fighters if f.can_attack_ground]
-        for x, y in zip(*np.nonzero(self.reached & np.isfinite(dist)), strict=True):
-            if dist[x, y] >= best_dist:
-                continue
-            point = Point2((x + self.x0 + 0.5, y + self.y0 + 0.5))
-            if all(point.distance_to(p) > r for p, r in reach):
-                best, best_dist = point, dist[x, y]
-        return best

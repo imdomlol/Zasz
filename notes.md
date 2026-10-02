@@ -123,3 +123,28 @@ Baseline for reference: the bot before this branch (`alternate-targets`) fails t
   from fights the army as a whole wins. Fights are now judged with all our army units near the threat.
 - Focus fire when breaking through under fire: everyone on the exposed structure closest to the enemy
   fighters (most damaged first) to open a hole fast.
+
+### 9. More experiments, all worse together, then a reset (lesson: change one thing at a time)
+
+Measured on the corrected scenario, 6 runs each unless noted:
+- fighters-first vs safe-structures-first order: 0/6 both (~15 left on average)
+- reference: targeting from `856dc28`: 0/6, but 4-5 left in half the runs (wide spread: early losses
+  snowball, so small samples can't separate versions)
+- coordinated arrival ("Assault": gather at the last safe cell, go in together): 0/6, worse on the
+  bottom side (zerglings waited instead of fighting)
+- damage attribution (debug: damage taken per decision): the losses were stalker shots (13 each) on
+  zerglings working gateways I'd classed as safe (only the side facing the zergling was checked)
+- whole-ring safety for structures: 0/6, ~19 left (too conservative: nothing left to do safely)
+- never retreat at all: 0/6, ~15 left, so retreats weren't the bottleneck
+- real utilization (debug: % of zerglings actually swinging): peaks at ~45% while the front row
+  falls, then 15-20% while zerglings die: the rest had no target with room and crowded full targets
+  inside stalker range
+- no crowding (wait out of range when everything in reach is full) + 3/4 of a ring per building:
+  0/6, ~17 left
+
+Everything above is in commit `5b18f41` for reference. Reset: targeting back to `856dc28`, plus only
+the clear bug fixes (terrain levels for reach/blocking, fights judged with all our nearby units, the
+attack continuing with a few zerglings when no enemy army is known):
+
+**3/8 passed (92 s, 121 s, 129 s), three more with only 3-5 targets left.** New baseline. From here,
+one change at a time, 8 runs each, kept only if it beats this.

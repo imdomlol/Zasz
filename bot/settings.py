@@ -45,7 +45,7 @@ GATHERED_FRACTION = 0.8  # engage once this share of the army has gathered
 FORWARD_FRACTIONS = (0.5, 0.4, 0.3)  # waiting spots, as a share of the way from our rally to their natural
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
-MELEE_SURROUND_FRACTION = 0.75
+MELEE_SURROUND_FRACTION = 0.5
 MELEE_SPACING = 1.25
 MELEE_UNIT_SURROUND_FRACTION = 1.0  # melee attackers per enemy *unit*: about a full ring around it
 # A melee attacker that doesn't get PROGRESS_STEP closer to its target within BLOCKED_SECONDS while out
@@ -68,18 +68,6 @@ REACH_WINDOW_MARGIN = 12  # the map covers our units and nearby enemies plus thi
 CLEAR_THE_WAY_RANGE = 10  # no reachable fighter: attack the closest structures within this range
 MIN_OPEN_SIDES = 3  # an enemy unit is worth engaging in melee only with this many reachable cells around it
 LEVEL_TOLERANCE = 1.0  # terrain z within this counts as the same level (cliff levels differ by ~2)
-EXPOSURE_MARGIN = 0.5  # a spot is exposed within an enemy's weapon range + sizes + this
-# With enemy fighters around: surroundable fighters before structures we can hit for free (True),
-# or free structures first (False)
-FIGHTERS_FIRST = True
-# Coordinated arrival (`Assault` in bot/army.py): zerglings going for enemy fighters gather at the last
-# safe cell before them and go in together once ASSAULT_MIN (or ASSAULT_SHARE of them) are there, or
-# after ASSAULT_MAX_WAIT seconds; then they stay committed for ASSAULT_COMMIT_SECONDS
-ASSAULT_MIN = 12
-ASSAULT_SHARE = 0.6
-ASSAULT_MAX_WAIT = 8.0
-ASSAULT_COMMIT_SECONDS = 6.0
-ASSAULT_GATHER_RADIUS = 4.0
 # How melee attackers spread over targets (structures and units): "back" = first ones in go deepest,
 # later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with
 # room; "off" = no slots (closest target)
