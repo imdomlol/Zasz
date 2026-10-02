@@ -404,8 +404,11 @@ class Army:
                 if threats or any(e.is_structure for e in enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
                 elif under_fire or unit.distance_to(target) < APPROACH_DISTANCE:
-                    # Close to the target (or shot from out of sight): attack-move in
-                    ai.register_behavior(AMove(unit=unit, target=target))
+                    # Close to the target (or shot from out of sight): attack-move in, all the way
+                    # (AMove's default does nothing within 7 of the target: zerglings stood next
+                    # to a lone zealot that wasn't a threat yet, doing nothing)
+                    if not (unit.is_attacking and unit.order_target == target):
+                        ai.register_behavior(AMove(unit=unit, target=target, success_at_distance=0))
                 else:
                     # On the way: follow ares' path around known enemy fire (e.g. the army that
                     # turned us back) instead of walking straight through it

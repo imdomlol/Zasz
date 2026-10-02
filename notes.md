@@ -205,3 +205,27 @@ targets (zealots plus the gateways beside them) alive.
   hitting it back; ranged units right next to us still get hit back. **15/16: top 6/6, bottom 9/10**,
   and bottom-side passes went from 110-156 s to 88-102 s (zealots now get swarmed once the
   gateways beside them fall). Kept.
+- G's one failure: everything dead except one zealot, and 19 zerglings stood idle for over a minute.
+  A lone zealot isn't a "threat" until something is next to it, and with no structures left the
+  squad attack-moves to the target with ares' `AMove`, which does nothing within 7 of its target by
+  default. The same trap was fixed earlier for remembered units; the close-in attack-move now goes
+  all the way in. Real-game relevant: a last unit hiding at the edge of a base would have been
+  left alone.
+
+### 13. 25/25
+
+G + the attack-move fix, 25 runs in a row: **25/25** (top 13/13 in 73-88 s, bottom 12/12 in
+89-108 s; efficiency 65-69%, blocked 6-11%). For comparison, the bot before this branch killed about
+2 of the 23 targets.
+
+What made the difference, in order of impact:
+1. Walking around enemy units to reach them (distance field with units as walls). SC2 pathing
+   ignores units and sends zerglings down lanes that zealots plug.
+2. Not trading 1-on-1 with a melee unit plugging a gap: step out of its reach, clear the buildings
+   beside it, swarm it once it has room around it.
+3. Only fighting fighters that can actually hit you; 3/4 of a ring per building.
+4. Bug fixes: terrain levels in reach/blocking, fights judged with all our nearby units, the attack
+   continuing with a few zerglings when no enemy army is left, AMove doing nothing within 7.
+
+What didn't help: work orders, gathering before going in, focus fire, wider clear-the-way ranges,
+safe-only targeting, waiting for free slots (all in `5b18f41` or reverted).
