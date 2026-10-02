@@ -90,3 +90,36 @@ and the leftovers stalled next to the grid.
   structure the army hunts known enemy ground units.
 
 With a valid scenario on both sides: 2/4 (passes in 133-134 s).
+
+### 7. What actually happens on each side (reach logged at the start of the fight)
+
+| Side | Stalkers | Zealots |
+|---|---|---|
+| top (enemy main y~130) | unreachable: 0 open cells (grid + cliff seal them in) | 1 open cell each |
+| bottom (y~45) | reachable around the grid: 6-9 open cells | 2-5 open cells |
+
+So the two sides need different play: on top the only way to the units is through gateways; on the
+bottom the stalkers can be surrounded from behind the grid. A single fixed priority order helps one
+side and hurts the other.
+
+Baseline for reference: the bot before this branch (`alternate-targets`) fails the grid 0/4, killing
+2 of 22-23 targets per run. The versions below kill 7-21.
+
+### 8. Things tried in this round (each 4 runs unless noted)
+
+- "No free damage" for structures (only hit structures from outside enemy range while fighters are
+  around; step out of range otherwise): zerglings cleared every safe gateway with no losses, then
+  waited outside forever (15/22 alive every time on the top side).
+- Safe first, then commit to exposed structures: near misses (2-3 gateways left) but zerglings walked
+  home: the attack stopped below 8 zerglings even with no enemy army left. Fixed in the decisions
+  (keep attacking with a few zerglings when no enemy army is known); real-game relevant too.
+- Terrain level: zerglings below the main's cliff were "in range" of gateways on top of it (straight
+  line) and stood there for minutes. Reach map and block detection now compare terrain levels.
+- Work order with fighters around: touching fighters, safe structures, surroundable fighters,
+  workers, exposed structures. Survival much better (48 -> 30 at 0:57 instead of ~14) but slow kills.
+- ares' danger grid pads every weapon range by 4 tiles (RangeBuffer), so in a cramped base almost
+  everything looks unsafe. Exposure for target choice is now computed from actual weapon ranges.
+- The combat sim judged each small ares squad against the whole enemy group, so squads retreated
+  from fights the army as a whole wins. Fights are now judged with all our army units near the threat.
+- Focus fire when breaking through under fire: everyone on the exposed structure closest to the enemy
+  fighters (most damaged first) to open a hole fast.
