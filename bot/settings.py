@@ -16,8 +16,9 @@ ATTACK_AT_ZERGLINGS = 16  # start attacking with this many zerglings...
 STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this many
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
-FIGHTER_PRIORITY_RANGE = 10  # enemy units that fight back this close beat buildings/workers as targets
-THREAT_REACH_MARGIN = 2.0  # fight back at enemy fighters within their weapon range + this of a zergling
+# Enemy units that fight back within this *walking* distance (around enemy units) beat
+# buildings/workers as targets
+FIGHTER_PRIORITY_RANGE = 10
 # After a squad is turned back by a fight the sim says we'd lose, attack targets inside that enemy
 # group's reach (its spread + weapon range + AVOID_MARGIN) are skipped for AVOID_SECONDS: try other
 # bases instead of walking back into it
@@ -53,6 +54,10 @@ MELEE_UNIT_SURROUND_FRACTION = 1.0  # melee attackers per enemy *unit*: about a 
 # of range is blocked: it skips that target for BLOCKED_MEMORY_SECONDS (another target, or around)
 BLOCKED_SECONDS = 1.5
 PROGRESS_STEP = 0.5
+TARGET_MOVED = 1.0  # ...unless the target itself moved this far meanwhile: chasing isn't being blocked
+# Walk around enemy units to a target only if that's this much longer than walking straight there
+# (a zealot plugging the direct lane); otherwise a plain attack order is as good and follows the target
+APPROACH_DETOUR_SLACK = 2.0
 BLOCKED_MEMORY_SECONDS = 6.0
 FLANK_DISTANCE = 4.0  # blocked with nothing else reachable: go this far around to the target's side
 BREAKTHROUGH_RANGE = 3.0  # fighters full/blocked: attack a structure this close (edge) to break through

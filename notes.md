@@ -7,8 +7,9 @@
   the bot otherwise never attacks (section 14; your call whether the real decision should change).
 - The big wins: walking around enemy units to reach them (section 11) and not trading 1-on-1 with a
   zealot plugging a gap (section 12). Everything that was tried and dropped is logged below.
-- Not fixed: `fight_winnable` fails (it already did before this branch), `tank_dive` is flaky
-  (section 16).
+- `fight_winnable` fixed (section 17): it broke on this branch (first at `4ed0545`, every time from
+  `748f1c9`), not before it. "Only fight fighters that can hit you" is replaced by "fighters within
+  a 10-tile *walk*", plus two chase fixes. Full suite 30/30.
 
 Running log of what was tried against the packed-gateway scenario and what happened. Newest at the
 bottom. Goal: `efficiency_cramped_main` 25/25, then with extra zealots in the gateway gaps 10/10.
@@ -273,3 +274,38 @@ around them.
   investigated yet.
 - `tank_dive` failed once ("never engaged") and passed when re-run: flaky, worth a look.
 The other efficiency scenarios (open field, deep base, ramp) all pass with no damage taken.
+
+### 17. `fight_winnable` regression: found and fixed
+
+Bisect (3 runs per commit): fine through `alternate-targets` (`3352be6`: 9/9), flaky from `4ed0545`
+(5/9; still 4-6 of 6 through `3aa0451`), failing every time from `748f1c9` (0/6) to the tip (0/8).
+
+Why (logged per zergling): 6 zerglings vs 2 marines in the open, sim says VICTORY_DECISIVE, but
+1. `748f1c9`'s "only fight fighters that can hit you" (within their range + 2): half the
+   zerglings were 8 tiles from the marines, just outside, so the marines weren't targets; with no
+   structures to clear they got **no order at all** and stood idle while the marines walked off.
+   The other three alone were a predicted loss and retreated. Bad design (user): replaced.
+2. `BlockTracker` called chasing a moving target "blocked" (not getting closer), so chasers got
+   flank/detour moves instead of attacking (the same mistake `6a51dd5` fixed in the metric).
+3. "Approach around" sent plain move steps even in the open, where an attack order does the same
+   and keeps following a target that moves.
+
+Fixes:
+- **Near fighters = touching, or within a 10-tile walk** (`ReachMap.walk_distance`: the walking
+  distance to a spot next to the target with enemy units as walls, a Dijkstra capped at the
+  limit). Keeps the original point: a stalker behind the gateway grid is a long way round.
+- `BlockTracker`: while the target itself moves (`TARGET_MOVED` 1.0), it's a chase, not blocked.
+- `approach_step` only walks around when that's more than `APPROACH_DETOUR_SLACK` (2) longer than
+  straight in; otherwise a normal attack order.
+
+Results: `fight_winnable` 12/12; `efficiency_cramped_main` 32/32 (top 14, bottom 18);
+`efficiency_cramped_more_zealots` 12/12; full suite (`--repeat 2`) 30/30, `tank_dive` included.
+
+Cost: `efficiency_cramped_more_zealots` bottom side is slower than with the old rule (about
+105-120 s and ~900-1000 damage taken, vs 87-93 s and 725-835): zerglings now go for the stalkers
+around the outside of the grid (within a 10-tile walk there) instead of clearing gateways first.
+
+Tried and dropped: also requiring the walk to be "no detour" (walk <= straight + 2) plus a last
+resort tier with any other surroundable fighter. Bottom side back to 85-97 s, but the top side of
+`efficiency_cramped_main` fell to 5/8: a slower clear beats a failed one.
+

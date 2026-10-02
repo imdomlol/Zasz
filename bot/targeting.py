@@ -27,6 +27,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
 from bot.settings import (
+    APPROACH_DETOUR_SLACK,
     BLOCKED_MEMORY_SECONDS,
     BLOCKED_SECONDS,
     DETOUR_CROWD_COST,
@@ -40,6 +41,7 @@ from bot.settings import (
     MELEE_UNIT_SURROUND_FRACTION,
     PROGRESS_STEP,
     REACH_WINDOW_MARGIN,
+    TARGET_MOVED,
 )
 
 MELEE_RANGE = 1.0  # weapon range at or below this counts as melee
@@ -109,6 +111,7 @@ class _Progress:
     target: int  # target tag
     best: float  # closest the attacker has been to it (edge to edge)
     since: float  # game time `best` last improved
+    target_at: Point2 | None = None  # where the target was at `since`
 
 
 class BlockTracker:
@@ -133,10 +136,14 @@ class BlockTracker:
         progress = self.progress.get(attacker.tag)
         in_range = gap <= weapon_range + 0.25 and (same_level or weapon_range > 1)
         if in_range or progress is None or progress.target != target.tag:
-            self.progress[attacker.tag] = _Progress(target.tag, gap, now)  # in range, or a new target
+            self.progress[attacker.tag] = _Progress(target.tag, gap, now, target.position)  # in range / new
             return False
         if gap < progress.best - PROGRESS_STEP:
             progress.best, progress.since = gap, now
+            return False
+        if progress.target_at is not None and target.position.distance_to(progress.target_at) > TARGET_MOVED:
+            # The target is on the move (kiting, walking off): that's a chase, not being stuck
+            progress.best, progress.since, progress.target_at = gap, now, target.position
             return False
         if now - progress.since < BLOCKED_SECONDS:
             return False
@@ -310,6 +317,7 @@ class ReachMap:
                     queue.append((nx, ny))
         self._open: dict[int, int] = {}
         self._fields: dict[int, np.ndarray] = {}
+        self._near_fields: dict[tuple[int, float], np.ndarray] = {}  # (target, limit) -> capped field
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
@@ -372,8 +380,10 @@ class ReachMap:
 
     def approach_step(self, target: Unit, position: Point2, lookahead: int = 4) -> Point2 | None:
         """Where to move next to get next to `target` walking around enemy units (pathing ignores
-        units, so it sends zerglings down a lane a zealot plugs). None if there's no way, or we're
-        already there. Follows a distance field from the open cells around the target."""
+        units, so it sends zerglings down a lane a zealot plugs). None if there's no way, we're
+        already there, or the way is open (walking there is barely longer than straight there: a
+        plain attack order gets there just as well, and keeps following a target that moves).
+        Follows a distance field from the open cells around the target."""
         if target.tag not in self._fields:
             seeds = [c[0] * self.walkable.shape[1] + c[1] for c in self._ring(target, 0.375)]
             if seeds:
@@ -396,6 +406,9 @@ class ReachMap:
             here = field[cx, cy]
         elif here == 0:
             return None  # already next to it
+        ring = target.radius + 2 * 0.375 + 0.6  # where the field's zero cells are (see `_ring`)
+        if here <= position.distance_to(target.position) - ring + APPROACH_DETOUR_SLACK:
+            return None  # nothing in the way
         for _ in range(lookahead):
             if here == 0:
                 break
@@ -405,6 +418,28 @@ class ReachMap:
             cx, cy = min(options, key=lambda n: field[n])
             here = field[cx, cy]
         return Point2((cx + self.x0 + 0.5, cy + self.y0 + 0.5))
+
+    def walk_distance(self, target: Unit, position: Point2, limit: float) -> float:
+        """How far `position` has to walk to stand next to `target`, going around enemy units
+        (inf if there's no way, or it's more than `limit`). Only searches out to `limit`, so it's
+        cheap to ask about every enemy nearby."""
+        key = (target.tag, limit)
+        if key not in self._near_fields:
+            seeds = [c[0] * self.walkable.shape[1] + c[1] for c in self._ring(target, 0.375)]
+            if seeds:
+                dist = dijkstra(self._cell_graph(), directed=False, indices=seeds, min_only=True, limit=limit)
+                self._near_fields[key] = dist.reshape(self.walkable.shape)
+            else:
+                self._near_fields[key] = np.full(self.walkable.shape, np.inf)
+        field = self._near_fields[key]
+        cx, cy = int(position.x) - self.x0, int(position.y) - self.y0
+        if not (0 <= cx < field.shape[0] and 0 <= cy < field.shape[1]):
+            return np.inf
+        if np.isfinite(field[cx, cy]):
+            return float(field[cx, cy])
+        # Standing on a cell the grid calls blocked (next to a building, or on top of a unit): one
+        # step from the best open neighbor
+        return float(min((field[n] + 1 for n in self._neighbors(cx, cy)), default=np.inf))
 
     def open_sides(self, target: Unit, attacker_radius: float = 0.375) -> int:
         """Reached cells on the target's level an attacker could stand on to hit it (0 = unreachable)."""
