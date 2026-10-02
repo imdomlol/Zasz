@@ -139,3 +139,15 @@ def test_mutalisk_in_range_counts_like_any_unit():
     muta = fighter(0, cooldown=3, ground_range=3.0, radius=0.5)
     step_tracker(tracker, muta, target, [0.0, 0.5, COMMIT_SECONDS + 0.5, COMMIT_SECONDS + 1.0])
     assert tracker.total.delivered > 0 and tracker.total.blocked == 0
+
+
+def test_chasing_a_target_moving_sideways_is_not_blocked():
+    """A zergling that can't catch a unit running across in front of it is chasing, not stuck."""
+    tracker = DamageTracker({None})
+    target = zergling(5, 0)
+    chaser = fighter(0, cooldown=0)
+    for i, t in enumerate([0.0, 0.5, 1.0, 1.5, 2.0]):
+        target.position = Point2((5, i * 2.0))  # moving sideways at 4/s; distance barely changes
+        chaser.position = Point2((0, i * 2.0))
+        tracker._measure(chaser, target, t, 0.5)
+    assert tracker.total.blocked == 0

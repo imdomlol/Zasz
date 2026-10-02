@@ -13,10 +13,10 @@ Efficiency = delivered / potential. Nothing here is melee-specific: ranges come 
 own ground/air weapon, so it works the same for zerglings and for ranged or air units (mutalisks).
 Mutalisk bounce damage isn't part of `calculate_dps_vs_target`, so it isn't counted as potential.
 
-"Committed" means: the same attack target for at least COMMIT_SECONDS, the target isn't running
-away, and the unit isn't freely walking up to it (getting closer at a decent fraction of its
-speed). So chasing a scouting worker, switching targets or travelling don't count as waste;
-standing around without hitting anything does.
+"Committed" means: the same attack target for at least COMMIT_SECONDS, the unit isn't chasing a
+moving target it can't reach yet (away or sideways), and it isn't freely walking up to it (getting
+closer at a decent fraction of its speed). So chasing a scouting worker, switching targets or
+travelling don't count as waste; standing around without hitting anything does.
 
 Damage dealt and taken are tracked alongside, from health + shield changes of visible enemies and
 our own army units. In real games those are noisy (repair, regeneration, damage from queens and
@@ -29,6 +29,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from sc2.position import Point2
 from sc2.unit import Unit
 
 if TYPE_CHECKING:
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
 COMMIT_SECONDS = 1.0  # same target at least this long before a unit counts
 APPROACH_FRACTION = 0.3  # closing in at >= this fraction of its speed = travelling, not stuck
 RANGE_SLACK = 0.25  # extra range allowed when deciding "in range" (positions are approximate)
+MOVING_TARGET_SPEED = 0.5  # a target moving faster than this (per second) is being chased
 WINDOW_SECONDS = 10.0  # rolling window for `recent_efficiency`
 
 
@@ -83,6 +85,7 @@ class _Engagement:
     target: int  # target tag
     since: float  # game time the unit started on this target
     distance: float  # last distance to the target
+    target_position: Point2  # where the target was last step
 
 
 class DamageTracker:
@@ -147,10 +150,12 @@ class DamageTracker:
         distance = unit.position.distance_to(target.position)
         previous = self.engagements.get(unit.tag)
         if previous is None or previous.target != target.tag:
-            self.engagements[unit.tag] = _Engagement(target.tag, now, distance)
+            self.engagements[unit.tag] = _Engagement(target.tag, now, distance, target.position)
             return 0.0, 0.0
         closing_speed = (previous.distance - distance) / dt if dt > 0 else 0.0
+        target_speed = target.position.distance_to(previous.target_position) / dt if dt > 0 else 0.0
         previous.distance = distance
+        previous.target_position = target.position
         if dt <= 0 or now - previous.since < COMMIT_SECONDS:
             return 0.0, 0.0
 
@@ -160,8 +165,8 @@ class DamageTracker:
         if not in_range:
             if closing_speed >= APPROACH_FRACTION * max(unit.real_speed, 0.1):
                 return 0.0, 0.0  # travelling to the target, fine
-            if not target.is_structure and closing_speed < 0:
-                return 0.0, 0.0  # the target is getting away (e.g. a scouting worker)
+            if target_speed > MOVING_TARGET_SPEED:
+                return 0.0, 0.0  # chasing a moving target (away or sideways), not stuck
 
         dps = unit.calculate_dps_vs_target(target)
         if dps <= 0:
