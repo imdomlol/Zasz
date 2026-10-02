@@ -180,3 +180,13 @@ attack order, so it goes around the outside of the grid instead of down the lane
 Once it's on a cell next to the target it gets the normal attack order.
 
 **9/10: top 6/6 (81-125 s), bottom 3/4 (110-125 s; the failure had 6 left).** Up from 3/10.
+
+Repeat, 16 more runs: **15/16** (top 10/10 in 81-96 s, bottom 5/6 in 114-156 s). Together **24/26**:
+top 16/16, bottom 8/10. The approach fields first used a pure-Python BFS: 125 ms for 8 targets in
+one step, far over AI Arena's 40 ms per game loop. Now one multi-source Dijkstra per target on a
+cell graph built once per reach map (scipy.sparse.csgraph): 6.5 ms for 8, graph build included.
+
+Both remaining failures are on the bottom side and look alike: ~23 of 48 zerglings die in the first
+30 s (about 10 at a time "breaking through" the gateway next to them, inside stalker range, because
+every stalker slot was full), then slow attrition next to the back-row zealots, ending with 4-6
+targets (zealots plus the gateways beside them) alive.
