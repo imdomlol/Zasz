@@ -48,6 +48,8 @@ class EfficiencyTotals:
     idle: float = 0.0  # ...by units in range but not attacking
     damage_dealt: float = 0.0  # enemy health + shields lost (visible enemies)
     damage_taken: float = 0.0  # health lost by our army units
+    started: float = 0.0  # game time measuring started
+    elapsed: float = 0.0  # game seconds measured so far
 
     @property
     def efficiency(self) -> float | None:
@@ -56,14 +58,24 @@ class EfficiencyTotals:
     def share(self, part: float) -> float:
         return part / self.potential if self.potential > 0 else 0.0
 
+    @property
+    def dealt_per_second(self) -> float:
+        """Throughput: unlike efficiency this includes travel and stalls, so it can't be gamed by
+        units that look efficient but take longer to get anywhere."""
+        return self.damage_dealt / self.elapsed if self.elapsed > 0 else 0.0
+
     def summary(self) -> str:
         eff = self.efficiency
         ratio = self.damage_dealt / self.damage_taken if self.damage_taken > 0 else float("inf")
         return (
-            f"efficiency {eff:.0%} (blocked {self.share(self.blocked):.0%}, idle {self.share(self.idle):.0%}), "
-            if eff is not None
-            else "efficiency n/a, "
-        ) + f"dealt {self.damage_dealt:.0f}, taken {self.damage_taken:.0f} (ratio {ratio:.1f})"
+            f"{self.dealt_per_second:.0f} dmg/s, "
+            + (
+                f"efficiency {eff:.0%} (blocked {self.share(self.blocked):.0%}, idle {self.share(self.idle):.0%}), "
+                if eff is not None
+                else "efficiency n/a, "
+            )
+            + f"dealt {self.damage_dealt:.0f}, taken {self.damage_taken:.0f} (ratio {ratio:.1f})"
+        )
 
 
 @dataclass
@@ -82,9 +94,9 @@ class DamageTracker:
         self.window: deque[tuple[float, float, float]] = deque()  # (time, potential, delivered)
         self.last_time: float | None = None
 
-    def reset(self) -> None:
+    def reset(self, now: float = 0.0) -> None:
         """Start measuring from now (e.g. when a scenario's units appear)."""
-        self.total = EfficiencyTotals()
+        self.total = EfficiencyTotals(started=now)
         self.window.clear()
 
     @property
@@ -106,6 +118,7 @@ class DamageTracker:
         now = ai.time
         dt = 0.0 if self.last_time is None else now - self.last_time
         self.last_time = now
+        self.total.elapsed = now - self.total.started
 
         visible = {e.tag: e for e in ai.all_enemy_units if not e.is_memory}
         self._track_enemy_health(visible)

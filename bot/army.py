@@ -34,9 +34,11 @@ from bot.settings import (
     FIGHTER_PRIORITY_RANGE,
     REGROUP_DISTANCE,
     SQUAD_RADIUS,
+    STRUCTURE_FILL,
     TANK_NEUTRALIZED_BY,
     UNDER_FIRE_SECONDS,
 )
+from bot.targeting import TargetSlots
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
 SIEGE_MIN_RANGE = 2.0  # sieged tanks can't fire at targets this close
@@ -101,8 +103,9 @@ class Army:
             # Fight while the sim predicts at least an even fight; any predicted loss means
             # retreat, so we never keep feeding units into a losing fight
             if near_home or result >= FIGHT_AT:
-                for unit in units:
-                    fight(ai, unit, threats, enemies)
+                slots = TargetSlots()
+                for unit in front_first(units, enemies):
+                    fight(ai, unit, threats, enemies, slots, squad.squad_position)
             else:
                 for unit in units:
                     self.retreating.add(unit.tag)
@@ -127,15 +130,23 @@ class Army:
                 move(ai, unit, main_position)
             return
 
-        for unit in units:
+        slots = TargetSlots()
+        for unit in front_first(units, enemies):
             if advancing:
                 if enemies:
-                    fight(ai, unit, threats, enemies)
+                    fight(ai, unit, threats, enemies, slots, squad.squad_position)
                 else:
                     # Includes pushing forward when shot from out of sight, to reveal the shooter
                     ai.register_behavior(AMove(unit=unit, target=target))
             elif unit.distance_to(target) > 5:
                 move(ai, unit, target)
+
+
+def front_first(units: list[Unit], enemies: list[Unit]) -> list[Unit]:
+    """Units closest to the enemy first, so they claim the target slots they're already at."""
+    if not enemies:
+        return units
+    return sorted(units, key=lambda u: min(u.position.distance_to(e.position) for e in enemies))
 
 
 def enemies_near(ai: AresBot, units: list[Unit]) -> list[Unit]:
@@ -191,7 +202,9 @@ def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
     return inside >= TANK_NEUTRALIZED_BY
 
 
-def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> None:
+def fight(
+    ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit], slots: TargetSlots, squad_position: Point2
+) -> None:
     """Target priority for one zergling.
 
     If enemy units that fight back are within FIGHTER_PRIORITY_RANGE, they're the only targets:
@@ -199,8 +212,11 @@ def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> 
     DIVE_FIRST units first). Buildings and workers wait until no fighters are near, so zerglings
     don't chew on a barracks while marines and tanks shoot them.
 
-    Otherwise: workers > key structures > any structure in range, then close in on the nearest.
-    Picking the weakest target in range spreads zerglings out instead of piling onto one.
+    Otherwise: workers > key structures > any structure in range, then close in on the nearest
+    target with room (`TargetSlots`: a structure only takes as many melee attackers as fit around
+    it, and structures fill from the back: the first zerglings in go deepest, later ones fill in
+    toward the front, so nobody queues behind the front line). Picking the weakest target in range
+    spreads zerglings out instead of piling onto one.
     """
     position = unit.position
     fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
@@ -214,11 +230,27 @@ def fight(ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit]) -> 
         workers = [e for e in threats if e.type_id in WORKER_TYPES]
         structures = [e for e in enemies if e.is_structure]
         key_structures = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
-        for targets in (workers, key_structures, structures):
-            if targets:
-                maneuver.add(ShootTargetInRange(unit=unit, targets=targets))
+        if workers:
+            maneuver.add(ShootTargetInRange(unit=unit, targets=workers))
         pool = fighters or workers or key_structures or structures
-    goal = min(pool, key=lambda e: e.position.distance_to(position))
+    # Structures fill from the back (deepest first) by default; units are simply the closest
+    structures_only = all(e.is_structure for e in pool)
+    if structures_only and STRUCTURE_FILL == "off":
+        goal = min(pool, key=lambda e: e.position.distance_to(position))
+    else:
+        depth_from = squad_position if structures_only and STRUCTURE_FILL == "back" else None
+        goal = slots.pick(unit, pool, depth_from=depth_from)
+    if goal.is_structure:
+        if STRUCTURE_FILL == "off":
+            # Original behaviour: hit any structure in range (key ones first)
+            structures = [e for e in enemies if e.is_structure]
+            for targets in ([s for s in structures if s.type_id in PRIORITY_STRUCTURES], structures):
+                if targets:
+                    maneuver.add(ShootTargetInRange(unit=unit, targets=targets))
+        else:
+            # Only hit *our* structure when in range: stopping at the first one we brush past
+            # would undo the spreading
+            maneuver.add(ShootTargetInRange(unit=unit, targets=[goal]))
     if chase := chase_behavior(unit, goal):
         maneuver.add(chase)
     ai.register_behavior(maneuver)

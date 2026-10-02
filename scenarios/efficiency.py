@@ -23,9 +23,12 @@ from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS_FILE = ROOT / "benchmarks" / "efficiency.csv"
 STRUCTURE = UnitTypeId.ENGINEERINGBAY  # 3x3, can't lift off
-KEEP_ALIVE = UnitTypeId.SENSORTOWER  # one more enemy building far away, so killing the layout doesn't end the game
+# One more enemy building, so killing the layout doesn't end the game. A *flying* barracks:
+# zerglings can't hit air, so it can never die early (a sensor tower got killed first when it
+# happened to be the structure closest to the bot's rally point)
+KEEP_ALIVE = UnitTypeId.BARRACKSFLYING
 ZERGLINGS = 30
-FIELDS = ["timestamp", "commit", "scenario", "kill_time", "efficiency", "blocked", "idle", "dealt", "taken"]
+FIELDS = ["timestamp", "commit", "scenario", "kill_time", "dps", "efficiency", "blocked", "idle", "dealt", "taken"]
 
 
 def current_commit() -> str:
@@ -79,7 +82,7 @@ class StructureAssault(Scenario):
             await bot.spawn(UnitTypeId.ZERGLING, start, amount=ZERGLINGS)
             self.phase = "zerglings"
         elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
-            bot.damage.reset()
+            bot.damage.reset(bot.time)
             self.fight_started = bot.time
             self.phase = "fight"
 
@@ -119,6 +122,7 @@ class StructureAssault(Scenario):
                     "commit": current_commit(),
                     "scenario": self.name,
                     "kill_time": round(self.elapsed(bot), 1) if verdict is passed else "",
+                    "dps": round(t.dealt_per_second, 1),
                     "efficiency": round(t.efficiency or 0, 3),
                     "blocked": round(t.share(t.blocked), 3),
                     "idle": round(t.share(t.idle), 3),
@@ -140,17 +144,16 @@ def fits(bot: ScenarioBot, center: Point2, size: int = 3) -> bool:
 
 
 def keep_alive_spot(bot: ScenarioBot, layout: list[Point2]) -> Point2:
-    """Behind the layout as seen from our base, so the bot (which attacks the known structure
-    closest to its rally point) always reaches it last."""
-    far = max(layout, key=lambda p: p.distance_to(bot.start_location))
-    behind = far.towards(bot.start_location, -12)
-    for radius in range(0, 15):
-        for dx in range(-radius, radius + 1):
-            for dy in range(-radius, radius + 1):
-                p = Point2((behind.x + dx, behind.y + dy))
-                if fits(bot, p, size=1) and min(p.distance_to(q) for q in layout) > 6:
-                    return p
-    return behind
+    """The map corner farthest from our base, so the bot (which attacks the known structure
+    closest to its rally point) never heads for it before the layout is dead."""
+    area = bot.game_info.playable_area
+    corners = [
+        Point2((area.x + 3, area.y + 3)),
+        Point2((area.x + area.width - 3, area.y + 3)),
+        Point2((area.x + 3, area.y + area.height - 3)),
+        Point2((area.x + area.width - 3, area.y + area.height - 3)),
+    ]
+    return max(corners, key=lambda p: p.distance_to(bot.start_location))
 
 
 def placed_layout(bot: ScenarioBot, offsets: list[Point2], origin: Point2) -> list[Point2]:

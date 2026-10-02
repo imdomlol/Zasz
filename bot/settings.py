@@ -17,6 +17,13 @@ STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this m
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
 FIGHTER_PRIORITY_RANGE = 10  # enemy units that fight back this close beat buildings/workers as targets
+# Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
+# MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
+MELEE_SURROUND_FRACTION = 0.5
+MELEE_SPACING = 1.25
+# How melee attackers spread over structures: "back" = first ones in go deepest, later ones fill
+# toward the front; "nearest" = closest structure with room; "off" = no slots (closest structure)
+STRUCTURE_FILL = "back"
 SQUAD_RADIUS = 9  # zerglings this close together form one squad
 REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
 FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; retreat on any predicted loss
