@@ -5,10 +5,11 @@ Units are stand-ins with just the attributes the code reads, so no game is neede
 
 from types import SimpleNamespace
 
+import numpy as np
 from sc2.position import Point2
 
 from bot.efficiency import COMMIT_SECONDS, DamageTracker, EfficiencyTotals
-from bot.targeting import TargetSlots, attack_capacity
+from bot.targeting import ReachMap, TargetSlots, attack_capacity
 
 _tags = iter(range(1, 10_000))
 
@@ -88,6 +89,21 @@ def test_everything_full_falls_back_to_closest():
 
 
 # --- efficiency ---
+
+
+def test_approach_goes_around_a_plugged_lane():
+    # A wall across y=10 from x=3 on, with a 1-tile gap at x=10 that a zealot plugs; open around
+    # the left end. Pathing (which ignores units) would go through the gap; we go around.
+    grid = np.ones((20, 20), dtype=np.float32)
+    grid[3:, 10] = np.inf
+    grid[10, 10] = 1.0
+    zealot = unit(10.5, 10.5, radius=0.5)
+    stalker = unit(10.5, 15.5, radius=0.625)
+    ling = zergling(10.5, 5.5)
+    reach = ReachMap(grid, [ling], [zealot, stalker], margin=20)
+    step = reach.approach_step(stalker, ling.position)
+    assert step is not None and step.x < ling.position.x  # heading for the open end on the left
+    assert reach.approach_step(stalker, Point2((10.5, 14.5))) is None  # already next to it
 
 
 def test_totals_efficiency_and_summary():

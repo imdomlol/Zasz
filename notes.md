@@ -148,3 +148,35 @@ attack continuing with a few zerglings when no enemy army is known):
 
 **3/8 passed (92 s, 121 s, 129 s), three more with only 3-5 targets left.** New baseline. From here,
 one change at a time, 8 runs each, kept only if it beats this.
+
+### 10. One change at a time from the reset (10 runs each, split by side)
+
+- **C: 3/4 of a ring per building** (`MELEE_SURROUND_FRACTION` 0.75): 4/8, but catastrophic failures
+  on the bottom side.
+- **C + D: only fight the fighters that can hit you** (within their weapon range + 2), not every
+  fighter within 10: top 2/5 (3.6 targets left on average), bottom 2/5 (5.0). Committed (`748f1c9`).
+- **Clear-the-way range 10 -> 20** (idle zerglings near the end should find the last gateways): 0/10,
+  12-14 left. Reverted.
+- **C + D re-run** to check the baseline: top 3/4 (passes in 100-108 s), **bottom 0/6** (16 left,
+  twice 22 of 23). The two sides really are different problems, and samples of 4-5 per side are
+  noisy.
+
+Why the bottom side collapses (logged run): 22 of 48 zerglings die in the first 20 s while only one
+gateway falls. About 13 zerglings at a time are going for units and about 11 "breaking through"
+gateways inside stalker range. Then the sim calls a retreat (LOSS_MARGINAL) and the remaining 22-26
+flip between retreat and fight for 2.5 minutes, doing nothing.
+
+The stalkers on that side can be reached around the outside of the grid (6-9 open cells each), but
+SC2 pathing ignores units: a zergling ordered to attack a stalker walks the shortest way, down a
+1-tile lane between gateways, and gets stopped by the zealot plugging the end of it, inside stalker
+range. Detours only kick in after it has been stuck for 1.5 s, and most die before that.
+
+### 11. Walk around enemy units to reach them (the big one)
+
+`ReachMap.approach_step`: per target, a distance field (BFS outward from the open cells around the
+target, with enemy units as walls, cached with the reach map for 1 s). A zergling going for an enemy
+unit that isn't in range yet steps down that field (a move 4 cells ahead) instead of getting an
+attack order, so it goes around the outside of the grid instead of down the lane a zealot plugs.
+Once it's on a cell next to the target it gets the normal attack order.
+
+**9/10: top 6/6 (81-125 s), bottom 3/4 (110-125 s; the failure had 6 left).** Up from 3/10.

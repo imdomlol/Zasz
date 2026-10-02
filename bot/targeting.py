@@ -307,6 +307,7 @@ class ReachMap:
                     self.reached[nx, ny] = True
                     queue.append((nx, ny))
         self._open: dict[int, int] = {}
+        self._fields: dict[int, np.ndarray] = {}
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
         cells = []
@@ -318,18 +319,73 @@ class ReachMap:
                         cells.append((lx, ly))
         return cells
 
+    def _ring(self, target: Unit, attacker_radius: float) -> list[tuple[int, int]]:
+        """Reached cells on the target's level an attacker could stand on to hit it."""
+        ring = self._cells_within(target.position, target.radius + 2 * attacker_radius + 0.6, self.walkable.shape)
+        level = self.height(target.position) if self.height else None
+
+        def same_level(c: tuple[int, int]) -> bool:
+            if level is None:
+                return True
+            return abs(self.height(Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5))) - level) < LEVEL_TOLERANCE
+
+        return [c for c in ring if self.walkable[c] and self.reached[c] and same_level(c)]
+
+    def _neighbors(self, cx: int, cy: int):
+        w, h = self.walkable.shape
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = cx + dx, cy + dy
+            if 0 <= nx < w and 0 <= ny < h and self.walkable[nx, ny]:
+                if dx and dy and not (self.walkable[cx + dx, cy] or self.walkable[cx, cy + dy]):
+                    continue  # no squeezing diagonally between two blocked cells
+                yield nx, ny
+
+    def approach_step(self, target: Unit, position: Point2, lookahead: int = 4) -> Point2 | None:
+        """Where to move next to get next to `target` walking around enemy units (pathing ignores
+        units, so it sends zerglings down a lane a zealot plugs). None if there's no way, or we're
+        already there. Follows a distance field from the open cells around the target."""
+        if target.tag not in self._fields:
+            field = np.full(self.walkable.shape, -1, dtype=np.int32)
+            queue: deque[tuple[int, int]] = deque()
+            for cell in self._ring(target, 0.375):
+                field[cell] = 0
+                queue.append(cell)
+            while queue:
+                cx, cy = queue.popleft()
+                for n in self._neighbors(cx, cy):
+                    if field[n] < 0:
+                        field[n] = field[cx, cy] + 1
+                        queue.append(n)
+            self._fields[target.tag] = field
+        field = self._fields[target.tag]
+        cx, cy = int(position.x) - self.x0, int(position.y) - self.y0
+        w, h = field.shape
+        if not (0 <= cx < w and 0 <= cy < h):
+            return None
+        here = field[cx, cy]
+        if here < 0:
+            # Standing on a cell the grid calls blocked (or cut off): start from the best neighbor
+            options = [n for n in self._neighbors(cx, cy) if field[n] >= 0]
+            if not options:
+                return None
+            cx, cy = min(options, key=lambda n: field[n])
+            here = field[cx, cy]
+        elif here == 0:
+            return None  # already next to it
+        for _ in range(lookahead):
+            if here == 0:
+                break
+            options = [n for n in self._neighbors(cx, cy) if 0 <= field[n] < here]
+            if not options:
+                break
+            cx, cy = min(options, key=lambda n: field[n])
+            here = field[cx, cy]
+        return Point2((cx + self.x0 + 0.5, cy + self.y0 + 0.5))
+
     def open_sides(self, target: Unit, attacker_radius: float = 0.375) -> int:
         """Reached cells on the target's level an attacker could stand on to hit it (0 = unreachable)."""
         if target.tag not in self._open:
-            ring = self._cells_within(target.position, target.radius + 2 * attacker_radius + 0.6, self.walkable.shape)
-            level = self.height(target.position) if self.height else None
-
-            def same_level(c: tuple[int, int]) -> bool:
-                if level is None:
-                    return True
-                return abs(self.height(Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5))) - level) < LEVEL_TOLERANCE
-
-            self._open[target.tag] = sum(1 for c in ring if self.walkable[c] and self.reached[c] and same_level(c))
+            self._open[target.tag] = len(self._ring(target, attacker_radius))
         return self._open[target.tag]
 
     def reachable(self, target: Unit) -> bool:

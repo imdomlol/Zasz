@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from ares import AresBot
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, AttackTarget, PathUnitToTarget, ShootTargetInRange
+from ares.behaviors.combat.individual.combat_individual_behavior import CombatIndividualBehavior
 from ares.consts import TOWNHALL_TYPES, WORKER_TYPES, EngagementResult, UnitRole, UnitTreeQueryType
 from ares.managers.squad_manager import UnitSquad
 from loguru import logger
@@ -69,6 +70,18 @@ IGNORED_THREATS = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTy
 DIVE_FIRST = {UnitTypeId.SIEGETANKSIEGED, UnitTypeId.SIEGETANK, UnitTypeId.LURKERMPBURROWED, UnitTypeId.COLOSSUS}
 # Structures worth killing first once their defenders are dead: economy, then power/production
 PRIORITY_STRUCTURES = TOWNHALL_TYPES | {UnitTypeId.PYLON, UnitTypeId.SPAWNINGPOOL}
+
+
+@dataclass
+class MoveTo(CombatIndividualBehavior):
+    """Plain move to a point (a step along our own path)."""
+
+    unit: Unit
+    target: Point2
+
+    def execute(self, ai: AresBot, config: dict, mediator) -> bool:
+        self.unit.move(self.target)
+        return True
 
 
 @dataclass
@@ -614,6 +627,19 @@ def fight(
         return
     # Only stop for *our* target: stopping at whatever we brush past blocks everyone behind
     maneuver.add(ShootTargetInRange(unit=unit, targets=[goal]))
+    # An enemy unit: walk around the other enemy units to it (e.g. around the outside of a gateway
+    # grid instead of down a lane a zealot plugs), then attack it
+    if (
+        not goal.is_structure
+        and not goal.is_memory
+        and slots.reach is not None
+        and not unit.target_in_range(goal, 0.5)
+        and (step := slots.reach.approach_step(goal, position)) is not None
+    ):
+        COUNTS["approach around"] += 1
+        maneuver.add(MoveTo(unit=unit, target=step))
+        ai.register_behavior(maneuver)
+        return
     if chase := chase_behavior(unit, goal):
         maneuver.add(chase)
     ai.register_behavior(maneuver)
