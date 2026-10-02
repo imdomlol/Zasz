@@ -15,6 +15,7 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
+| 18 | `safe-build-location` | Build at a safe base, not always the main (rebuilding into a lost main) | High | - |
 | 13 | `damage-efficiency` | Damage efficiency (metric, scenarios, target slots done; ramp open) | High | - |
 | 15 | `external-opponents` | Play against other people's bots | High | - |
 | 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | - |
@@ -318,3 +319,39 @@ started under fire often dies too: we lose the drone *and* the full cost. Needs 
 this building survive" estimate (incoming DPS vs HP over time). Spine/spore also need creep and a
 Spawning Pool; the extractor needs a free geyser close by. The timing of the cancel needs
 tracking.
+
+## `safe-build-location` (#18): Build at a safe base, not always the main
+
+**Idea:** Zasz builds everything in its starting main. If the main is lost (or under attack), even
+when the game is still recoverable, it keeps sending drones into the main to rebuild things like the
+spawning pool, where they die, instead of building at a safer base.
+
+**Depends on:** -
+
+**Observed:** VeryHard games where the main fell: drones kept walking into the main to rebuild the
+spawning pool (and other tech) while the enemy was there.
+
+**Cause:** placement is tied to `ai.start_location`:
+- spawning pool: `bot/actions/macro.py` (`pool_spot = ai.start_location.towards(...)` and
+  `BuildStructure(base_location=ai.start_location, ...)`)
+- tech buildings for upgrades (evolution chamber, lair, ...): `UpgradeController(...,
+  base_location=ai.start_location)` in `bot/actions/upgrades.py`
+- supply (`AutoSupply(base_location=ai.start_location)`) is overlords for Zerg, so it doesn't matter
+  there, but uses the same pattern
+
+**Fix ideas:**
+- One helper, e.g. `build_base(ai)`, that picks where to build: our *ready* hatchery that's safest
+  (no known enemies nearby on ares' ground grid, farthest from the known enemy army), preferring the
+  main only when it's safe. Use it for the pool, tech buildings and spores/spines.
+- Don't send a builder drone through danger: skip (or delay) a build if the path from the chosen
+  drone to the spot crosses known enemy fire, rather than feeding drones.
+- If the pool died and every base is unsafe, wait (save the money) instead of rebuilding into the
+  enemy.
+- Also check queens/injects and drone rallies don't keep walking into the lost main.
+
+**Impact:** High in the games it happens: losing the pool again (or the drones sent to rebuild it)
+usually ends a game that was still recoverable.
+**Blockers:** ares' `BuildStructure` for Zerg places near `base_location` towards the map center
+(`_do_zerg_build_placement`), so a non-main base needs a placement that stays on that base's creep
+and out of mineral lines; verify placements on each map (a scenario: kill our main's buildings,
+leave the natural, check where the pool gets rebuilt).
