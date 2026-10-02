@@ -47,9 +47,14 @@ def test_melee_vs_structure_is_capped_by_space():
     assert capacity is not None and 3 <= capacity <= 12
 
 
-def test_no_cap_for_ranged_or_air_attackers_or_unit_targets():
+def test_no_cap_for_ranged_or_air_attackers():
     assert attack_capacity(mutalisk(), bay()) is None  # ranged/air: not limited by space
-    assert attack_capacity(zergling(), zergling(1, 0)) is None  # units get surrounded from all sides
+    assert attack_capacity(mutalisk(), zergling(1, 0)) is None
+
+
+def test_melee_vs_unit_is_about_a_full_ring():
+    vs_unit = attack_capacity(zergling(), zergling(1, 0))
+    assert vs_unit is not None and 4 <= vs_unit <= 8
 
 
 def test_fill_from_the_back():
@@ -151,3 +156,32 @@ def test_chasing_a_target_moving_sideways_is_not_blocked():
         chaser.position = Point2((0, i * 2.0))
         tracker._measure(chaser, target, t, 0.5)
     assert tracker.total.blocked == 0
+
+
+# --- blocking ---
+
+
+def test_blocked_when_not_getting_closer_out_of_range():
+    from bot.targeting import BlockTracker
+
+    tracker = BlockTracker()
+    attacker, target = zergling(0, 0), bay(10, 0)
+    assert not tracker.update(attacker, target, 0.0)
+    assert not tracker.update(attacker, target, 1.0)  # stuck, but not long enough yet
+    assert tracker.update(attacker, target, 2.0)  # stuck 2 s > BLOCKED_SECONDS
+    assert tracker.is_blocked(attacker, target, 3.0)
+    assert tracker.reachable(attacker, [target], 3.0) == []
+
+
+def test_not_blocked_while_closing_in_or_in_range():
+    from bot.targeting import BlockTracker
+
+    tracker = BlockTracker()
+    target = bay(10, 0)
+    attacker = zergling(0, 0)
+    for i, t in enumerate([0.0, 1.0, 2.0, 3.0]):
+        attacker.position = Point2((i * 2.0, 0))  # closing in
+        assert not tracker.update(attacker, target, t)
+    attacker.position = Point2((10 - 1.75 - 0.375, 0))  # touching: in range
+    for t in (4.0, 6.0, 8.0):
+        assert not tracker.update(attacker, target, t)

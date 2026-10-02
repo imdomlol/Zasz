@@ -47,9 +47,26 @@ FORWARD_FRACTIONS = (0.5, 0.4, 0.3)  # waiting spots, as a share of the way from
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
 MELEE_SURROUND_FRACTION = 0.5
 MELEE_SPACING = 1.25
-# How melee attackers spread over structures: "back" = first ones in go deepest, later ones fill
-# toward the front; "nearest" = closest structure with room; "off" = no slots (closest structure)
-STRUCTURE_FILL = "back"
+MELEE_UNIT_SURROUND_FRACTION = 1.0  # melee attackers per enemy *unit*: about a full ring around it
+# A melee attacker that doesn't get PROGRESS_STEP closer to its target within BLOCKED_SECONDS while out
+# of range is blocked: it skips that target for BLOCKED_MEMORY_SECONDS (another target, or around)
+BLOCKED_SECONDS = 1.5
+PROGRESS_STEP = 0.5
+BLOCKED_MEMORY_SECONDS = 6.0
+FLANK_DISTANCE = 4.0  # blocked with nothing else reachable: go this far around to the target's side
+BREAKTHROUGH_RANGE = 3.0  # fighters full/blocked: attack a structure this close (edge) to break through
+# A zergling blocked on an enemy unit first tries a detour to it around our own crowd (planned on a grid
+# where nearby friendly units cost DETOUR_CROWD_COST and its jammed spot DETOUR_JAM_COST); only if the
+# detour is longer than DETOUR_MAX_FACTOR x direct + DETOUR_MAX_EXTRA does it break through instead
+DETOUR_CROWD_COST = 20
+DETOUR_JAM_COST = 100
+DETOUR_MAX_FACTOR = 3.0
+DETOUR_MAX_EXTRA = 20.0
+DETOUR_SECONDS = 6.0  # follow a detour at most this long
+# How melee attackers spread over targets (structures and units): "back" = first ones in go deepest,
+# later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with
+# room; "off" = no slots (closest target)
+TARGET_FILL = "back"
 SQUAD_RADIUS = 9  # zerglings this close together form one squad
 REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
 FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; retreat on any predicted loss

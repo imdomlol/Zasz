@@ -34,23 +34,25 @@ from bot.settings import (
     APPROACH_DISTANCE,
     AVOID_MARGIN,
     AVOID_SECONDS,
+    BREAKTHROUGH_RANGE,
     CHECK_AGAIN_SECONDS,
     DEFEND_RADIUS,
     ENGAGE_RANGE,
     FIGHT_AT,
     FIGHTER_PRIORITY_RANGE,
+    FLANK_DISTANCE,
     LOOKOUT_FLEE_MARGIN,
     MEMORY_THREAT_MARGIN,
     PLAN_SECONDS,
     REGROUP_DISTANCE,
     SCOUT_ZERGLINGS,
     SQUAD_RADIUS,
-    STRUCTURE_FILL,
     TANK_NEUTRALIZED_BY,
+    TARGET_FILL,
     UNDER_FIRE_SECONDS,
     VISIBLE_THREAT_MARGIN,
 )
-from bot.targeting import TargetSlots
+from bot.targeting import BlockTracker, Detours, TargetSlots, pick_tiered
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
 SIEGE_MIN_RANGE = 2.0  # sieged tanks can't fire at targets this close
@@ -86,6 +88,8 @@ class Army:
         self.turned_back_at: list[tuple[Point2, float, float]] = []  # (center, radius, until)
         self.checked_empty: dict[Point2, float] = {}  # expansion spot -> when we saw nothing there
         self.plan = ArmyPlan()  # what each zergling does: fight, stage, peek, scout, watch, hold
+        self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
+        self.detours = Detours()  # routes around our own crowd for blocked zerglings
         self.scouts: dict[int, Point2] = {}  # scouting zergling tag -> spot it's checking
         self.armies_checked_at = -999.0
 
@@ -97,6 +101,9 @@ class Army:
         against most opponents a single ball of zerglings wins fastest. Only once an attack has been
         turned back by an army we can't beat (an active avoid area) does the army plan take over:
         peek, raid around it, scout, watch (`ArmyPlan`), until those areas expire."""
+        alive = {u.tag for u in ai.units}
+        self.blocks.forget_dead(alive)
+        self.detours.forget_dead(alive)
         home_threats = [
             u for u in ai.mediator.get_main_ground_threats_near_townhall if u.type_id not in IGNORED_THREATS
         ]
@@ -288,7 +295,7 @@ class Army:
             if near_home or result >= FIGHT_AT:
                 slots = TargetSlots()
                 for unit in front_first(units, enemies):
-                    fight(ai, unit, threats, enemies, slots, squad.squad_position)
+                    fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
             else:
                 self.turned_back(ai, threats)
                 for unit in units:
@@ -318,7 +325,7 @@ class Army:
         for unit in front_first(units, enemies):
             if advancing:
                 if threats or any(e.is_structure for e in enemies):
-                    fight(ai, unit, threats, enemies, slots, squad.squad_position)
+                    fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
                 elif under_fire or unit.distance_to(target) < APPROACH_DISTANCE:
                     # Close to the target (or shot from out of sight): attack-move in
                     ai.register_behavior(AMove(unit=unit, target=target))
@@ -400,57 +407,102 @@ def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
 
 
 def fight(
-    ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit], slots: TargetSlots, squad_position: Point2
+    ai: AresBot,
+    unit: Unit,
+    threats: list[Unit],
+    enemies: list[Unit],
+    slots: TargetSlots,
+    squad_position: Point2,
+    blocks: BlockTracker,
+    detours: Detours,
 ) -> None:
-    """Target priority for one zergling.
+    """Target choice for one zergling, in priority tiers; it takes the best-tier target that still
+    has room (`TargetSlots`: melee attackers per target are capped by the space around it):
 
-    If enemy units that fight back are within FIGHTER_PRIORITY_RANGE, they're the only targets:
-    hit the weakest one in range, otherwise go straight at the closest (siege tanks and other
-    DIVE_FIRST units first). Buildings and workers wait until no fighters are near, so zerglings
-    don't chew on a barracks while marines and tanks shoot them.
+    1. siege tanks and other DIVE_FIRST units close by, then any other close enemy that fights back
+    2. workers
+    3. key structures (town halls, pylons, pools), then any structure, once no fighters are close
+       (so zerglings don't chew on a barracks while marines and tanks shoot them). Exception: when
+       every close fighter is full or blocked, the structure physically in the way (within
+       BREAKTHROUGH_RANGE) is next, so zerglings break through instead of dying in a lane
 
-    Otherwise: workers > key structures > any structure in range, then close in on the nearest
-    target with room (`TargetSlots`: a structure only takes as many melee attackers as fit around
-    it, and structures fill from the back: the first zerglings in go deepest, later ones fill in
-    toward the front, so nobody queues behind the front line). Picking the weakest target in range
-    spreads zerglings out instead of piling onto one.
+    When a target is full the next zergling takes the next one (a full pylon doesn't hold up the
+    gateway next to it). Targets fill from the back (TARGET_FILL "back"): zerglings are handled
+    front-first and each takes the *deepest* target with room, so the first ones in run past the
+    front line (and up ramps) and later ones fill in toward the front, instead of everyone stopping
+    at the first enemy and blocking the ones behind. A zergling only stops to hit its own target.
+
+    A zergling that stops getting closer to an enemy unit (`BlockTracker`) first takes a detour to
+    it around our own crowd (`Detours`, e.g. around the outside of a block of gateways instead of
+    queueing at a 1-tile gap). With no reasonable detour (or for a structure) it takes another
+    target it can reach, breaking through the structure in its way if that's all there is; a
+    zergling breaking through switches back to the units as soon as one is reachable.
     """
     position = unit.position
     fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
     near_fighters = [e for e in fighters if e.position.distance_to(position) < FIGHTER_PRIORITY_RANGE]
-
-    maneuver = CombatManeuver()
+    workers = [e for e in threats if e.type_id in WORKER_TYPES]
+    structures = [e for e in enemies if e.is_structure]
     if near_fighters:
-        maneuver.add(ShootTargetInRange(unit=unit, targets=near_fighters))
-        pool = [e for e in near_fighters if e.type_id in DIVE_FIRST] or near_fighters
+        dive = [e for e in near_fighters if e.type_id in DIVE_FIRST]
+        # When every close fighter is full or blocked (e.g. zealots in 1-tile gaps between
+        # gateways), break through the structure in the way rather than die in the lane
+        in_the_way = [s for s in structures if s.position.distance_to(position) - s.radius < BREAKTHROUGH_RANGE]
+        tiers = [
+            (dive, True),
+            ([e for e in near_fighters if e not in dive], True),
+            (workers, False),
+            (in_the_way, False),
+        ]
     else:
-        workers = [e for e in threats if e.type_id in WORKER_TYPES]
-        structures = [e for e in enemies if e.is_structure]
-        key_structures = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
-        if workers:
-            maneuver.add(ShootTargetInRange(unit=unit, targets=workers))
-        pool = fighters or workers or key_structures or structures
-    if not pool:
-        ai.register_behavior(maneuver)  # nothing to go after (e.g. only far-off remembered units)
-        return
-    # Structures fill from the back (deepest first) by default; units are simply the closest
-    structures_only = all(e.is_structure for e in pool)
-    if structures_only and STRUCTURE_FILL == "off":
-        goal = min(pool, key=lambda e: e.position.distance_to(position))
-    else:
-        depth_from = squad_position if structures_only and STRUCTURE_FILL == "back" else None
-        goal = slots.pick(unit, pool, depth_from=depth_from)
-    if goal.is_structure:
-        if STRUCTURE_FILL == "off":
-            # Original behaviour: hit any structure in range (key ones first)
-            structures = [e for e in enemies if e.is_structure]
-            for targets in ([s for s in structures if s.type_id in PRIORITY_STRUCTURES], structures):
-                if targets:
-                    maneuver.add(ShootTargetInRange(unit=unit, targets=targets))
-        else:
-            # Only hit *our* structure when in range: stopping at the first one we brush past
-            # would undo the spreading
+        key = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
+        tiers = [(fighters, True), (workers, True), (key, True), ([s for s in structures if s not in key], True)]
+    tiers = [(t, back) for t, back in tiers if t]
+    if not tiers:
+        return  # nothing to go after (e.g. only far-off remembered units)
+
+    now = ai.time
+    maneuver = CombatManeuver()
+    # On a detour around our own crowd: keep following it to that target
+    if (route_target := detours.route_target(unit, now)) is not None:
+        goal = next((e for t, _ in tiers for e in t if e.tag == route_target), None)
+        waypoint = detours.next_waypoint(unit) if goal is not None else None
+        if goal is not None and waypoint is not None and not unit.target_in_range(goal, 0.25):
             maneuver.add(ShootTargetInRange(unit=unit, targets=[goal]))
+            maneuver.add(
+                PathUnitToTarget(unit=unit, grid=ai.mediator.get_ground_grid, target=waypoint, sense_danger=False)
+            )
+            ai.register_behavior(maneuver)
+            return
+        detours.drop(unit)
+
+    if TARGET_FILL == "off":
+        goal = min((e for t, _ in tiers for e in t), key=lambda e: e.position.distance_to(position))
+        flank = False
+    else:
+        depth_from = squad_position if TARGET_FILL == "back" else None
+        goal, flank = pick_tiered(slots, blocks, unit, tiers, depth_from, now)
+    if goal is None:
+        return
+    if not flank and blocks.update(unit, goal, now):
+        # Just got stuck on this one. An enemy unit: go around our own crowd to it if there's a
+        # reasonable way; otherwise (or a structure) take another target we can reach
+        crowd = [u for u in ai.units if u.tag != unit.tag and u.type_id in ARMY_TYPES and u.distance_to(unit) < 8]
+        if not goal.is_structure and not goal.is_memory and detours.plan(ai, unit, goal, crowd, now):
+            fight(ai, unit, threats, enemies, slots, squad_position, blocks, detours)
+            return
+        goal, flank = pick_tiered(slots, blocks, unit, tiers, None, now)
+
+    if flank and not goal.is_memory:
+        side = 1 if unit.tag % 2 else -1  # alternate sides so they spread around the jam
+        away = goal.position.towards(unit.position, 1) - goal.position
+        around = goal.position + Point2((-away.y, away.x)) * side * (goal.radius + FLANK_DISTANCE)
+        maneuver.add(ShootTargetInRange(unit=unit, targets=[e for t, _ in tiers for e in t]))
+        maneuver.add(PathUnitToTarget(unit=unit, grid=ai.mediator.get_ground_grid, target=around, sense_danger=False))
+        ai.register_behavior(maneuver)
+        return
+    # Only stop for *our* target: stopping at whatever we brush past blocks everyone behind
+    maneuver.add(ShootTargetInRange(unit=unit, targets=[goal]))
     if chase := chase_behavior(unit, goal):
         maneuver.add(chase)
     ai.register_behavior(maneuver)
