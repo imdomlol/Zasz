@@ -31,6 +31,18 @@ melee attackers over structures and fill from the back (`bot/targeting.py`, `STR
 scenario-runner watchdog for crashed/frozen StarCraft II. Written to carry over to mutalisks (ranges
 from each unit's own weapon; ranged/air attackers uncapped). Details and open items: todo #13.
 
+**On branch `alternate-targets` (built on `damage-efficiency`, not merged yet):** the army plan
+(`bot/army_plan.py`). Fixes the army freezing in front of the enemy natural for ~30 s at a time
+(retreat out of range, ares' memory of their army pulls it back in, repeat) while a third mined
+freely. Every 2 s each zergling gets a task: group up only for a visible enemy group the whole army
+beats but half doesn't; otherwise spread out: peek at remembered groups from just outside their range
+(avoid the area if their range beats zergling sight), sized fights, sim-sized raids on bases away from
+groups we can't beat (and on their main while nothing in it is known), scouts, watchers, and the bulk
+waits forward on the field. Turned-back areas are avoided for 45 s; threats only count near their
+weapon range. Scenario `alternate_target` (fog, unbeatable army at their natural, open base elsewhere):
+old code lost 13/24 zerglings and failed; new code passed 4/4 with 16-23 alive. Also todo #18
+(`safe-build-location`) and #19 (`creep-to-natural`) were added there.
+
 ## Verified
 
 | What | Result |

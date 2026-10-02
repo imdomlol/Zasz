@@ -5,8 +5,11 @@ A Zerg StarCraft II bot built on [ares-sc2](https://aressc2.github.io/ares-sc2/)
 
 Strategy: make 16 drones and a spawning pool, then keep expanding whenever the drones are about to fill
 every base (or patches mine out), up to 70 drones. Research zergling speed, make a queen per hatchery
-(injecting larva) plus creep queens, pump zerglings, and attack the least defended enemy base once there
-are 16 (until the army drops below 8). Overlords watch the enemy's expansions from safe spots.
+(injecting larva) plus creep queens, pump zerglings, and attack once there are 16 (until the army drops
+below 8). The army groups up only for a fight that needs everyone; otherwise it spreads out: raids sized
+by the combat sim on bases away from armies it can't beat, single zerglings peeking at remembered enemy
+armies from outside their range, scouting expansions and watching the routes to our bases. Overlords
+watch the enemy's expansions from safe spots.
 
 ## Setup
 
@@ -163,7 +166,8 @@ bot/
 │   ├── queens.py      #   inject + creep queens; queens defend (our only anti-air unit)
 │   ├── defense.py     #   spore crawlers once enemy air shows up
 │   └── scouting.py    #   overlords posted at enemy expansions, kept out of anti-air
-└── army.py            # squads: commit/retreat memory, target priority, where to attack
+├── army_plan.py       # who does what: group up only when needed; raids, peeks, scouts, watchers
+└── army.py            # squads: fight or retreat, target priority, avoided areas, lookouts
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
