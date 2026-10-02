@@ -32,6 +32,7 @@ from bot.settings import (
     DETOUR_MAX_EXTRA,
     DETOUR_MAX_FACTOR,
     DETOUR_SECONDS,
+    LEVEL_TOLERANCE,
     MELEE_SPACING,
     MELEE_SURROUND_FRACTION,
     MELEE_UNIT_SURROUND_FRACTION,
@@ -122,12 +123,14 @@ class BlockTracker:
         """Candidates this attacker hasn't recently been blocked from."""
         return [c for c in candidates if not self.is_blocked(attacker, c, now)]
 
-    def update(self, attacker: Unit, target: Unit, now: float) -> bool:
-        """Record progress toward `target`; True if the attacker just became blocked on it."""
+    def update(self, attacker: Unit, target: Unit, now: float, same_level: bool = True) -> bool:
+        """Record progress toward `target`; True if the attacker just became blocked on it.
+        `same_level`: on the target's terrain level (close but below a cliff isn't in range)."""
         gap = attacker.position.distance_to(target.position) - attacker.radius - target.radius
         weapon_range = attacker.air_range if target.is_flying else attacker.ground_range
         progress = self.progress.get(attacker.tag)
-        if gap <= weapon_range + 0.25 or progress is None or progress.target != target.tag:
+        in_range = gap <= weapon_range + 0.25 and (same_level or weapon_range > 1)
+        if in_range or progress is None or progress.target != target.tag:
             self.progress[attacker.tag] = _Progress(target.tag, gap, now)  # in range, or a new target
             return False
         if gap < progress.best - PROGRESS_STEP:
@@ -268,7 +271,12 @@ class ReachMap:
     attackers can stand around it (a zealot plugging a gap: one or two).
     """
 
-    def __init__(self, grid, own: list[Unit], enemies: list[Unit], margin: int = REACH_WINDOW_MARGIN) -> None:
+    def __init__(
+        self, grid, own: list[Unit], enemies: list[Unit], height=None, margin: int = REACH_WINDOW_MARGIN
+    ) -> None:
+        # height(Point2) -> terrain z: cells next to a target only count on the target's level (a
+        # zergling below a cliff is close to a building on top of it, but can't hit it)
+        self.height = height
         points = [u.position for u in own] + [e.position for e in enemies]
         width, height = grid.shape
         self.x0 = max(0, int(min(p.x for p in points)) - margin)
@@ -311,13 +319,20 @@ class ReachMap:
         return cells
 
     def open_sides(self, target: Unit, attacker_radius: float = 0.375) -> int:
-        """Reached cells an attacker could stand on to hit `target` (0 = unreachable)."""
+        """Reached cells on the target's level an attacker could stand on to hit it (0 = unreachable)."""
         if target.tag not in self._open:
             ring = self._cells_within(target.position, target.radius + 2 * attacker_radius + 0.6, self.walkable.shape)
-            self._open[target.tag] = sum(1 for c in ring if self.walkable[c] and self.reached[c])
+            level = self.height(target.position) if self.height else None
+
+            def same_level(c: tuple[int, int]) -> bool:
+                if level is None:
+                    return True
+                return abs(self.height(Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5))) - level) < LEVEL_TOLERANCE
+
+            self._open[target.tag] = sum(1 for c in ring if self.walkable[c] and self.reached[c] and same_level(c))
         return self._open[target.tag]
 
     def reachable(self, target: Unit) -> bool:
-        if target.is_structure or target.is_flying or target.is_memory:
-            return True  # structures are always approachable from somewhere; air isn't our problem here
+        if target.is_flying or target.is_memory:
+            return True  # air isn't a melee problem; remembered units: we don't know where they stand
         return self.open_sides(target) > 0

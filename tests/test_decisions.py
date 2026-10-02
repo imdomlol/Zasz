@@ -99,13 +99,22 @@ def test_attack_hysteresis():
     rules = ScriptedDecisions()
 
     def attack(n: int, supply: int = 60) -> bool:
-        return rules.decide(Observation(**BASE, own_units=lings(n), supply_used=supply)).attack
+        obs = Observation(**BASE, own_units=lings(n), supply_used=supply, enemy_army_supply=10.0)
+        return rules.decide(obs).attack
 
     assert not attack(ATTACK_AT_ZERGLINGS - 1)
     assert attack(ATTACK_AT_ZERGLINGS)
     assert attack(STOP_ATTACK_AT_ZERGLINGS)  # keeps attacking while above the stop threshold
     assert not attack(STOP_ATTACK_AT_ZERGLINGS - 1)
     assert not attack(STOP_ATTACK_AT_ZERGLINGS)  # and doesn't restart until the start threshold
+
+
+def test_attack_keeps_going_with_no_enemy_army_left():
+    """Mid-attack, with no known enemy army, the few zerglings left finish off the buildings."""
+    rules = ScriptedDecisions()
+    assert rules.decide(Observation(**BASE, own_units=lings(ATTACK_AT_ZERGLINGS), enemy_army_supply=10.0)).attack
+    assert rules.decide(Observation(**BASE, own_units=lings(3), enemy_army_supply=0.0)).attack
+    assert not rules.decide(Observation(**BASE, own_units=lings(3), enemy_army_supply=6.0)).attack
 
 
 def test_attack_when_maxed():

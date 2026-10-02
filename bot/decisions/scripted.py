@@ -42,11 +42,12 @@ class ScriptedDecisions:
     def should_attack(self, obs: Observation) -> bool:
         """Start at ATTACK_AT_ZERGLINGS, keep going until the army drops below
         STOP_ATTACK_AT_ZERGLINGS. The gap stops the army flip-flopping between attacking and
-        pulling back each time a few zerglings die or hatch."""
+        pulling back each time a few zerglings die or hatch. An attack with no known enemy army left
+        keeps going with whatever is left: undefended buildings don't need 8 zerglings."""
         lings = obs.own_units.get(UnitTypeId.ZERGLING, 0)
         if lings >= ATTACK_AT_ZERGLINGS or obs.supply_used >= 190:
             self.attacking = True
-        elif lings < STOP_ATTACK_AT_ZERGLINGS:
+        elif lings < STOP_ATTACK_AT_ZERGLINGS and not (self.attacking and lings and obs.enemy_army_supply == 0):
             self.attacking = False
         return self.attacking
 

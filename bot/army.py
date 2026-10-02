@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 from ares import AresBot
 from ares.behaviors.combat import CombatManeuver
-from ares.behaviors.combat.individual import AMove, AttackTarget, PathUnitToTarget, ShootTargetInRange
+from ares.behaviors.combat.individual import AMove, AttackTarget, KeepUnitSafe, PathUnitToTarget, ShootTargetInRange
 from ares.consts import TOWNHALL_TYPES, WORKER_TYPES, EngagementResult, UnitRole, UnitTreeQueryType
 from ares.managers.squad_manager import UnitSquad
 from loguru import logger
@@ -36,14 +36,15 @@ from bot.settings import (
     APPROACH_DISTANCE,
     AVOID_MARGIN,
     AVOID_SECONDS,
-    BREAKTHROUGH_RANGE,
     CHECK_AGAIN_SECONDS,
     CLEAR_THE_WAY_RANGE,
     DEFEND_RADIUS,
     ENGAGE_RANGE,
+    EXPOSURE_MARGIN,
     FIGHT_AT,
     FIGHTER_PRIORITY_RANGE,
     FLANK_DISTANCE,
+    LEVEL_TOLERANCE,
     LOOKOUT_FLEE_MARGIN,
     MEMORY_THREAT_MARGIN,
     MIN_OPEN_SIDES,
@@ -242,7 +243,7 @@ class Army:
         key = (round(center.x / 10), round(center.y / 10))
         cached = self.reach_cache.get(key)
         if cached is None or ai.time - cached[0] >= REACH_SECONDS:
-            cached = (ai.time, ReachMap(ai.mediator.get_ground_grid, units, ground))
+            cached = (ai.time, ReachMap(ai.mediator.get_ground_grid, units, ground, ai.get_terrain_z_height))
             self.reach_cache[key] = cached
         return cached[1]
 
@@ -339,6 +340,7 @@ class Army:
             # Keep retreating only until every unit is out of known enemy range, then re-engage
             # right away if the fight looks winnable again: constant pressure, no free damage
             if any(not ai.mediator.is_position_safe(grid=grid, position=u.position) for u in units):
+                COUNTS["squad: keep retreating"] += len(units)
                 for unit in units:
                     retreat(ai, unit)
                 return
@@ -364,6 +366,7 @@ class Army:
 
         if under_fire and not advancing:
             # Shot by something we can't see, and not attacking: get out of there
+            COUNTS["squad: under fire, back off"] += len(units)
             for unit in units:
                 self.retreating.add(unit.tag)
                 retreat(ai, unit)
@@ -376,6 +379,7 @@ class Army:
             and squad.squad_position.distance_to(main_position) > REGROUP_DISTANCE
         ):
             # Join the main squad before going further (but never stop while being shot)
+            COUNTS["squad: regroup"] += len(units)
             for unit in units:
                 move(ai, unit, main_position)
             return
@@ -393,6 +397,7 @@ class Army:
                     # turned us back) instead of walking straight through it
                     move(ai, unit, target)
             elif unit.distance_to(target) > 5:
+                COUNTS["squad: hold, move"] += 1
                 move(ai, unit, target)
 
 
@@ -503,40 +508,48 @@ def fight(
     workers = [e for e in threats if e.type_id in WORKER_TYPES]
     structures = [e for e in enemies if e.is_structure]
     if slots.reach is not None:
-        # Only enemy units we can surround (enough open cells reachable around them); fighting one
-        # through a 1-tile gap is a 1-on-1 we lose. Exception: one right next to us, hit it back.
-        def surroundable(e: Unit) -> bool:
-            touching = e.position.distance_to(position) - e.radius - unit.radius < 0.75
-            return touching or slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
-
-        near_fighters = [e for e in near_fighters if surroundable(e)]
+        # Only structures we can actually stand next to (not ones on top of a cliff from here)
+        structures = [s for s in structures if slots.reach.reachable(s)]
         workers = [e for e in workers if slots.reach.reachable(e)]
-    if near_fighters:
-        dive = [e for e in near_fighters if e.type_id in DIVE_FIRST]
-        # When every close fighter is full or blocked (e.g. zealots in 1-tile gaps between
-        # gateways), break through the structure in the way rather than die in the lane
-        in_the_way = by_safety(
-            ai, [s for s in structures if s.position.distance_to(position) - s.radius < BREAKTHROUGH_RANGE], unit
-        )
+
+    def touching(e: Unit) -> bool:
+        return e.position.distance_to(position) - e.radius - unit.radius < 0.75
+
+    if any(e.type_id not in WORKER_TYPES for e in threats):
+        # Enemy fighters around. Work order (each zergling takes the first with room):
+        #   1. fighters touching us: hit back, don't take free hits
+        #   2. structures we can hit from outside enemy range: free work
+        #   3. fighters we can surround (enough reachable cells around them), tanks and co first
+        #   4. workers, then structures inside enemy range (breaking through)
+        # Everyone runs out of free work at about the same time, so they take on the fighters
+        # together instead of trickling into their fire one or two at a time.
+        def surroundable(e: Unit) -> bool:
+            return slots.reach is None or slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
+
+        in_reach = [s for s in structures if s.position.distance_to(position) - s.radius < CLEAR_THE_WAY_RANGE]
+        safe, unsafe = split_by_safety(in_reach, unit, [e for e in threats if e.type_id not in WORKER_TYPES])
+        hitting_us = [e for e in near_fighters if touching(e)]
+        surround = [e for e in near_fighters if not touching(e) and surroundable(e)]
+        dive = [e for e in surround if e.type_id in DIVE_FIRST]
         tiers = [
+            (hitting_us, False),
+            (safe, False),
             (dive, True),
-            ([e for e in near_fighters if e not in dive], True),
+            ([e for e in surround if e not in dive], True),
             (workers, False),
-            (in_the_way, False),
+            (unsafe, False),
         ]
-    elif any(e.type_id not in WORKER_TYPES for e in threats):
-        # Fighters around but none we can reach: clear the way through the closest structures
-        # (front first) instead of milling about in their fire
-        clear = by_safety(
-            ai, [s for s in structures if s.position.distance_to(position) - s.radius < CLEAR_THE_WAY_RANGE], unit
-        )
-        tiers = [(workers, False), (clear, False)]
     else:
         key = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
         tiers = [(fighters, True), (workers, True), (key, True), ([s for s in structures if s not in key], True)]
     tiers = [(t, back) for t, back in tiers if t]
     if not tiers:
-        return  # nothing to go after (e.g. only far-off remembered units)
+        # Nothing worth hitting from here: don't stand in enemy fire waiting
+        grid = ai.mediator.get_ground_grid
+        if not ai.mediator.is_position_safe(grid=grid, position=position):
+            COUNTS["step out of range"] += 1
+            ai.register_behavior(KeepUnitSafe(unit=unit, grid=grid))
+        return
 
     now = ai.time
     maneuver = CombatManeuver()
@@ -562,7 +575,8 @@ def fight(
         goal, flank = pick_tiered(slots, blocks, unit, tiers, depth_from, now)
     if goal is None:
         return
-    if not flank and blocks.update(unit, goal, now):
+    same_level = goal.is_flying or abs(ai.get_terrain_z_height(unit) - ai.get_terrain_z_height(goal)) < LEVEL_TOLERANCE
+    if not flank and blocks.update(unit, goal, now, same_level):
         # Just got stuck on this one. An enemy unit: go around our own crowd to it if there's a
         # reasonable way; otherwise (or a structure) take another target we can reach
         crowd = [u for u in ai.units if u.tag != unit.tag and u.type_id in ARMY_TYPES and u.distance_to(unit) < 8]
@@ -574,8 +588,8 @@ def fight(
         goal, flank = pick_tiered(slots, blocks, unit, tiers, None, now)
     if flank:
         category = "flank"
-    elif goal.is_structure and near_fighters:
-        category = "break through"
+    elif goal.is_structure and any(e.type_id not in WORKER_TYPES for e in threats):
+        category = "structure (fighters around)"
     elif goal.is_structure:
         category = "structure"
     else:
@@ -601,17 +615,20 @@ def fight(
     ai.register_behavior(maneuver)
 
 
-def by_safety(ai: AresBot, structures: list[Unit], unit: Unit) -> list[Unit]:
-    """Structures we can hit from outside known enemy weapon range first, then the rest; closest
-    first within each (front-row gateways come down without stalker fire)."""
-    grid = ai.mediator.get_ground_grid
-
-    def key(s: Unit) -> tuple[bool, float]:
+def split_by_safety(structures: list[Unit], unit: Unit, fighters: list[Unit]) -> tuple[list[Unit], list[Unit]]:
+    """(structures this unit can hit from outside the enemy fighters' actual weapon range, the rest),
+    each closest first. Exposure is computed from the fighters directly: ares' danger grid pads every
+    range by a 4-tile buffer, which marks almost a whole cramped base as unsafe."""
+    safe, unsafe = [], []
+    for s in sorted(structures, key=lambda s: s.position.distance_to(unit.position)):
         near_side = s.position.towards(unit.position, s.radius + unit.radius + 0.2)
-        safe = ai.mediator.is_position_safe(grid=grid, position=near_side)
-        return (not safe, s.position.distance_to(unit.position))
-
-    return sorted(structures, key=key)
+        exposed = any(
+            f.position.distance_to(near_side) < f.ground_range + f.radius + unit.radius + EXPOSURE_MARGIN
+            for f in fighters
+            if f.can_attack_ground
+        )
+        (unsafe if exposed else safe).append(s)
+    return safe, unsafe
 
 
 def chase_behavior(unit: Unit, goal: Unit) -> AttackTarget | AMove | None:
