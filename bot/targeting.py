@@ -23,6 +23,8 @@ from dataclasses import dataclass
 import numpy as np
 from sc2.position import Point2
 from sc2.unit import Unit
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import dijkstra
 
 from bot.settings import (
     BLOCKED_MEMORY_SECONDS,
@@ -308,6 +310,7 @@ class ReachMap:
                     queue.append((nx, ny))
         self._open: dict[int, int] = {}
         self._fields: dict[int, np.ndarray] = {}
+        self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
         cells = []
@@ -340,32 +343,53 @@ class ReachMap:
                     continue  # no squeezing diagonally between two blocked cells
                 yield nx, ny
 
+    def _cell_graph(self):
+        """Walkable cells (enemy units as walls) as a graph: 8 neighbors, no diagonal squeezing."""
+        if self._graph is None:
+            walk = self.walkable
+            w, h = walk.shape
+            index = np.arange(w * h).reshape(w, h)
+            rows, cols, weights = [], [], []
+            for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
+                # pairs (x, y) -> (x + dx, y + dy), both inside the window
+                xs, xe = 0, w - dx
+                ys, ye = max(0, -dy), h - max(0, dy)
+                src = (slice(xs, xe), slice(ys, ye))
+                dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
+                ok = walk[src] & walk[dst]
+                if dx and dy:
+                    # one of the two orthogonal cells in between must be open
+                    ok &= (
+                        walk[(slice(xs + dx, xe + dx), slice(ys, ye))] | walk[(slice(xs, xe), slice(ys + dy, ye + dy))]
+                    )
+                rows.append(index[src][ok])
+                cols.append(index[dst][ok])
+                weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
+            self._graph = coo_matrix(
+                (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
+            ).tocsr()
+        return self._graph
+
     def approach_step(self, target: Unit, position: Point2, lookahead: int = 4) -> Point2 | None:
         """Where to move next to get next to `target` walking around enemy units (pathing ignores
         units, so it sends zerglings down a lane a zealot plugs). None if there's no way, or we're
         already there. Follows a distance field from the open cells around the target."""
         if target.tag not in self._fields:
-            field = np.full(self.walkable.shape, -1, dtype=np.int32)
-            queue: deque[tuple[int, int]] = deque()
-            for cell in self._ring(target, 0.375):
-                field[cell] = 0
-                queue.append(cell)
-            while queue:
-                cx, cy = queue.popleft()
-                for n in self._neighbors(cx, cy):
-                    if field[n] < 0:
-                        field[n] = field[cx, cy] + 1
-                        queue.append(n)
-            self._fields[target.tag] = field
+            seeds = [c[0] * self.walkable.shape[1] + c[1] for c in self._ring(target, 0.375)]
+            if seeds:
+                dist = dijkstra(self._cell_graph(), directed=False, indices=seeds, min_only=True)
+                self._fields[target.tag] = dist.reshape(self.walkable.shape)
+            else:
+                self._fields[target.tag] = np.full(self.walkable.shape, np.inf)
         field = self._fields[target.tag]
         cx, cy = int(position.x) - self.x0, int(position.y) - self.y0
         w, h = field.shape
         if not (0 <= cx < w and 0 <= cy < h):
             return None
         here = field[cx, cy]
-        if here < 0:
+        if not np.isfinite(here):
             # Standing on a cell the grid calls blocked (or cut off): start from the best neighbor
-            options = [n for n in self._neighbors(cx, cy) if field[n] >= 0]
+            options = [n for n in self._neighbors(cx, cy) if np.isfinite(field[n])]
             if not options:
                 return None
             cx, cy = min(options, key=lambda n: field[n])
@@ -375,7 +399,7 @@ class ReachMap:
         for _ in range(lookahead):
             if here == 0:
                 break
-            options = [n for n in self._neighbors(cx, cy) if 0 <= field[n] < here]
+            options = [n for n in self._neighbors(cx, cy) if field[n] < here]
             if not options:
                 break
             cx, cy = min(options, key=lambda n: field[n])
