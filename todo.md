@@ -16,6 +16,7 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
 | 18 | `safe-build-location` | Build at a safe base, not always the main (rebuilding into a lost main) | High | - |
+| 19 | `creep-to-natural` | Connect main and natural creep down the ramp (queen movement) | Medium | - |
 | 13 | `damage-efficiency` | Damage efficiency (metric, scenarios, target slots done; ramp open) | High | - |
 | 15 | `external-opponents` | Play against other people's bots | High | - |
 | 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | - |
@@ -355,3 +356,34 @@ usually ends a game that was still recoverable.
 (`_do_zerg_build_placement`), so a non-main base needs a placement that stays on that base's creep
 and out of mineral lines; verify placements on each map (a scenario: kill our main's buildings,
 leave the natural, check where the pool gets rebuilt).
+
+## `creep-to-natural` (#19): Connect main and natural creep down the ramp
+
+**Idea:** Make sure creep from the main runs down the ramp and joins the natural's creep, so queens
+(slow off creep) can move between the two bases quickly to defend and inject. It usually takes about
+one creep tumor, but it's consistently missed.
+
+**Depends on:** -
+
+**Observed:** In games the main's and natural's creep stay separate at the ramp, so queens crawl
+between them off creep.
+
+**Cause:** creep queens use ares' `QueenSpreadCreep` (`bot/actions/queens.py`), which puts tumors at
+the nearest creep edge or along a path toward the *enemy's* natural, and tumors spread toward the
+enemy main (`TumorSpreadCreep(target=ai.enemy_start_locations[0])`). Nothing aims at the gap between
+our own main and natural.
+
+**Fix ideas:**
+- Before any other creep spread: walk the ground path from the main hatchery to the natural
+  hatchery (ares `find_raw_path`), find the first point without creep (`ai.has_creep`), and have a
+  queen place a tumor at the last creep point before it (a creep tumor must go on creep). Repeat
+  until the whole path is on creep, then go back to normal spreading.
+- Prefer the injecting queen of the main (it's right there) or the first creep queen; it's one or
+  two tumors, so it shouldn't cost much injection time.
+- The same check could connect later bases too (natural to third), lower priority.
+
+**Impact:** Medium. Queens defend the natural (they're the only anti-air) and reinforce between
+bases much faster on creep; cheap to do.
+**Blockers:** Tumor placement needs creep and a spot that isn't blocked (ramps are narrow; don't
+block the ramp itself). Creep edge positions from ares (`find_nearby_creep_edge_position`) may help.
+A scenario can check it: after N minutes, every point on the main-to-natural path has creep.
