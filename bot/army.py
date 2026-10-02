@@ -55,6 +55,7 @@ from bot.settings import (
     SQUAD_RADIUS,
     TANK_NEUTRALIZED_BY,
     TARGET_FILL,
+    THREAT_REACH_MARGIN,
     UNDER_FIRE_SECONDS,
     VISIBLE_THREAT_MARGIN,
 )
@@ -504,7 +505,15 @@ def fight(
     """
     position = unit.position
     fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
-    near_fighters = [e for e in fighters if e.position.distance_to(position) < FIGHTER_PRIORITY_RANGE]
+    # Fighters that can hit this zergling (touching, or within their weapon range + a little): fight
+    # back at those. One further away (a stalker behind a wall of gateways) isn't worth streaming
+    # toward along a long path: keep clearing, and fight it once it's shooting at us
+    near_fighters = [
+        e
+        for e in fighters
+        if e.position.distance_to(position) < FIGHTER_PRIORITY_RANGE
+        and e.position.distance_to(position) - e.radius - unit.radius < e.ground_range + THREAT_REACH_MARGIN
+    ]
     workers = [e for e in threats if e.type_id in WORKER_TYPES]
     structures = [e for e in enemies if e.is_structure]
     if slots.reach is not None:

@@ -110,6 +110,8 @@ class StructureAssault(Scenario):
 
     def report(self, bot: ScenarioBot, verdict, text: str) -> Outcome:
         t = bot.damage.total
+        side = "top" if bot.enemy_start_locations[0].y > bot.game_info.map_center.y else "bottom"
+        text = f"[{side}] {text}"
         RESULTS_FILE.parent.mkdir(exist_ok=True)
         new_file = not RESULTS_FILE.exists()
         with RESULTS_FILE.open("a", newline="") as f:

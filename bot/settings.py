@@ -17,6 +17,7 @@ STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this m
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
 FIGHTER_PRIORITY_RANGE = 10  # enemy units that fight back this close beat buildings/workers as targets
+THREAT_REACH_MARGIN = 2.0  # fight back at enemy fighters within their weapon range + this of a zergling
 # After a squad is turned back by a fight the sim says we'd lose, attack targets inside that enemy
 # group's reach (its spread + weapon range + AVOID_MARGIN) are skipped for AVOID_SECONDS: try other
 # bases instead of walking back into it
@@ -45,7 +46,7 @@ GATHERED_FRACTION = 0.8  # engage once this share of the army has gathered
 FORWARD_FRACTIONS = (0.5, 0.4, 0.3)  # waiting spots, as a share of the way from our rally to their natural
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
-MELEE_SURROUND_FRACTION = 0.5
+MELEE_SURROUND_FRACTION = 0.75
 MELEE_SPACING = 1.25
 MELEE_UNIT_SURROUND_FRACTION = 1.0  # melee attackers per enemy *unit*: about a full ring around it
 # A melee attacker that doesn't get PROGRESS_STEP closer to its target within BLOCKED_SECONDS while out
