@@ -2,14 +2,14 @@
 points. The goal is to kill the marines as fast as possible while losing as few zerglings as
 possible (the runner reports zerglings lost and time).
 
-- `wall_depot`: the ring's side facing us has a depot-like weak point (400 hp vs 850 for a bay; a
-  tech lab, since debug commands won't spawn an enemy supply depot)
+- `wall_techlab`: the ring's side facing us has a tech lab (2x2, 400 hp vs 850 for a bay: a supply
+  depot's stats; debug commands won't spawn an enemy supply depot)
 - `wall_bunker`: that slot is a bunker, with the 4 marines inside it
 - `wall_bays`: engineering bays all round, nothing weaker to break
 
 The ring, in tiles, with v pointing at our side (the weak side is the top row here):
 
-    v=9..11  [bay][weak][bay][bay]    (the depot variant: [bay][depot 2x2][bay][bay], the row
+    v=9..11  [bay][weak][bay][bay]    (the tech lab variant: [bay][lab 2x2][bay][bay], the row
     v=3..8   [bay]  pocket   [bay]     stops one tile short; still sealed)
     v=0..2   [bay][bay][bay][bay]
              u=0..11
@@ -18,7 +18,6 @@ The setup fails loudly unless every building landed where planned and the pocket
 walkable way from the zerglings to the middle of the pocket).
 """
 
-from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
@@ -27,9 +26,9 @@ from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
 from scenarios.efficiency import keep_alive_spot
 
 BAY = UnitTypeId.ENGINEERINGBAY
-# Debug commands won't spawn an enemy supply depot (not even on open ground), so the weak point is a
-# tech lab: also 2x2, 400 hp, 1 armor, the same thing to a zergling
-DEPOT = UnitTypeId.TECHLAB
+# Debug commands won't spawn an enemy supply depot (not even on open ground), so the 2x2 weak point is
+# a tech lab: also 400 hp, 1 armor, the same thing to a zergling
+TECHLAB = UnitTypeId.TECHLAB
 BUNKER = UnitTypeId.BUNKER
 KEEP_ALIVE = UnitTypeId.BARRACKSFLYING  # zerglings can't hit air: the game doesn't end early
 RING = [  # (u, v, size): bottom row, left and right columns, top row without its weak slot
@@ -55,7 +54,7 @@ class WalledMarines(Scenario):
         self.origin: Point2 | None = None
         self.axis: tuple[str, int] = ("y", 1)
         self.checked = False
-        self.depot_tries = 0
+        self.lab_tries = 0
         self.marine_tags: set[int] = set()  # the 4 marines (inside a bunker they drop out of view)
 
     # --- layout ---
@@ -99,20 +98,20 @@ class WalledMarines(Scenario):
         if self.phase == "spawn":
             self.plan(bot)
             for type_id, u, v, size in self.pieces():
-                if type_id != DEPOT:  # depots: next step (they didn't spawn alongside the rest)
+                if type_id != TECHLAB:  # the tech lab a step later (retried until it's there)
                     await bot.spawn(type_id, self.world(u, v, size), enemy=True)
             await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, [self.world(6, 6)]), enemy=True)
             await bot.spawn(UnitTypeId.MARINE, self.world(POCKET.x, POCKET.y), amount=4, enemy=True)
             self.spawned_at = bot.time
             self.phase = "clear"
-        elif self.phase == "clear" and not self.depots_placed(bot):
+        elif self.phase == "clear" and not self.labs_placed(bot):
             for type_id, u, v, size in self.pieces():
-                if type_id == DEPOT:
+                if type_id == TECHLAB:
                     spot = self.world(u, v, size)
-                    self.depot_tries += 1
-                    await bot.spawn(DEPOT, spot, enemy=True)
+                    self.lab_tries += 1
+                    await bot.spawn(TECHLAB, spot, enemy=True)
         elif self.phase == "clear" and bot.time - self.spawned_at > 1:
-            keep = {BAY, DEPOT, BUNKER, KEEP_ALIVE, UnitTypeId.MARINE}
+            keep = {BAY, TECHLAB, BUNKER, KEEP_ALIVE, UnitTypeId.MARINE}
             others = {u.tag for u in bot.enemy_units if u.type_id not in keep}
             others |= {s.tag for s in bot.enemy_structures if s.type_id not in keep}
             if others:
@@ -124,9 +123,7 @@ class WalledMarines(Scenario):
         elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
             self.fight_started = bot.time
             self.phase = "fight"
-        # The built-in AI lowers depots (walkable: the wall opens) and walks units around
-        for depot in bot.enemy_structures(UnitTypeId.SUPPLYDEPOTLOWERED):
-            depot(AbilityId.MORPH_SUPPLYDEPOT_RAISE)
+        # The built-in AI walks units around: keep the marines in place
         if self.phase != "ready":
             for marine in bot.enemy_units(UnitTypeId.MARINE):
                 marine.hold_position()
@@ -134,11 +131,11 @@ class WalledMarines(Scenario):
     def ready(self, bot: ScenarioBot) -> bool:
         return True
 
-    def depots_placed(self, bot: ScenarioBot) -> bool:
-        if self.depot_tries > 20:
+    def labs_placed(self, bot: ScenarioBot) -> bool:
+        if self.lab_tries > 20:
             return True  # give up: the setup check reports it
-        depots = bot.enemy_structures.of_type({DEPOT, UnitTypeId.SUPPLYDEPOTLOWERED})
-        return all(depots.closer_than(0.6, self.world(u, v, s)) for t, u, v, s in self.pieces() if t == DEPOT)
+        labs = bot.enemy_structures(TECHLAB)
+        return all(labs.closer_than(0.6, self.world(u, v, s)) for t, u, v, s in self.pieces() if t == TECHLAB)
 
     def marines_left(self, bot: ScenarioBot) -> int:
         """Marines alive: the ones we see, plus (while a bunker stands) the ones out of view, inside it.
@@ -168,7 +165,7 @@ class WalledMarines(Scenario):
 
     def on_timeout(self, bot: ScenarioBot) -> Outcome:
         lings = bot.units(UnitTypeId.ZERGLING).amount
-        walls = bot.enemy_structures.of_type({BAY, DEPOT, BUNKER}).amount
+        walls = bot.enemy_structures.of_type({BAY, TECHLAB, BUNKER}).amount
         return failed(
             f"{self.marines_left(bot)} marines alive after {self.time_limit:.0f}s, "
             f"{LINGS - lings} of {LINGS} zerglings lost, {walls} wall buildings left"
@@ -177,7 +174,7 @@ class WalledMarines(Scenario):
     def setup_problem(self, bot: ScenarioBot) -> str | None:
         for type_id, u, v, size in self.pieces():
             spot = self.world(u, v, size)
-            if not bot.enemy_structures.of_type({type_id, UnitTypeId.SUPPLYDEPOTLOWERED}).closer_than(0.6, spot):
+            if not bot.enemy_structures(type_id).closer_than(0.6, spot):
                 near = ", ".join(f"{e.type_id.name}@{e.position}" for e in bot.enemy_structures.closer_than(4, spot))
                 kinds = sorted({e.type_id.name for e in bot.enemy_structures})
                 return f"{type_id.name} not at {spot} (near it: {near or 'nothing'}; enemy structures: {kinds})"
@@ -192,10 +189,10 @@ class WalledMarines(Scenario):
         return None
 
 
-class WallDepot(WalledMarines):
-    name = "wall_depot"
-    description = "4 marines sealed in by engineering bays, with a depot-like weak point (2x2 tech lab, 400 hp)"
-    WEAK = [(DEPOT, 3, 9, 2), (BAY, 5, 9, 3), (BAY, 8, 9, 3)]
+class WallTechLab(WalledMarines):
+    name = "wall_techlab"
+    description = "4 marines sealed in by engineering bays, with a tech lab (2x2, 400 hp) as the weak point"
+    WEAK = [(TECHLAB, 3, 9, 2), (BAY, 5, 9, 3), (BAY, 8, 9, 3)]
 
 
 class WallBunker(WalledMarines):
@@ -223,4 +220,4 @@ class WallBays(WalledMarines):
     WEAK = [(BAY, 3, 9, 3), (BAY, 6, 9, 3), (BAY, 9, 9, 3)]
 
 
-SCENARIOS = [WallDepot(), WallBunker(), WallBays()]
+SCENARIOS = [WallTechLab(), WallBunker(), WallBays()]
