@@ -94,10 +94,37 @@ debug-spawned into the situation against a passive VeryEasy AI). Faster and less
 benchmark, so run them after any change to the bot:
 
 ```sh
-uv run python scripts/run_scenarios.py                  # all of them (~25 s), exits 1 on a failure
+uv run python scripts/run_scenarios.py                  # all of them, enemy main at the top; exits 1 on a failure
+uv run python scripts/run_scenarios.py --side both      # each from both sides (~100 s)
 uv run python scripts/run_scenarios.py tank_dive -v     # one scenario, with its game log
-uv run python scripts/run_scenarios.py --repeat 3       # each 3 times (start locations are random)
+uv run python scripts/run_scenarios.py efficiency_cramped_main --side both --replays all
+uv run python scripts/run_scenarios.py --random --repeat 3   # random starts, to look for flaky ones
 uv run python scripts/run_scenarios.py --list
+```
+
+**Repeatable runs.** Every run uses a fixed game seed for its side, so the same code plays a
+scenario out exactly the same way every time (start location, the built-in AI's choices, and our
+own randomness: ares' creep spots and squad ids are seeded from it too). That makes runs comparable
+number for number, not just pass/fail: each result goes to `benchmarks/scenarios.csv` (units and
+resources lost, damage taken and dealt, game time, commit; `-dirty` for uncommitted code), and is
+printed next to the last run of the same scenario, side and seed on another commit:
+
+```
+PASS  efficiency_cramped_main[top]  ... (80s game; lost 22 units (550 resources), damage taken 732)
+      vs af4d1c8-dirty: army lost 550 (same), damage taken 732 (same), game time 80s (same)
+```
+
+A side is where the *enemy's* main is ("top"/"bottom", or "left"/"right" on maps laid out that
+way). Which seed gives which side depends on the map and the StarCraft II build, so it's found once
+with short probe games and kept in `scenarios/seeds.json` per build (a Windows client finds its own
+on first use).
+
+**Watching a scenario.** `--replays all` keeps every replay (named like
+`efficiency_cramped_main[top].SC2Replay`); open them in the game on Windows. On Windows you can
+also watch one live at normal speed in the game window:
+
+```sh
+uv run python scripts/run_scenarios.py efficiency_cramped_main --side bottom --realtime
 ```
 
 Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`); see

@@ -1,22 +1,35 @@
-"""Run the staged scenarios in `scenarios/` and report which pass.
+"""Run the staged scenarios in `scenarios/` and report which pass, and what they cost.
 
-    uv run python scripts/run_scenarios.py                  # all of them, 4 at a time
+    uv run python scripts/run_scenarios.py                  # all of them, enemy main at the top
+    uv run python scripts/run_scenarios.py --side both      # each from both sides
     uv run python scripts/run_scenarios.py tank_dive -v     # one scenario, with its game log
-    uv run python scripts/run_scenarios.py --repeat 5       # each 5 times, to catch flaky ones
+    uv run python scripts/run_scenarios.py efficiency_cramped_main --side both --replays all
+    uv run python scripts/run_scenarios.py tank_dive --realtime   # watch it (Windows: game window)
+    uv run python scripts/run_scenarios.py --random --repeat 5    # random starts, to catch flaky ones
     uv run python scripts/run_scenarios.py --list
 
+Every run uses a fixed game seed for its side (`scenarios/seeds.py`), so it plays out the same way
+each time and can be compared number for number. Each result is appended to
+benchmarks/scenarios.csv (army lost, damage taken/dealt, time) with the commit, and printed next to
+the last run of the same scenario, side and seed on another commit.
+
 Exits with 1 if any scenario fails, so it can gate a commit. Replays of failed scenarios are kept in
-replays/scenarios/<run>/.
+replays/scenarios/<run>/ (--replays all keeps every one).
 """
 
 import _thread
 import argparse
+import csv
 import io
 import multiprocessing
+import os
+import random
+import subprocess
 import sys
 import threading
 import time
 import traceback
+import uuid
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,15 +39,32 @@ ROOT = Path(__file__).resolve().parent.parent
 # Same paths as run.py: our bot, then ares (`ares-sc2/src`) and its `sc2_helper` (`ares-sc2`)
 sys.path[:0] = [str(ROOT), str(ROOT / "ares-sc2" / "src"), str(ROOT / "ares-sc2")]
 
+import numpy as np
 from loguru import logger
 from sc2 import maps
 from sc2.data import Difficulty, Race
 from sc2.main import run_game
 from sc2.player import Bot, Computer
 
-from scenarios import ALL, ScenarioBot
+from scenarios import ALL, ScenarioBot, seeds
 
 REPLAYS_DIR = ROOT / "replays" / "scenarios"
+RESULTS_FILE = ROOT / "benchmarks" / "scenarios.csv"
+FIELDS = [
+    "timestamp",
+    "commit",
+    "scenario",
+    "side",
+    "seed",
+    "sc2_build",
+    "status",
+    "game_time",
+    "units_lost",
+    "army_lost",
+    "damage_taken",
+    "damage_dealt",
+    "message",
+]
 # Watchdog: a scenario taking longer than time_limit * FACTOR + MARGIN real seconds is stuck
 WATCHDOG_FACTOR = 3
 WATCHDOG_MARGIN = 120
@@ -48,10 +78,15 @@ class Report:
     game_time: float
     real_time: float
     log: str
+    stats: dict | None = None  # ScenarioBot.stats(): units/army lost, damage taken/dealt
 
 
-def run_scenario(name: str, replay: str, watchdog: float | None = None) -> Report:
+def run_scenario(
+    name: str, replay: str, watchdog: float | None = None, seed: int | None = None, realtime: bool = False
+) -> Report:
     """Play one scenario in this process (a worker); its log is captured, not printed."""
+    if seed is not None:
+        make_repeatable(seed)
     logger.remove()
     log = io.StringIO()
     logger.add(log, level="INFO", colorize=sys.stdout.isatty())
@@ -75,8 +110,9 @@ def run_scenario(name: str, replay: str, watchdog: float | None = None) -> Repor
         run_game(
             maps.get(scenario.map),
             [Bot(Race.Zerg, bot, name="Zasz"), Computer(scenario.enemy_race, Difficulty.VeryEasy)],
-            realtime=False,
+            realtime=realtime,
             save_replay_as=replay,
+            random_seed=seed,
         )
         if bot.outcome is None:
             status, message = "ERROR", "the game ended before the scenario was decided"
@@ -93,7 +129,74 @@ def run_scenario(name: str, replay: str, watchdog: float | None = None) -> Repor
         message = f"no result after {deadline:.0f}s real time (StarCraft II probably crashed or hung)"
         logger.error(message)
     game_time = bot.time if getattr(bot, "state", None) else 0.0
-    return Report(name, status, message, game_time, time.monotonic() - started, log.getvalue())
+    return Report(name, status, message, game_time, time.monotonic() - started, log.getvalue(), bot.stats())
+
+
+def make_repeatable(seed: int) -> None:
+    """Our side of a fixed-seed run: StarCraft II follows the game seed, but ares picks creep tumor
+    spots with Python's `random` and names squads with `uuid4`, which made the same seed play out a
+    little differently each time. Seed those from the game seed too (this worker process only)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    uuid.uuid4 = lambda: uuid.UUID(int=random.getrandbits(128), version=4)
+
+
+def current_commit() -> str:
+    """Short commit, with "-dirty" if tracked files have uncommitted changes."""
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True, text=True
+        ).stdout.strip()
+        return commit + ("-dirty" if dirty else "")
+    except (OSError, subprocess.CalledProcessError):
+        return "none"
+
+
+def load_results() -> list[dict]:
+    if not RESULTS_FILE.exists():
+        return []
+    with RESULTS_FILE.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def append_result(row: dict) -> None:
+    RESULTS_FILE.parent.mkdir(exist_ok=True)
+    new = not RESULTS_FILE.exists()
+    with RESULTS_FILE.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDS)
+        if new:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def compare(row: dict, history: list[dict]) -> str:
+    """This run next to the last run of the same scenario, side and seed on another commit."""
+    if not row["seed"]:
+        return ""  # random start: nothing exactly comparable
+    same = [
+        r
+        for r in history
+        if (r["scenario"], r["side"], r["seed"], r["sc2_build"])
+        == (row["scenario"], row["side"], row["seed"], row["sc2_build"])
+        and r["commit"] != row["commit"]
+    ]
+    if not same:
+        return ""
+    prev = same[-1]
+
+    def delta(field: str, unit: str = "") -> str:
+        old, new = float(prev[field] or 0), float(row[field] or 0)
+        if old == new:
+            return f"{field.replace('_', ' ')} {new:g}{unit} (same)"
+        return f"{field.replace('_', ' ')} {old:g}{unit} -> {new:g}{unit}"
+
+    changed = "" if prev["status"] == row["status"] else f" {prev['status']} -> {row['status']};"
+    return (
+        f"      vs {prev['commit']}:{changed} {delta('army_lost')}, {delta('damage_taken')}, {delta('game_time', 's')}"
+    )
 
 
 def main() -> None:
@@ -103,6 +206,22 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1, help="Run each scenario this many times")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every scenario's game log")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit")
+    parser.add_argument(
+        "--side",
+        default="top",
+        choices=["top", "bottom", "both"],
+        help="Which side the enemy main is on (left/right on maps laid out that way; default: top)",
+    )
+    parser.add_argument("--random", action="store_true", help="Random starts instead of the fixed seeds")
+    parser.add_argument(
+        "--replays",
+        default="failed",
+        choices=["failed", "all", "none"],
+        help="Replays to keep (default: failed)",
+    )
+    parser.add_argument(
+        "--realtime", action="store_true", help="Play at normal speed, one at a time (to watch on Windows)"
+    )
     parser.add_argument(
         "--watchdog",
         type=float,
@@ -121,42 +240,89 @@ def main() -> None:
     if unknown := [n for n in args.names if n not in known]:
         parser.error(f"unknown scenario(s): {', '.join(unknown)} (see --list)")
     names = args.names or [s.name for s in ALL]
-    runs = [(name, i) for name in names for i in range(1, args.repeat + 1)]
+    by_name = {s.name: s for s in ALL}
+
+    # (scenario, side, seed): the fixed seed for each side, looked up (or probed) per map
+    sides = ["top", "bottom"] if args.side == "both" else [args.side]
+    plays: list[tuple[str, str, int | None]] = []
+    for name in names:
+        if args.random:
+            plays.append((name, "random", None))  # sides don't apply: StarCraft II picks
+            continue
+        for side in sides:
+            seed, side_name = seeds.seed_for(by_name[name].map, side)
+            plays.append((name, side_name, seed))
+    runs = [(play, i) for play in plays for i in range(1, args.repeat + 1)]
 
     run_dir = REPLAYS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True)
-    label = {run: run[0] if args.repeat == 1 else f"{run[0]}#{run[1]}" for run in runs}
-    replays = {run: run_dir / f"{label[run]}.SC2Replay" for run in runs}
+
+    def label(run) -> str:
+        (name, side, _), i = run
+        return f"{name}[{side}]" + (f"#{i}" if args.repeat > 1 else "")
+
+    replays = {run: run_dir / f"{label(run)}.SC2Replay" for run in runs}
     reports: list[Report] = []
+    commit, build = current_commit(), seeds.sc2_build()
+    history = load_results()
     started = time.monotonic()
 
-    jobs = max(1, min(args.jobs, len(runs)))
+    jobs = 1 if args.realtime else max(1, min(args.jobs, len(runs)))
+    # Workers hash strings the same way every run (set order), part of making a seed repeatable
+    os.environ.setdefault("PYTHONHASHSEED", "0")
     # One fresh process per scenario (python-sc2 keeps per-process state); reported in order
     with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
-        futures = {run: pool.submit(run_scenario, run[0], str(replays[run]), args.watchdog) for run in runs}
+        futures = {
+            run: pool.submit(run_scenario, run[0][0], str(replays[run]), args.watchdog, run[0][2], args.realtime)
+            for run in runs
+        }
         for run, future in futures.items():
+            (name, side, seed), _ = run
             try:
                 report = future.result()
             except Exception as e:  # the worker process itself died
-                report = Report(run[0], "ERROR", f"worker died: {type(e).__name__}: {e}", 0, 0, traceback.format_exc())
+                report = Report(name, "ERROR", f"worker died: {type(e).__name__}: {e}", 0, 0, traceback.format_exc())
             reports.append(report)
             if args.verbose or report.status != "PASS":
                 sys.stdout.write(report.log)
+            stats = report.stats or {}
+            cost = (
+                f"; lost {stats['units_lost']} units ({stats['army_lost']} resources), "
+                f"damage taken {stats['damage_taken']}"
+                if stats
+                else ""
+            )
             print(
-                f"{report.status:<5} {label[run]:<24} {report.message} "
-                f"({report.game_time:.0f}s game, {report.real_time:.0f}s real)",
+                f"{report.status:<5} {label(run):<34} {report.message} "
+                f"({report.game_time:.0f}s game, {report.real_time:.0f}s real{cost})",
                 flush=True,
             )
-            if report.status == "PASS":
+            row = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "commit": commit,
+                "scenario": name,
+                "side": side,
+                "seed": seed if seed is not None else "",
+                "sc2_build": build,
+                "status": report.status,
+                "game_time": round(report.game_time, 1),
+                "message": report.message,
+                **stats,
+            }
+            if line := compare({k: str(v) for k, v in row.items()}, history):
+                print(line, flush=True)
+            append_result(row)
+            if args.replays == "none" or (args.replays == "failed" and report.status == "PASS"):
                 replays[run].unlink(missing_ok=True)
 
     if not any(run_dir.iterdir()):
         run_dir.rmdir()
     failures = [r for r in reports if r.status != "PASS"]
     print(f"\n{len(reports) - len(failures)}/{len(reports)} passed in {time.monotonic() - started:.0f}s")
+    if run_dir.exists():
+        print(f"Replays: {run_dir.relative_to(ROOT)}")
+    print(f"Results added to {RESULTS_FILE.relative_to(ROOT)}")
     if failures:
-        if run_dir.exists():
-            print(f"Replays of the failures: {run_dir.relative_to(ROOT)}")
         sys.exit(1)
 
 

@@ -18,19 +18,23 @@ Debug quirks found so far:
 - The built-in AI controls spawned enemy units: it unsieges tanks and can lift off barracks (use
   engineering bays for walls). Enemy supply depots failed to spawn on our high ground.
 - A spawn that doesn't fit is moved to the nearest free spot (or dropped), so leave margin.
-- Start locations are random: run with `--repeat` to cover both sides.
+- Each run uses a fixed game seed per side (`scenarios/seeds.py`), so it plays out the same way
+  every time; `--side both` covers both sides, `--random` gives random starts.
 
 Run them with `scripts/run_scenarios.py`.
 """
 
+from collections import Counter
 from dataclasses import dataclass
 
+from ares.dicts.cost_dict import COST_DICT
 from sc2.data import Race
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 from bot import ZaszBot
+from bot.army import ARMY_TYPES
 from bot.decisions import Decisions
 from bot.recording import DecisionRecorder
 
@@ -81,6 +85,31 @@ class ScenarioBot(ZaszBot):
         super().__init__(decisions=scenario.decisions(), recorder=scenario.recorder())
         self.scenario = scenario
         self.outcome: Outcome | None = None
+        self.lost: Counter[UnitTypeId] = Counter()  # our army units that died, by type
+
+    async def on_unit_destroyed(self, unit_tag: int) -> None:
+        await super().on_unit_destroyed(unit_tag)
+        unit = self._units_previous_map.get(unit_tag)
+        if unit is not None and (unit.type_id in ARMY_TYPES or unit.type_id == UnitTypeId.QUEEN):
+            self.lost[unit.type_id] += 1
+
+    def stats(self) -> dict:
+        """What the fight cost us (and what it did), for comparing runs beyond pass/fail."""
+        score = self.state.score if getattr(self, "state", None) else None
+
+        def value(unit_type: UnitTypeId) -> int:
+            cost = COST_DICT.get(unit_type)
+            if cost is None:
+                return 0
+            total = cost.minerals + cost.vespene
+            return total // 2 if unit_type == UnitTypeId.ZERGLING else total  # the table prices a pair
+
+        return {
+            "units_lost": sum(self.lost.values()),
+            "army_lost": sum(value(t) * n for t, n in self.lost.items()),
+            "damage_taken": round(score.total_damage_taken_life + score.total_damage_taken_shields) if score else 0,
+            "damage_dealt": round(score.total_damage_dealt_life + score.total_damage_dealt_shields) if score else 0,
+        }
 
     async def on_step(self, iteration: int) -> None:
         if self.outcome:
