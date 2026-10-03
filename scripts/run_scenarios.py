@@ -204,6 +204,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("names", nargs="*", help="Scenarios to run (default: all)")
     parser.add_argument("--jobs", type=int, default=4, help="Scenarios to run at once")
+    parser.add_argument(
+        "--overlay", action="store_true", help="Draw what the army is doing in the game window (bot/overlay.py)"
+    )
     parser.add_argument("--repeat", type=int, default=1, help="Run each scenario this many times")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every scenario's game log")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit")
@@ -238,6 +241,8 @@ def main() -> None:
         f"(default: time limit x {WATCHDOG_FACTOR} + {WATCHDOG_MARGIN})",
     )
     args = parser.parse_args()
+    if args.overlay:
+        os.environ["ZASZ_OVERLAY"] = "1"  # read by the game processes (bot/overlay.py)
 
     if args.list:
         for s in ALL:

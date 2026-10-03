@@ -275,3 +275,18 @@ def test_walk_to_a_group_and_the_gather_spot_outside_its_reach():
     assert all(spot.distance_to(m.position) > 6.4 for m in marines)  # outside their reach...
     assert spot.distance_to(marines[0].position) < 9  # ...but right at its edge, on our side
     assert spot.x < 20.5
+
+
+def test_cornered_when_no_reachable_ground_is_out_of_reach():
+    # A short dead end; a marine (reach 6.4) near its mouth covers all of it
+    grid = np.full((30, 30), np.inf, dtype=np.float32)
+    grid[10:13, 7:20] = 1.0  # a corridor, closed at y = 7 (the dead end) and open toward y = 19
+    grid[5:25, 19:29] = 1.0  # the open area beyond
+    marines = [unit(11.5, 12.5, ground_range=5.0, is_memory=False)]
+    ling = zergling(11.5, 8.5)
+    reach = ReachMap(grid, [ling], [], margin=20)
+    covered = [(m.position, 6.4) for m in marines]
+    assert reach.safe_ground(covered)  # the open area past the marine is reachable and out of reach...
+    blocker = [unit(11.5, 14.5, radius=1.6, is_memory=False)]  # ...until something blocks the corridor
+    reach = ReachMap(grid, [ling], blocker, margin=20)
+    assert not reach.safe_ground(covered)

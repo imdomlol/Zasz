@@ -27,6 +27,7 @@ import csv
 import io
 import itertools
 import multiprocessing
+import os
 import random
 import re
 import statistics
@@ -285,6 +286,9 @@ def is_notable(row: dict, win_times: list[float]) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", type=int, default=6)
+    parser.add_argument(
+        "--overlay", action="store_true", help="Draw what the army is doing in the game window (bot/overlay.py)"
+    )
     parser.add_argument("--difficulty", default="Hard", choices=[d.name for d in Difficulty])
     parser.add_argument("--races", nargs="+", default=["Terran", "Zerg", "Protoss"])
     parser.add_argument("--maps", nargs="+", default=None, help="Defaults to every installed map")
@@ -302,6 +306,8 @@ def main() -> None:
         "--record", action="store_true", help="Save each game's (observation, decision) pairs to data/decisions/"
     )
     args = parser.parse_args()
+    if args.overlay:
+        os.environ["ZASZ_OVERLAY"] = "1"  # read by the game processes (bot/overlay.py)
 
     map_names = args.maps or installed_maps()
     # Cycle races evenly; shuffle maps so short runs still see variety

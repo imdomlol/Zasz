@@ -25,10 +25,11 @@ FIGHTER_PRIORITY_RANGE = 10
 AVOID_SECONDS = 45
 AVOID_MARGIN = 3
 APPROACH_DISTANCE = 12  # advancing squads path around known enemy fire until this close to the target
-# Enemies only count as a threat to a squad within their weapon range + this of one of its units, so
-# a squad going *around* an army at a safe distance isn't turned back by it
-VISIBLE_THREAT_MARGIN = 6
-MEMORY_THREAT_MARGIN = 4  # remembered enemies (last seen in the fog) can't be chasing us as well
+# Enemies only count as a threat to a squad within their weapon range + this of one of its units:
+# what can hit us within about the next step. An army still walking in doesn't make a squad back off
+# from what it's doing (workers it's killing, a fight it's winning); it counts once it's in range
+VISIBLE_THREAT_MARGIN = 1.0
+MEMORY_THREAT_MARGIN = 1.0
 # Squads (`bot/squads.py`): lasting groups of zerglings, each with its own job
 SQUAD_SIZE = 8  # zerglings per squad: new ones fill a squad up to this, then start the next one
 SQUAD_MAX = 12  # a squad bigger than this (out of combat) splits in two
@@ -57,6 +58,12 @@ HELP_WIN_AT = EngagementResult.VICTORY_CLOSE
 HELP_ROOM_FACTOR = 1.5
 HELP_RANGE = 50
 HELP_SECONDS = 0.5  # re-check every fight this often
+# While attacking, at most this many squads patrol, and only with at least PATROL_MIN_SQUADS squads (a
+# small army attacks with everything); every other squad without a job joins a raid, or (nothing known
+# to raid) pushes toward their natural, then main, then other bases, as one group
+MAX_PATROLS_ATTACKING = 1
+PATROL_MIN_SQUADS = 4
+REGIONS_SECONDS = 5.0  # re-label the walkable regions (what our army can walk to) this often
 # Strikes (`Army.update_strikes`): enemies shooting our units that we can walk to get the fewest of
 # the nearest zerglings (walking distance, up to STRIKE_RANGE) that win, re-checked every
 # STRIKE_SECONDS; they gather within STRIKE_GATHER_RADIUS of a spot outside the enemies' reach and go
@@ -67,7 +74,20 @@ STRIKE_GATHER_RADIUS = 4
 STRIKE_GATHER_SECONDS = 15.0
 RALLY_SECONDS = 25.0  # squads gathering to take a fight together give up after this long
 BACK_OFF_MARGIN = 2.0  # backing off: this far past the enemy's actual weapon range
-UNSEEN_FIRE_STEP = 8.0  # shot by something we can't see while patrolling: step back this far
+BACK_OFF_HOLD_SECONDS = 4.0  # after backing off, hold outside that line this long (unless the fight turns)
+UNSEEN_FIRE_STEP = 8.0  # shot by something we can't see: step back this far...
+UNSEEN_FIRE_RADIUS = 14  # ...and avoid this far around there for AVOID_SECONDS (a sieged tank's range)
+# An enemy we can see standing where we have no vision (revealed by firing at us from the fog, e.g. a
+# sieged tank): what's around it is unknown. Avoid its reach + PARTLY_SEEN_MARGIN until we see the
+# spot (an overlord is sent), and don't fight it meanwhile
+PARTLY_SEEN_MARGIN = 4
+PARTLY_SEEN_RANGE = 7  # ...only enemies with at least this weapon range (they fire from beyond our sight)
+PARTLY_SEEN_SECONDS = 20  # ...and the area is held at most this long
+# Moving somewhere we can't see (SPREAD_LOOKAHEAD ahead): an open formation against splash, rows of
+# up to SPREAD_ROW, SPREAD_SPACING apart
+SPREAD_LOOKAHEAD = 10
+SPREAD_ROW = 6
+SPREAD_SPACING = 2.0
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
 MELEE_SURROUND_FRACTION = 0.75
@@ -101,7 +121,11 @@ LEVEL_TOLERANCE = 1.0  # terrain z within this counts as the same level (cliff l
 # later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with
 # room; "off" = no slots (closest target)
 TARGET_FILL = "back"
-FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; retreat on any predicted loss
+# A squad takes a fight the sim calls at least FIGHT_AT, and once in, stays until it calls DISENGAGE_AT or
+# worse (hysteresis: no flip-flopping on a close fight). The sim grades by the winner's health left:
+# VICTORY_MARGINAL = we win with > 20% left, LOSS_DECISIVE = they win with > 60% left
+FIGHT_AT = EngagementResult.VICTORY_MARGINAL
+DISENGAGE_AT = EngagementResult.LOSS_DECISIVE
 # Leave a sieged tank out of the combat sim once this many zerglings are inside its minimum range
 # (the sim ignores minimum range). Judgement call: revert (set very high) if it causes big mistakes.
 TANK_NEUTRALIZED_BY = 3
@@ -122,6 +146,7 @@ EXPANSION_RECHECK_SECONDS = 10  # how often to re-check whether a blocked expans
 OVERLORD_SCOUTS = 4  # overlords posted near enemy expansions (natural, third, fourth, ...)
 SCOUT_POST_OFFSET = 9  # how far from the expansion spot an overlord waits, toward our side
 SCOUT_POST_COOLDOWN = 90  # seconds to avoid a post after an overlord got shot there
+SCOUT_REQUEST_SECONDS = 60  # the army's requests for vision of a spot expire after this long
 
 # Upgrades the scripted decisions want, in priority order (once the spawning pool is down)
 SCRIPTED_UPGRADES = [

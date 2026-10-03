@@ -467,6 +467,16 @@ class ReachMap:
         cell = np.unravel_index(np.argmin(np.where(safe, field, np.inf)), field.shape)
         return Point2((cell[0] + self.x0 + 0.5, cell[1] + self.y0 + 0.5))
 
+    def safe_ground(self, shooters: list[tuple[Point2, float]]) -> bool:
+        """Is any ground our attackers can reach outside every shooter's reach (`shooters`: position
+        and reach)? False: cornered."""
+        w, h = self.walkable.shape
+        xs, ys = np.meshgrid(np.arange(w) + self.x0 + 0.5, np.arange(h) + self.y0 + 0.5, indexing="ij")
+        safe = self.reached & self.walkable
+        for spot, reach in shooters:
+            safe &= (xs - spot.x) ** 2 + (ys - spot.y) ** 2 > reach**2
+        return bool(safe.any())
+
     def walk_distance(self, target: Unit, position: Point2, limit: float) -> float:
         """How far `position` has to walk to stand next to `target`, going around enemy units
         (inf if there's no way, or it's more than `limit`). Only searches out to `limit`, so it's
