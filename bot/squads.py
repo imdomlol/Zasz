@@ -144,10 +144,6 @@ class Site:
     structures: list[Unit]
     defenders: list[Unit]
 
-    @property
-    def key(self) -> tuple[int, int]:
-        return round(self.center.x / 8), round(self.center.y / 8)
-
 
 def enemy_sites(ai: AresBot, structures: list[Unit], groups: list[EnemyGroup]) -> list[Site]:
     """Clusters of the given enemy structures, each with the known army near it; plus visible enemy
@@ -174,7 +170,7 @@ class Squad:
     job: str = "patrol"  # patrol, raid, help, defend
     target: Point2 | None = None  # patrol spot, raid site, or the fight being helped
     helping: int | None = None  # the squad whose fight we're joining
-    site: tuple[int, int] | None = None  # the site being raided
+    site: Point2 | None = None  # the site being raided (its center)
     units: list[Unit] = field(default_factory=list)  # this step's units
 
     # Shaped like an ares UnitSquad, for the per-squad fight logic in bot/army.py

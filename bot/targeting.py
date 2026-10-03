@@ -23,6 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 from sc2.position import Point2
 from sc2.unit import Unit
+from scipy.ndimage import label
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
@@ -66,11 +67,14 @@ def attack_capacity(attacker: Unit, target: Unit) -> int | None:
 class TargetSlots:
     """Per squad, per step: how many attackers each target already has."""
 
-    def __init__(self, reach: ReachMap | None = None) -> None:
+    def __init__(self, reach: ReachMap | None = None, caps: dict[int, int] | None = None) -> None:
         self.taken: dict[int, int] = {}
         self.reach = reach
+        self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
 
     def has_room(self, attacker: Unit, target: Unit) -> bool:
+        if target.tag in self.caps:
+            return self.taken.get(target.tag, 0) < self.caps[target.tag]
         capacity = attack_capacity(attacker, target)
         if capacity is not None and self.reach is not None and not target.is_structure and not target.is_memory:
             # A unit plugging a gap only has room for as many attackers as open cells touch it
@@ -319,6 +323,7 @@ class ReachMap:
         self._fields: dict[int, np.ndarray] = {}
         self._near_fields: dict[tuple[int, float], np.ndarray] = {}  # (target, limit) -> capped field
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
+        self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
         cells = []
@@ -446,6 +451,34 @@ class ReachMap:
         if target.tag not in self._open:
             self._open[target.tag] = len(self._ring(target, attacker_radius))
         return self._open[target.tag]
+
+    def breaches(self, structures: list[Unit], targets: list[Unit]) -> dict[int, tuple[int, list[Unit]]]:
+        """Structures whose death opens a way to enemy units we can't get to now: the ones bordering
+        both the ground our attackers reach and a sealed-off patch with some of `targets` in it (e.g.
+        the back row of a gateway block with stalkers behind it). Per structure: how many reached
+        cells border it (attackers that can hit it at once) and the targets it opens up."""
+        regions, _ = label(self.walkable, structure=np.ones((3, 3), dtype=bool))
+        reached = set(np.unique(regions[self.reached & self.walkable]).tolist()) - {0}
+        behind: dict[int, list[Unit]] = {}  # sealed-off region -> targets in it
+        for t in targets:
+            if t.is_flying or t.is_memory or self.open_sides(t) > 0:
+                continue  # reachable already (or not a melee question)
+            ring = self._cells_within(t.position, t.radius + 1.5, self.walkable.shape)
+            for region in {int(regions[c]) for c in ring if self.walkable[c]} - reached - {0}:
+                behind.setdefault(region, []).append(t)
+        found: dict[int, tuple[int, list[Unit]]] = {}
+        if not behind:
+            return found
+        for s in structures:
+            border = [
+                c for c in self._cells_within(s.position, s.radius + 1.2, self.walkable.shape) if self.walkable[c]
+            ]
+            touching = {int(regions[c]) for c in border}
+            opened = [t for region in touching & behind.keys() for t in behind[region]]
+            if opened and touching & reached:
+                attackers = sum(1 for c in border if self.reached[c] and regions[c] in reached)
+                found[s.tag] = (max(1, attackers), opened)
+        return found
 
     def reachable(self, target: Unit) -> bool:
         if target.is_flying or target.is_memory:

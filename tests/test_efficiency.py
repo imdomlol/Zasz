@@ -240,3 +240,23 @@ def test_not_blocked_while_closing_in_or_in_range():
     attacker.position = Point2((10 - 1.75 - 0.375, 0))  # touching: in range
     for t in (4.0, 6.0, 8.0):
         assert not tracker.update(attacker, target, t)
+
+
+def test_breach_is_the_building_between_us_and_sealed_off_enemies():
+    # A wall of two 3x3 buildings across x=8..13 (y=9..11) closing the corridor x=8..13 between
+    # cliffs; a stalker sealed in above it. Only buildings touching both sides are breaches.
+    grid = np.full((20, 24), np.inf, dtype=np.float32)
+    grid[8:14, 0:24] = 1.0  # a corridor 6 wide
+    grid[8:14, 9:12] = np.inf  # the wall: two buildings
+    left = unit(9.5, 10.5, radius=1.5, structure=True)
+    right = unit(12.5, 10.5, radius=1.5, structure=True)
+    elsewhere = unit(10.5, 2.5, radius=1.5, structure=True)  # on our side, not in the wall
+    grid[9:12, 1:4] = np.inf
+    stalker = unit(10.5, 18.5, radius=0.625, is_memory=False)
+    ling = zergling(10.5, 6.5)
+    reach = ReachMap(grid, [ling], [stalker], margin=20)
+    assert reach.open_sides(stalker) == 0
+    found = reach.breaches([left, right, elsewhere], [stalker])
+    assert set(found) == {left.tag, right.tag}
+    slots, opened = found[left.tag]
+    assert opened == [stalker] and 1 <= slots <= 5
