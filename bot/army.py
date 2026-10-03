@@ -40,6 +40,7 @@ from bot.settings import (
     BUNKER_MARINES,
     CLEAR_THE_WAY_RANGE,
     DEFEND_RADIUS,
+    ENEMY_GROUP_RADIUS,
     ENGAGE_RANGE,
     FIGHT_AT,
     FIGHTER_PRIORITY_RANGE,
@@ -63,6 +64,10 @@ from bot.settings import (
     SITE_RADIUS,
     SQUAD_SIZE,
     STAGING_MARGIN,
+    STRIKE_GATHER_RADIUS,
+    STRIKE_GATHER_SECONDS,
+    STRIKE_RANGE,
+    STRIKE_SECONDS,
     TANK_NEUTRALIZED_BY,
     TARGET_FILL,
     UNDER_FIRE_SECONDS,
@@ -77,8 +82,10 @@ from bot.squads import (
     Site,
     Squad,
     SquadBook,
+    Strike,
     center_of,
     choose_helpers,
+    cluster,
     enemy_groups,
     enemy_sites,
     needed,
@@ -124,6 +131,8 @@ class Army:
         self.engaged: set[int] = set()  # tags of our units committed to fights this step
         self.taken: dict[int, int] = {}  # target tag -> attackers this step, across all squads
         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
+        self.strikes: list[Strike] = []  # enemy groups shooting us, and the zerglings sent for them
+        self.struck_at = -999.0
         self.planned_at = -999.0
         self.helped_at = -999.0
         self.gathered: set[Point2] = set()  # defended sites (centers) whose raiders have gathered
@@ -190,14 +199,22 @@ class Army:
             for t in s.tags
         }
         self.taken.clear()  # target slots, shared by every squad this step
+        self.update_strikes(ai, lings)
+        striking = {t for s in self.strikes for t in s.lings}
+        self.engaged |= striking
         battles: dict[int, Battle] = {}
         for squad in squads:
+            # Zerglings on a strike are the strike's this step; the squad runs the rest
+            squad.units = [u for u in squad.units if u.tag not in striking]
+            if not squad.units:
+                continue
             target, advancing = self.squad_goal(ai, squad, squads)
             # Not attacking, a patrol only takes fights it wins big (scouting, not looking for trouble)
             fight_at = FIGHT_AT if attacking or squad.job != "patrol" else PATROL_FIGHT_AT
             if battle := self.control_squad(ai, squad, target, advancing, fight_at):
                 battles[squad.id] = battle
         self.battles = battles
+        self.execute_strikes(ai)
 
     def log_debug(self, ai: AresBot, squads: list[Squad]) -> None:
         if not self.debug or ai.time - self.counts_logged_at < 3:
@@ -281,7 +298,8 @@ class Army:
         for squad in squads:
             if squad.job == "raid":
                 if (site := same_site(squad.site, squad.site_tags)) is None:
-                    COUNTS["raid dropped: site gone"] += 1
+                    blocked = any(self.blocked(ai, s.position) for s in ai.enemy_structures if s.tag in squad.site_tags)
+                    COUNTS["raid dropped: site avoided" if blocked else "raid dropped: site gone"] += 1
                     squad.free()
                 else:
                     squad.site = site.center
@@ -299,7 +317,10 @@ class Army:
             others = sorted(
                 (s for s in free if s.job == "patrol"), key=lambda s: s.squad_position.distance_to(site.center)
             )
-            pool = [u for s in on_it + others for u in s.units]
+            # Squads already raiding it count, fighting or not (left out, a raid in full swing looked
+            # like one patrol squad against the defenders)
+            fighting = [s for s in squads if s.job == "raid" and s.site == site.center and s not in on_it]
+            pool = [u for s in on_it + fighting + others for u in s.units]
             if not pool:
                 break
             if site.defenders:
@@ -309,7 +330,9 @@ class Army:
                     ai, pool, site.defenders, site.center
                 )
                 if demand is None:
-                    self.turned_back(ai, site.defenders)
+                    # Can't staff it now: skip it this round (not an avoid area: only the whole army
+                    # failing to beat a group makes one, see `avoid_armies_we_cannot_beat`)
+                    COUNTS["raid skipped: not enough"] += 1
                     for s in on_it:
                         s.free()
                     continue
@@ -318,7 +341,7 @@ class Army:
                 demand = max(RAID_MIN, sum(attack_capacity(pool[0], s) or SQUAD_SIZE for s in site.structures))
             else:
                 demand = RAID_MIN
-            staffed = sum(len(s.tags) for s in on_it)
+            staffed = sum(len(s.tags) for s in on_it + fighting)
             for s in others:
                 if staffed >= demand:
                     break
@@ -399,7 +422,7 @@ class Army:
                         s.free()  # nothing in reach turns it: don't throw more in
                 if battle.result < FIGHT_AT and fighting is not None and fighting.job != "defend":
                     # Losing, and nothing in reach turns it: keep away from it and patrol elsewhere
-                    self.turned_back(ai, battle.threats)
+                    self.turned_back(ai, battle.threats, "no help possible")
                     fighting.free()
                     COUNTS["no help possible"] += 1
                 continue
@@ -450,13 +473,118 @@ class Army:
                 COUNTS["rally: called off"] += 1
                 del self.rallies[key]
 
+    def update_strikes(self, ai: AresBot, lings: list[Unit]) -> None:
+        """Enemies shooting our units that we can walk to get dealt with, however far: every
+        STRIKE_SECONDS, for each group of armed enemies with any of our zerglings in their reach, find
+        the fewest of the nearest zerglings (walking distance, up to STRIKE_RANGE) that win the fight
+        (comfortably if they can), at most as many as fit around the enemies we can reach. Those
+        zerglings gather at the last spot outside the enemies' reach on the way, and go in together
+        once most of them are there (or after STRIKE_GATHER_SECONDS). The others keep their jobs.
+        A strike keeps its zerglings while it lasts, and ends when the enemies are dead or out of
+        reach, or the fight isn't winnable any more."""
+        alive = {u.tag for u in lings}
+        for strike in self.strikes:
+            strike.lings &= alive
+        if ai.time - self.struck_at < STRIKE_SECONDS:
+            return
+        self.struck_at = ai.time
+        armed_enemies = [
+            e
+            for e in [*ai.enemy_units, *ai.enemy_structures]
+            if not e.is_flying
+            and not e.is_memory
+            and armed(e)
+            and e.type_id not in IGNORED_THREATS
+            and e.type_id not in WORKER_TYPES
+        ]
+        strikes: list[Strike] = []
+        taken: set[int] = set()
+        for group in cluster(armed_enemies, ENEMY_GROUP_RADIUS):
+            if not any(
+                u.position.distance_to(e.position) < reach_of(e, u) + 1 for e in group if armed(e) for u in lings
+            ):
+                continue  # not shooting at us
+            center = center_of(group)
+            nearby = [u for u in lings if u.position.distance_to(center) < STRIKE_RANGE + 10 and u.tag not in taken]
+            if not nearby:
+                continue
+            obstacles = [e for e in ai.enemy_units if not e.is_flying and e.position.distance_to(center) < 30]
+            reach = ReachMap(ai.mediator.get_ground_grid, nearby, obstacles, ai.get_terrain_z_height)
+            targets = [e for e in group if reach.open_sides(e) > 0]
+            if not targets:
+                continue  # sealed in: that's for a breach
+            tags = {e.tag for e in group}
+            old = next((s for s in self.strikes if s.targets & tags), None)
+            distance = {u.tag: reach.walk_to(targets, u.position) for u in nearby}
+            candidates = [u for u in nearby if distance[u.tag] <= STRIKE_RANGE]
+            # The strike's own zerglings first (it keeps them), then the nearest
+            candidates.sort(key=lambda u: (old is None or u.tag not in old.lings, distance[u.tag]))
+            probe = candidates[0] if candidates else None
+            room = (
+                int(
+                    sum(min(attack_capacity(probe, t) or len(candidates), reach.open_sides(t)) for t in targets)
+                    * HELP_ROOM_FACTOR
+                )
+                if probe
+                else 0
+            )
+            pool = candidates[: max(0, room)]
+            n = self.strike_size(ai, pool, group)
+            if n is None:
+                COUNTS["strike: not winnable"] += 1
+                continue
+            chosen = pool[:n]
+            shooters = [(e.position, weapon_range(e) + e.radius + 0.375 + BACK_OFF_MARGIN) for e in group if armed(e)]
+            spot = old.spot if old is not None and old.spot is not None else reach.gather_spot(targets, shooters)
+            strike = Strike(tags, {u.tag for u in chosen}, spot, old.since if old else ai.time, reach)
+            strike.go = old is not None and old.go
+            if not strike.go:
+                there = sum(1 for u in chosen if spot is None or u.position.distance_to(spot) < STRIKE_GATHER_RADIUS)
+                if there >= GATHERED_FRACTION * len(chosen) or ai.time - strike.since > STRIKE_GATHER_SECONDS:
+                    strike.go = True
+                    COUNTS[f"strike: go ({len(chosen)})"] += 1
+            strikes.append(strike)
+            taken |= strike.lings
+        self.strikes = strikes
+
+    def strike_size(self, ai: AresBot, pool: list[Unit], group: list[Unit]) -> int | None:
+        """Fewest of `pool` (in order) that beat `group`: comfortably if possible, else at all."""
+        for at in (HELP_WIN_AT, FIGHT_AT):
+            for n in range(min(2, len(pool)), len(pool) + 1, 2):
+                if strike_result(ai, pool[:n], group) >= at:
+                    return n
+            if pool and strike_result(ai, pool, group) >= at:
+                return len(pool)
+        return None
+
+    def execute_strikes(self, ai: AresBot) -> None:
+        by_tag = {u.tag: u for u in ai.units}
+        enemies = {e.tag: e for e in [*ai.enemy_units, *ai.enemy_structures]}
+        for strike in self.strikes:
+            group = [enemies[t] for t in strike.targets if t in enemies]
+            units = [by_tag[t] for t in strike.lings if t in by_tag]
+            if not group or not units:
+                continue
+            if not strike.go:
+                # Gather out of their reach (step out first if in it)
+                COUNTS["strike: gathering"] += len(units)
+                back_off(ai, units, group, strike.spot)
+                continue
+            COUNTS["strike: in"] += len(units)
+            center = center_of(group)
+            nearby = [e for e in enemies.values() if e.is_structure and e.position.distance_to(center) < 12]
+            slots = TargetSlots(strike.reach, taken=self.taken)
+            slots.strike = strike.targets
+            for unit in front_first(units, group):
+                fight(ai, unit, group, group + nearby, slots, center, self.blocks, self.detours)
+
     def avoid_armies_we_cannot_beat(self, ai: AresBot, lings: list[Unit]) -> None:
         """Mark every known enemy group (seen now or remembered) the whole army can't beat as an
         area to avoid, before walking into it rather than after losing half the zerglings."""
         for group in enemy_groups(ai):
             if not wins(ai, lings, group.units):
                 COUNTS[f"avoid group of {len(group.units)}"] += 1
-                self.turned_back(ai, group.units)
+                self.turned_back(ai, group.units, "army can't beat")
 
     def reach_map(self, ai: AresBot, units: list[Unit], enemies: list[Unit]) -> ReachMap | None:
         """Which enemy units this squad can actually get to; rebuilt every REACH_SECONDS per area."""
@@ -471,9 +599,10 @@ class Army:
             self.reach_cache[key] = cached
         return cached[1]
 
-    def turned_back(self, ai: AresBot, threats: list[Unit]) -> None:
+    def turned_back(self, ai: AresBot, threats: list[Unit], reason: str = "") -> None:
         """Remember where a squad had to back off: the area those enemies cover (their spread plus
         weapon range), replacing an older entry for the same spot."""
+        COUNTS[f"avoid area ({reason})"] += 1
         center = center_of(threats)
         spread = max(t.position.distance_to(center) for t in threats)
         radius = spread + max(weapon_range(t) + t.radius for t in threats) + AVOID_MARGIN
@@ -702,6 +831,16 @@ def through_bunkers(
     return EngagementResult.VICTORY_MARGINAL if share >= 0.25 else EngagementResult.LOSS_MARGINAL
 
 
+def strike_result(ai: AresBot, own: list[Unit], group: list[Unit]) -> EngagementResult:
+    """The sim's verdict for `own` against `group`, knowing that bunkers shoot."""
+    if not own:
+        return EngagementResult.LOSS_EMPHATIC
+    bunkers = [e for e in group if e.type_id == UnitTypeId.BUNKER]
+    if bunkers:
+        return through_bunkers(ai, own, own, bunkers, [e for e in group if e not in bunkers])
+    return ai.mediator.can_win_fight(own_units=own, enemy_units=group, workers_do_no_damage=True)
+
+
 def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
     """A sieged tank with several of our zerglings inside its minimum range.
 
@@ -765,13 +904,15 @@ def fight(
     near_fighters = [
         e
         for e in fighters
-        if e.position.distance_to(position) - (e.radius if e.is_structure else 0) < FIGHTER_PRIORITY_RANGE
+        if e.tag in slots.strike
+        or e.position.distance_to(position) - (e.radius if e.is_structure else 0) < FIGHTER_PRIORITY_RANGE
     ]
     if slots.reach is not None:
         near_fighters = [
             e
             for e in near_fighters
-            if e.position.distance_to(position) - e.radius - unit.radius < 0.75
+            if e.tag in slots.strike  # sent for it: however far (see `Army.update_strikes`)
+            or e.position.distance_to(position) - e.radius - unit.radius < 0.75
             or slots.reach.walk_distance(e, position, FIGHTER_PRIORITY_RANGE) <= FIGHTER_PRIORITY_RANGE
         ]
     workers = [e for e in threats if e.type_id in WORKER_TYPES]

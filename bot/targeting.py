@@ -75,6 +75,7 @@ class TargetSlots:
         self.taken: dict[int, int] = {} if taken is None else taken
         self.reach = reach
         self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
+        self.strike: set[int] = set()  # enemy tags this attacker's strike goes for (no distance limit)
 
     def has_room(self, attacker: Unit, target: Unit) -> bool:
         if target.tag in self.caps:
@@ -326,6 +327,7 @@ class ReachMap:
         self._open: dict[int, int] = {}
         self._fields: dict[int, np.ndarray] = {}
         self._near_fields: dict[tuple[int, float], np.ndarray] = {}  # (target, limit) -> capped field
+        self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
         self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
@@ -427,6 +429,43 @@ class ReachMap:
             cx, cy = min(options, key=lambda n: field[n])
             here = field[cx, cy]
         return Point2((cx + self.x0 + 0.5, cy + self.y0 + 0.5))
+
+    def group_field(self, targets: list[Unit]) -> np.ndarray:
+        """Walking distance from every cell to a spot next to the nearest of `targets` (around enemy
+        units; inf where there's no way)."""
+        key = frozenset(t.tag for t in targets)
+        if key not in self._group_fields:
+            seeds = sorted({c[0] * self.walkable.shape[1] + c[1] for t in targets for c in self._ring(t, 0.375)})
+            if seeds:
+                dist = dijkstra(self._cell_graph(), directed=False, indices=seeds, min_only=True)
+                self._group_fields[key] = dist.reshape(self.walkable.shape)
+            else:
+                self._group_fields[key] = np.full(self.walkable.shape, np.inf)
+        return self._group_fields[key]
+
+    def walk_to(self, targets: list[Unit], position: Point2) -> float:
+        """How far `position` has to walk to stand next to one of `targets` (inf: no way)."""
+        field = self.group_field(targets)
+        cx, cy = int(position.x) - self.x0, int(position.y) - self.y0
+        if not (0 <= cx < field.shape[0] and 0 <= cy < field.shape[1]):
+            return np.inf
+        if np.isfinite(field[cx, cy]):
+            return float(field[cx, cy])
+        return float(min((field[n] + 1 for n in self._neighbors(cx, cy)), default=np.inf))
+
+    def gather_spot(self, targets: list[Unit], shooters: list[tuple[Point2, float]]) -> Point2 | None:
+        """Where to gather before going for `targets` together: the cell closest to them (walking)
+        that's outside every shooter's reach (`shooters`: position and reach). None if none is."""
+        field = self.group_field(targets)
+        w, h = field.shape
+        xs, ys = np.meshgrid(np.arange(w) + self.x0 + 0.5, np.arange(h) + self.y0 + 0.5, indexing="ij")
+        safe = np.isfinite(field) & self.walkable
+        for spot, reach in shooters:
+            safe &= (xs - spot.x) ** 2 + (ys - spot.y) ** 2 > reach**2
+        if not safe.any():
+            return None
+        cell = np.unravel_index(np.argmin(np.where(safe, field, np.inf)), field.shape)
+        return Point2((cell[0] + self.x0 + 0.5, cell[1] + self.y0 + 0.5))
 
     def walk_distance(self, target: Unit, position: Point2, limit: float) -> float:
         """How far `position` has to walk to stand next to `target`, going around enemy units

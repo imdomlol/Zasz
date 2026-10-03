@@ -308,6 +308,18 @@ class Patrol:
         return best
 
 
+@dataclass
+class Strike:
+    """Zerglings sent for a group of enemies shooting our units (`Army.update_strikes`)."""
+
+    targets: set[int]  # tags of the enemies in the group
+    lings: set[int]  # our zerglings on it
+    spot: Point2 | None  # where they gather, outside the enemies' reach
+    since: float
+    reach: object = None  # the ReachMap it was planned on (`bot.targeting.ReachMap`)
+    go: bool = False  # gathered: going in
+
+
 # --- helping ---
 
 

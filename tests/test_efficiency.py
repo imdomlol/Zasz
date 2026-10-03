@@ -260,3 +260,18 @@ def test_breach_is_the_building_between_us_and_sealed_off_enemies():
     assert set(found) == {left.tag, right.tag}
     slots, opened = found[left.tag]
     assert opened == [stalker] and 1 <= slots <= 5
+
+
+def test_walk_to_a_group_and_the_gather_spot_outside_its_reach():
+    # Open ground; two marines (reach 5 + radius + margin ~ 6.4) at x = 20; a zergling at x = 2
+    grid = np.ones((40, 30), dtype=np.float32)
+    marines = [unit(20.5, 14.5, ground_range=5.0, is_memory=False), unit(20.5, 16.5, ground_range=5.0, is_memory=False)]
+    ling = zergling(2.5, 15.5)
+    reach = ReachMap(grid, [ling], marines, margin=20)
+    walk = reach.walk_to(marines, ling.position)
+    assert 14 <= walk <= 18
+    spot = reach.gather_spot(marines, [(m.position, 6.4) for m in marines])
+    assert spot is not None
+    assert all(spot.distance_to(m.position) > 6.4 for m in marines)  # outside their reach...
+    assert spot.distance_to(marines[0].position) < 9  # ...but right at its edge, on our side
+    assert spot.x < 20.5

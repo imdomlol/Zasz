@@ -57,6 +57,14 @@ HELP_WIN_AT = EngagementResult.VICTORY_CLOSE
 HELP_ROOM_FACTOR = 1.5
 HELP_RANGE = 50
 HELP_SECONDS = 0.5  # re-check every fight this often
+# Strikes (`Army.update_strikes`): enemies shooting our units that we can walk to get the fewest of
+# the nearest zerglings (walking distance, up to STRIKE_RANGE) that win, re-checked every
+# STRIKE_SECONDS; they gather within STRIKE_GATHER_RADIUS of a spot outside the enemies' reach and go
+# in together (or after STRIKE_GATHER_SECONDS)
+STRIKE_SECONDS = 0.5
+STRIKE_RANGE = 40
+STRIKE_GATHER_RADIUS = 4
+STRIKE_GATHER_SECONDS = 15.0
 RALLY_SECONDS = 25.0  # squads gathering to take a fight together give up after this long
 BACK_OFF_MARGIN = 2.0  # backing off: this far past the enemy's actual weapon range
 UNSEEN_FIRE_STEP = 8.0  # shot by something we can't see while patrolling: step back this far
