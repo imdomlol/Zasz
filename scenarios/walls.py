@@ -164,6 +164,8 @@ class WalledMarines(Scenario):
         return None
 
     def on_timeout(self, bot: ScenarioBot) -> Outcome:
+        if self.phase != "fight":
+            return failed(f"setup: the fight never started (stuck in '{self.phase}')")
         lings = bot.units(UnitTypeId.ZERGLING).amount
         walls = bot.enemy_structures.of_type({BAY, TECHLAB, BUNKER}).amount
         return failed(
@@ -205,13 +207,20 @@ class WallBunker(WalledMarines):
         bunkers = bot.enemy_structures(BUNKER)
         if not bunkers:
             return False
+        # All 4 seen at some point (tags recorded in on_step), now out of view with the bunker
+        # standing: inside it
+        return len(self.marine_tags) == 4 and not bot.enemy_units(UnitTypeId.MARINE)
+
+    async def on_step(self, bot: ScenarioBot) -> None:
+        await super().on_step(bot)
+        # The built-in AI unloads its bunker: while it stands, any marine we see goes back in (this
+        # comes after the base class's hold-position orders, so it's the one that counts)
         marines = bot.enemy_units(UnitTypeId.MARINE)
-        if not self.marine_tags:
-            self.marine_tags = {m.tag for m in marines}
-        for marine in marines:
-            marine.smart(bunkers.first)
-        # All 4 out of view with the bunker standing: inside it
-        return len(self.marine_tags) == 4 and not marines
+        if self.phase in ("clear", "ready"):
+            self.marine_tags |= {m.tag for m in marines}  # before they disappear into the bunker
+        if self.phase != "spawn" and (bunkers := bot.enemy_structures(BUNKER)):
+            for marine in marines:
+                marine.smart(bunkers.first)
 
 
 class WallBays(WalledMarines):
