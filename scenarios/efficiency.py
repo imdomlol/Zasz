@@ -380,4 +380,116 @@ class CrampedMainMoreZealots(CrampedMain):
         await super().on_step(bot)
 
 
-SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain(), CrampedMainMoreZealots()]
+class OpenArmy(StructureAssault):
+    """The gateway grid's army with no gateways: the same 48 zerglings against the same zealots and
+    stalkers, in the same formation (zealots in a row 4 apart, stalkers 3 behind them) and on hold
+    position as there, but on flat open ground. Compare zerglings lost with efficiency_cramped_main
+    to see what the buildings cost."""
+
+    name = "efficiency_open_army"
+    description = "efficiency_cramped_main's army with no gateways: 48 zerglings vs 4 zealots, 4 stalkers in the open"
+    time_limit = 120
+    LINGS = CrampedMain.LINGS
+    ZEALOTS = CrampedMain.ZEALOTS
+    COLUMNS = (-6, -2, 2, 6)  # the grid's gaps
+    STALKER_DEPTH = 3  # behind the zealots, as behind the back row there
+    APPROACH = 20  # zerglings start this far in front of the zealots
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.targets: set[int] = set()
+
+    def spots(self, bot: ScenarioBot) -> tuple[list[Point2], list[Point2], Point2]:
+        """Zealots, stalkers, and where the zerglings start: around the map center, every spot
+        on walkable ground."""
+        center = bot.game_info.map_center
+        raw = toward_us(bot, center)
+        # Snapped to the map axes: a diagonal row lands units on uneven cells
+        back = Point2((1 if raw.x > 0 else -1, 0)) if abs(raw.x) >= abs(raw.y) else Point2((0, 1 if raw.y > 0 else -1))
+        side = across(back)
+
+        # Rocks and other neutral units aren't in the static pathing grid, but debug spawns get
+        # pushed off them
+        neutral = [*bot.destructables, *bot.mineral_field, *bot.vespene_geyser]
+
+        def open_ground(p: Point2) -> bool:
+            return all(
+                bot.in_pathing_grid(Point2((p.x + dx, p.y + dy))) for dx in (-1.5, 0, 1.5) for dy in (-1.5, 0, 1.5)
+            ) and all(n.position.distance_to(p) > n.radius + 2 for n in neutral)
+
+        for radius in range(0, 15):
+            for dx in range(-radius, radius + 1):
+                for dy in (-radius, radius) if abs(dx) != radius else range(-radius, radius + 1):
+                    origin = Point2((int(center.x + dx) + 0.5, int(center.y + dy) + 0.5))
+                    zealots = [origin + side * c for c in self.COLUMNS][: self.ZEALOTS]
+                    stalkers = [origin + side * c - back * self.STALKER_DEPTH for c in self.COLUMNS]
+                    start = origin + back * self.APPROACH
+                    if all(open_ground(p) for p in [*zealots, *stalkers, start]):
+                        return zealots, stalkers, start
+        raise RuntimeError("no open ground for the army around the map center")
+
+    async def on_step(self, bot: ScenarioBot) -> None:
+        if self.phase == "spawn":
+            zealots, stalkers, _ = self.spots(bot)
+            for spot in zealots:
+                await bot.spawn(UnitTypeId.ZEALOT, spot, enemy=True)
+            for spot in stalkers:
+                await bot.spawn(UnitTypeId.STALKER, spot, enemy=True)
+            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, [*zealots, *stalkers]), enemy=True)
+            self.spawned_at = bot.time
+            self.phase = "clear"
+        elif self.phase == "clear" and bot.time - self.spawned_at > 1:
+            keep = {UnitTypeId.ZEALOT, UnitTypeId.STALKER, KEEP_ALIVE}
+            others = {u.tag for u in bot.enemy_units if u.type_id not in keep}
+            others |= {s.tag for s in bot.enemy_structures if s.type_id not in keep}
+            if others:
+                await bot.client.debug_kill_unit(others)
+            _, _, start = self.spots(bot)
+            await bot.spawn(UnitTypeId.ZERGLING, start, amount=self.LINGS)
+            bot.army.debug = True
+            self.phase = "zerglings"
+        elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
+            self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
+            bot.damage.reset(bot.time)
+            self.fight_started = bot.time
+            self.phase = "fight"
+        # On hold from the start (the built-in AI walks new units off otherwise) and through the
+        # fight, as in the gateway grid: the only difference is the buildings
+        for unit in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}):
+            if not unit.is_idle or unit.orders:
+                unit.hold_position()
+
+    def alive(self, bot: ScenarioBot) -> int:
+        return len(self.targets & {u.tag for u in bot.enemy_units})
+
+    def check(self, bot: ScenarioBot) -> Outcome | None:
+        if self.phase == "zerglings":
+            zealots, stalkers, _ = self.spots(bot)
+            placed = bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})
+            # Debug spawns at one end of the row come out a couple of tiles off; fine in the open
+            off = [p for p in zealots + stalkers if not placed.closer_than(3.5, p)]
+            if off:
+                where = ", ".join(f"{u.type_id.name}@{u.position.rounded}" for u in placed)
+                near = [n for n in bot.all_units if n.owner_id not in (bot.player_id, bot.enemy_id)]
+                near = [n for n in near if min(n.position.distance_to(q) for q in off) < 6]
+                where += "; neutral nearby: " + ", ".join(f"{n.type_id.name}@{n.position.rounded}" for n in near)
+                return failed(f"setup: {len(off)} units not where planned {[p.rounded for p in off]}; units at {where}")
+        if self.phase != "fight" or bot.time - self.fight_started < 1:
+            return None
+        lings = bot.units(UnitTypeId.ZERGLING).amount
+        if not self.alive(bot):
+            return self.report(
+                bot, passed, f"all {len(self.targets)} units dead in {self.elapsed(bot):.0f}s, {lings} zerglings left"
+            )
+        if not lings:
+            return self.report(bot, failed, f"all zerglings died, {self.alive(bot)} units left")
+        return None
+
+    def on_timeout(self, bot: ScenarioBot) -> Outcome:
+        lings = bot.units(UnitTypeId.ZERGLING).amount
+        return self.report(
+            bot, failed, f"{self.alive(bot)} of {len(self.targets)} units still alive, {lings} zerglings left"
+        )
+
+
+SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain(), CrampedMainMoreZealots(), OpenArmy()]
