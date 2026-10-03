@@ -65,10 +65,14 @@ def attack_capacity(attacker: Unit, target: Unit) -> int | None:
 
 
 class TargetSlots:
-    """Per squad, per step: how many attackers each target already has."""
+    """Per step: how many attackers each target already has."""
 
-    def __init__(self, reach: ReachMap | None = None, caps: dict[int, int] | None = None) -> None:
-        self.taken: dict[int, int] = {}
+    def __init__(
+        self, reach: ReachMap | None = None, caps: dict[int, int] | None = None, taken: dict[int, int] | None = None
+    ) -> None:
+        # Attackers per target tag. Pass one dict to every squad in a step, so squads fighting
+        # the same enemy share its slots (each counting from zero put 20 zerglings on one stalker)
+        self.taken: dict[int, int] = {} if taken is None else taken
         self.reach = reach
         self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
 

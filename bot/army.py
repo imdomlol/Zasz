@@ -116,6 +116,7 @@ class Army:
         self.patrol = Patrol()  # where we've had no vision the longest
         self.battles: dict[int, Battle] = {}  # squad id -> its fight, last step
         self.engaged: set[int] = set()  # tags of our units committed to fights this step
+        self.taken: dict[int, int] = {}  # target tag -> attackers this step, across all squads
         self.planned_at = -999.0
         self.helped_at = -999.0
         self.gathered: set[Point2] = set()  # defended sites (centers) whose raiders have gathered
@@ -176,6 +177,7 @@ class Army:
         self.engaged = {
             t for s in squads if s.job in ("raid", "help", "defend") or s.id in self.battles for t in s.tags
         }
+        self.taken.clear()  # target slots, shared by every squad this step
         battles: dict[int, Battle] = {}
         for squad in squads:
             target, advancing = self.squad_goal(ai, squad, squads)
@@ -445,7 +447,7 @@ class Army:
             # retreat, so we never keep feeding units into a losing fight
             if near_home or self.committed or result >= fight_at:
                 reach = self.reach_map(ai, units, enemies)
-                slots = TargetSlots(reach, self.breach_caps(ai, reach, units, enemies, threats, present))
+                slots = TargetSlots(reach, self.breach_caps(ai, reach, units, enemies, threats, present), self.taken)
                 for unit in front_first(units, enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
             else:
@@ -464,7 +466,7 @@ class Army:
                 retreat(ai, unit)
             return None
 
-        slots = TargetSlots(self.reach_map(ai, units, enemies) if enemies else None)
+        slots = TargetSlots(self.reach_map(ai, units, enemies) if enemies else None, taken=self.taken)
         for unit in front_first(units, enemies):
             if advancing:
                 if threats or any(e.is_structure for e in enemies):
