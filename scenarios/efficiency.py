@@ -394,6 +394,7 @@ class OpenArmy(StructureAssault):
     COLUMNS = (-6, -2, 2, 6)  # the grid's gaps
     STALKER_DEPTH = 3  # behind the zealots, as behind the back row there
     APPROACH = 20  # zerglings start this far in front of the zealots
+    HOLD = True  # keep the enemy units in place (False: the built-in AI moves them)
 
     def __init__(self) -> None:
         super().__init__()
@@ -453,10 +454,11 @@ class OpenArmy(StructureAssault):
             bot.damage.reset(bot.time)
             self.fight_started = bot.time
             self.phase = "fight"
-        # On hold from the start (the built-in AI walks new units off otherwise) and through the
-        # fight, as in the gateway grid: the only difference is the buildings
-        for unit in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}):
-            if not unit.is_idle or unit.orders:
+        # On hold from the start and through the fight, every step, as in the gateway grid (the
+        # only difference is the buildings). The built-in AI keeps ordering its units back to its
+        # main, so a hold issued once doesn't stick
+        if self.HOLD:
+            for unit in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}):
                 unit.hold_position()
 
     def alive(self, bot: ScenarioBot) -> int:
@@ -492,4 +494,22 @@ class OpenArmy(StructureAssault):
         )
 
 
-SCENARIOS = [OpenField(), DeepBase(), Ramp(), CrampedMain(), CrampedMainMoreZealots(), OpenArmy()]
+class OpenArmyFree(OpenArmy):
+    """The same armies in the open, but the built-in AI moves its units: it pulls them back to its
+    main and holds the top of its ramp, leaving the first zealot behind. A disengage test of sorts:
+    chasing an army that falls back to a choke."""
+
+    name = "efficiency_open_army_free"
+    description = "efficiency_open_army, but the enemy AI moves its units (falls back to its ramp)"
+    HOLD = False
+
+
+SCENARIOS = [
+    OpenField(),
+    DeepBase(),
+    Ramp(),
+    CrampedMain(),
+    CrampedMainMoreZealots(),
+    OpenArmy(),
+    OpenArmyFree(),
+]
