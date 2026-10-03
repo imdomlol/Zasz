@@ -281,7 +281,7 @@ class Patrol:
                 if ai.in_pathing_grid(spot) and all(spot.distance_to(s) > PATROL_GRID / 2 for s in spots):
                     spots.append(spot)
         self.spots = spots
-        self.seen = {s: 0.0 for s in spots}
+        self.seen = {s: -PATROL_STALE_CAP for s in spots}  # never seen: as stale as it gets (not seen at 0 s)
 
     def update(self, ai: AresBot) -> None:
         own = [(u.position, u.sight_range) for u in ai.all_own_units if u.sight_range > 0]
@@ -291,7 +291,7 @@ class Patrol:
 
     def fresh(self, spot: Point2, now: float) -> bool:
         """Seen by us within the last PATROL_FRESH seconds: nothing new to find there."""
-        return now - self.seen.get(spot, 0.0) < PATROL_FRESH
+        return now - self.seen.get(spot, -PATROL_STALE_CAP) < PATROL_FRESH
 
     def pick(
         self, now: float, position: Point2, claimed: list[Point2], avoid: Callable[[Point2], bool]

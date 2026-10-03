@@ -49,8 +49,6 @@ PATROL_STALE_CAP = 120.0  # seconds; staler than this counts the same
 PATROL_DISTANCE_COST = 0.5  # seconds of staleness one tile of distance is worth
 PATROL_CLAIM_RADIUS = 15  # squads don't pick spots this close to another squad's spot
 PATROL_FRESH = 30.0  # a spot one of our units saw this recently isn't worth a patrol
-# Not attacking: a patrol meeting the enemy only fights a fight the sim calls at least this
-PATROL_FIGHT_AT = EngagementResult.VICTORY_DECISIVE
 # Helping (`bot/squads.py`, `choose_helpers`): a squad in a fight the sim calls worse than
 # HELP_WIN_AT gets help, if more zerglings fit around its targets (melee slots x HELP_ROOM_FACTOR,
 # room for replacements) and some set of free squads within HELP_RANGE makes it a win
@@ -72,6 +70,7 @@ STRIKE_SECONDS = 0.5
 STRIKE_RANGE = 40
 STRIKE_GATHER_RADIUS = 4
 STRIKE_GATHER_SECONDS = 15.0
+RAID_TOGETHER = 10  # zerglings this close to their group's center are already together (no need to gather)
 RALLY_SECONDS = 25.0  # squads gathering to take a fight together give up after this long
 BACK_OFF_MARGIN = 2.0  # backing off: this far past the enemy's actual weapon range
 BACK_OFF_HOLD_SECONDS = 4.0  # after backing off, hold outside that line this long (unless the fight turns)

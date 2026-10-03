@@ -7,6 +7,7 @@ from bot.targeting import attack_capacity
 from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
 
 TANKS = {UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}
+GAP_SECONDS = 1.0  # tank_dive: how long one open slot on the tank may last while zerglings are on marines
 
 
 class TankDive(Scenario):
@@ -32,7 +33,7 @@ class TankDive(Scenario):
 
     def __init__(self) -> None:
         self.was_sieged = False
-        self.bad_steps = 0  # consecutive steps with a zergling on a marine while the tank had room
+        self.gap_since: float | None = None  # since when a zergling is on a marine while the tank has room
         self.first_on_tank: float | None = None
         self.first_on_marine: float | None = None
         self.most_on_tank = 0
@@ -72,17 +73,19 @@ class TankDive(Scenario):
             self.first_on_tank = bot.time
         if on_marines and self.first_on_marine is None:
             self.first_on_marine = bot.time
-        # A zergling on a marine while the tank still has room is not diving (one step of grace: orders
-        # given this step show up next step)
-        if on_marines and on_tank < self.capacity:
-            self.bad_steps += 1
-            if self.bad_steps >= 2:
+        # A zergling on a marine while the tank still has room is not diving. One open slot is fine for up
+        # to GAP_SECONDS (a zergling on the tank died; its replacement has to be picked and walk round);
+        # two or more open slots, or a gap that lasts, is a failure
+        open_slots = self.capacity - on_tank
+        if on_marines and open_slots > 0:
+            self.gap_since = self.gap_since if self.gap_since is not None else bot.time
+            if open_slots >= 2 and bot.time - self.gap_since > 0.5 or bot.time - self.gap_since > GAP_SECONDS:
                 return failed(
                     f"{on_marines} zerglings on marines at {bot.time:.1f}s while the tank had room "
-                    f"({on_tank}/{self.capacity} on it)"
+                    f"({on_tank}/{self.capacity} on it, for {bot.time - self.gap_since:.1f}s)"
                 )
         else:
-            self.bad_steps = 0
+            self.gap_since = None
         return None
 
     def on_timeout(self, bot: ScenarioBot) -> Outcome:

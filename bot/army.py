@@ -64,10 +64,10 @@ from bot.settings import (
     PARTLY_SEEN_MARGIN,
     PARTLY_SEEN_RANGE,
     PARTLY_SEEN_SECONDS,
-    PATROL_FIGHT_AT,
     PATROL_MIN_SQUADS,
     PLAN_SECONDS,
     RAID_MIN,
+    RAID_TOGETHER,
     RALLY_SECONDS,
     REACH_SECONDS,
     REGIONS_SECONDS,
@@ -242,9 +242,7 @@ class Army:
             if not squad.units:
                 continue
             target, advancing = self.squad_goal(ai, squad, squads)
-            # Not attacking, a patrol only takes fights it wins big (scouting, not looking for trouble)
-            fight_at = FIGHT_AT if attacking or squad.job != "patrol" else PATROL_FIGHT_AT
-            if battle := self.control_squad(ai, squad, target, advancing, fight_at):
+            if battle := self.control_squad(ai, squad, target, advancing, FIGHT_AT):
                 battles[squad.id] = battle
         self.battles = battles
         self.execute_strikes(ai)
@@ -302,11 +300,11 @@ class Army:
             or self.blocked(ai, squad.target)
         ):
             claimed = [s.target for s in squads if s is not squad and s.job == "patrol" and s.target is not None]
-            groups = enemy_groups(ai)
+            # Stay out of reach of enemy groups this squad can't beat (ones it beats are fair game), and
+            # don't try for spots we can't walk to (e.g. behind a mineral wall)
+            groups = [g for g in enemy_groups(ai) if not wins(ai, squad.units, g.units)]
 
             def dangerous(p: Point2) -> bool:
-                # Scouting, not fighting: stay out of reach of every known enemy army (and don't try
-                # for spots we can't walk to, e.g. behind a mineral wall)
                 return (
                     self.blocked(ai, p)
                     or not self.can_walk_to(ai, p)
@@ -713,7 +711,13 @@ class Army:
                 COUNTS["strike: already fighting, go"] += 1
             if not strike.go:
                 there = sum(1 for u in chosen if spot is None or u.position.distance_to(spot) < STRIKE_GATHER_RADIUS)
-                if there >= GATHERED_FRACTION * len(chosen) or ai.time - strike.since > STRIKE_GATHER_SECONDS:
+                # Already together (one clump, not spread over the map): nothing to wait for
+                middle = center_of(chosen)
+                together = sum(1 for u in chosen if u.position.distance_to(middle) < RAID_TOGETHER)
+                if (
+                    max(there, together) >= GATHERED_FRACTION * len(chosen)
+                    or ai.time - strike.since > STRIKE_GATHER_SECONDS
+                ):
                     strike.go = True
                     COUNTS[f"strike: go ({len(chosen)})"] += 1
             strikes.append(strike)
@@ -864,6 +868,13 @@ class Army:
         extra = BACK_OFF_MARGIN + 0.5 if holding else 0.0
         threats = [e for e in enemies if (not e.is_structure or armed(e)) and can_reach_soon(e, units, extra)]
         under_fire = any(ai.time - self.last_damaged.get(u.tag, -99) < UNDER_FIRE_SECONDS for u in units)
+        if not threats:
+            # Nothing can hit us yet, but enemy units in sight (ENGAGE_RANGE) we'd beat are worth going
+            # for: the next-step margin decides when to back off, not which fights we notice
+            seen = [e for e in enemies if not e.is_structure and not e.is_memory and armed(e)]
+            if seen and fight_result(ai, units, seen, self.engaged)[0] >= fight_at:
+                COUNTS["go for a winnable fight"] += len(units)
+                threats = seen
 
         if threats:
             near_home = ai.townhalls.closest_distance_to(squad.squad_position) < DEFEND_RADIUS
