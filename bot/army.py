@@ -60,12 +60,12 @@ from bot.settings import (
     MARINE_RANGE,
     MAX_PATROLS_ATTACKING,
     MEMORY_THREAT_MARGIN,
-    MIN_OPEN_SIDES,
     PARTLY_SEEN_MARGIN,
     PARTLY_SEEN_RANGE,
     PARTLY_SEEN_SECONDS,
     PATROL_MIN_SQUADS,
     PLAN_SECONDS,
+    PLUG_HARM_RANGE,
     RAID_MIN,
     RAID_TOGETHER,
     RALLY_SECONDS,
@@ -149,6 +149,7 @@ class Army:
         self.battles: dict[int, Battle] = {}  # squad id -> its fight, last step
         self.engaged: set[int] = set()  # tags of our units committed to fights this step
         self.taken: dict[int, int] = {}  # target tag -> attackers this step, across all squads
+        self.settled: dict[int, int | None] = {}  # target tag -> its capacity this step (`TargetSlots`)
         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
         self.strikes: list[Strike] = []  # enemy groups shooting us, and the zerglings sent for them
         self.backed_off: dict[int, float] = {}  # squad id -> until when it holds outside the back-off line
@@ -232,6 +233,7 @@ class Army:
             for t in s.tags
         }
         self.taken.clear()  # target slots, shared by every squad this step
+        self.settled.clear()
         self.update_strikes(ai, lings)
         striking = {t for s in self.strikes for t in s.lings}
         self.engaged |= striking
@@ -750,7 +752,7 @@ class Army:
             COUNTS["strike: in"] += len(units)
             center = center_of(group)
             nearby = [e for e in enemies.values() if e.is_structure and e.position.distance_to(center) < 12]
-            slots = TargetSlots(strike.reach, taken=self.taken)
+            slots = TargetSlots(strike.reach, taken=self.taken, settled=self.settled)
             slots.strike = strike.targets
             for unit in front_first(units, group):
                 fight(ai, unit, group, group + nearby, slots, center, self.blocks, self.detours)
@@ -905,7 +907,9 @@ class Army:
                 self.fighting.discard(squad.id)
             if near_home or self.committed or squad.id in self.fighting:
                 reach = self.reach_map(ai, units, enemies)
-                slots = TargetSlots(reach, self.breach_caps(ai, reach, units, enemies, threats, present), self.taken)
+                slots = TargetSlots(
+                    reach, self.breach_caps(ai, reach, units, enemies, threats, present), self.taken, self.settled
+                )
                 for unit in front_first(units, enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
             elif self.cornered(ai, units, threats, enemies):
@@ -913,7 +917,7 @@ class Army:
                 # between us and safety): do as much damage as we can instead of dying for free
                 COUNTS["cornered: fight"] += len(units)
                 reach = self.reach_map(ai, units, enemies)
-                slots = TargetSlots(reach, taken=self.taken)
+                slots = TargetSlots(reach, taken=self.taken, settled=self.settled)
                 for unit in front_first(units, enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
             else:
@@ -949,7 +953,9 @@ class Army:
             spread_move(ai, units, center, target)
             return None
 
-        slots = TargetSlots(self.reach_map(ai, units, enemies) if enemies else None, taken=self.taken)
+        slots = TargetSlots(
+            self.reach_map(ai, units, enemies) if enemies else None, taken=self.taken, settled=self.settled
+        )
         for unit in front_first(units, enemies):
             if advancing:
                 if threats or any(e.is_structure for e in enemies):
@@ -1233,8 +1239,16 @@ def fight(
         def touching(e: Unit) -> bool:
             return e.position.distance_to(position) - e.radius - unit.radius < 0.75
 
+        plugs = slots.reach.plugs([e for e in fighters if not e.is_structure], fighters)
+
         def surroundable(e: Unit) -> bool:
-            return slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
+            # Reachable, and not plugging a gap. A plug blocks our way to other enemy units (a zealot
+            # between gateways or on a ramp, stalkers behind) and isn't hitting us from there (a melee
+            # unit): fighting through it 1-on-1 loses. Anything else is fair game, slots capped by the
+            # open cells around it (a clump of marines in the open, a marine shooting from a wall)
+            if slots.reach.open_sides(e, unit.radius) == 0:
+                return False
+            return e.tag not in plugs or weapon_range(e) >= PLUG_HARM_RANGE
 
         pinned = [
             e

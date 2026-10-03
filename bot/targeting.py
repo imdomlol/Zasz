@@ -68,23 +68,33 @@ class TargetSlots:
     """Per step: how many attackers each target already has."""
 
     def __init__(
-        self, reach: ReachMap | None = None, caps: dict[int, int] | None = None, taken: dict[int, int] | None = None
+        self,
+        reach: ReachMap | None = None,
+        caps: dict[int, int] | None = None,
+        taken: dict[int, int] | None = None,
+        settled: dict[int, int | None] | None = None,
     ) -> None:
         # Attackers per target tag. Pass one dict to every squad in a step, so squads fighting
         # the same enemy share its slots (each counting from zero put 20 zerglings on one stalker)
         self.taken: dict[int, int] = {} if taken is None else taken
         self.reach = reach
         self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
+        # Target tag -> its capacity this step, shared like `taken`: the first squad to work it out
+        # settles it (squads' reach maps cover different areas and can disagree by a cell or two)
+        self.settled: dict[int, int | None] = {} if settled is None else settled
         self.strike: set[int] = set()  # enemy tags this attacker's strike goes for (no distance limit)
 
     def capacity(self, attacker: Unit, target: Unit) -> int | None:
         """How many attackers like `attacker` `target` takes at once (None: no limit)."""
         if target.tag in self.caps:
             return self.caps[target.tag]
+        if target.tag in self.settled:
+            return self.settled[target.tag]
         capacity = attack_capacity(attacker, target)
         if capacity is not None and self.reach is not None and not target.is_structure and not target.is_memory:
             # A unit plugging a gap only has room for as many attackers as open cells touch it
             capacity = min(capacity, max(1, self.reach.open_sides(target, attacker.radius)))
+        self.settled[target.tag] = capacity
         return capacity
 
     def has_room(self, attacker: Unit, target: Unit) -> bool:
@@ -333,6 +343,7 @@ class ReachMap:
         self._fields: dict[int, np.ndarray] = {}
         self._near_fields: dict[tuple[int, float], np.ndarray] = {}  # (target, limit) -> capped field
         self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
+        self._plugs: set[int] | None = None  # see `plugs`
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
         self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
@@ -357,6 +368,13 @@ class ReachMap:
             return abs(self.height(Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5))) - level) < LEVEL_TOLERANCE
 
         return [c for c in ring if self.walkable[c] and self.reached[c] and same_level(c)]
+
+    def plugs(self, units: list[Unit], targets: list[Unit]) -> set[int]:
+        """Of `units`, the ones blocking our way to some of `targets` (killing it would connect us to
+        enemies we can't reach now: `breaches` with units as the blockers). Cached with the map."""
+        if self._plugs is None:
+            self._plugs = set(self.breaches(units, targets))
+        return self._plugs
 
     def _neighbors(self, cx: int, cy: int):
         w, h = self.walkable.shape

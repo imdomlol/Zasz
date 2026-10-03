@@ -115,6 +115,7 @@ REACH_SECONDS = 1.0  # rebuild the reachability map (which enemy units melee can
 REACH_WINDOW_MARGIN = 12  # the map covers our units and nearby enemies plus this many tiles
 CLEAR_THE_WAY_RANGE = 10  # no reachable fighter: attack the closest structures within this range
 MIN_OPEN_SIDES = 3  # an enemy unit is worth engaging in melee only with this many reachable cells around it
+PLUG_HARM_RANGE = 2  # a unit blocking our way that can hit us from there (range >= this) is fought anyway
 LEVEL_TOLERANCE = 1.0  # terrain z within this counts as the same level (cliff levels differ by ~2)
 # How melee attackers spread over targets (structures and units): "back" = first ones in go deepest,
 # later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with

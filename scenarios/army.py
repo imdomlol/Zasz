@@ -34,6 +34,8 @@ class TankDive(Scenario):
     def __init__(self) -> None:
         self.was_sieged = False
         self.gap_since: float | None = None  # since when a zergling is on a marine while the tank has room
+        self.over_since: float | None = None  # since when the tank has more than fit while marines are alive
+        self.tank_dead_at: float | None = None
         self.first_on_tank: float | None = None
         self.first_on_marine: float | None = None
         self.most_on_tank = 0
@@ -53,13 +55,20 @@ class TankDive(Scenario):
         if not tanks and not self.was_sieged:
             return failed("setup: the tank died before it was ever sieged")
         lings = bot.units(UnitTypeId.ZERGLING)
-        if not tanks:
+        marine_units = bot.enemy_units(UnitTypeId.MARINE)
+        if not tanks and self.tank_dead_at is None:
+            self.tank_dead_at = bot.time
+        if not tanks and not marine_units:
             return passed(
-                f"tank dead at {bot.time:.0f}s; tank first targeted at {self.first_on_tank or 0:.1f}s, "
-                f"a marine at {self.first_on_marine or 0:.1f}s; most on the tank {self.most_on_tank}/{self.capacity}"
+                f"all dead at {bot.time:.0f}s (tank at {self.tank_dead_at:.0f}s); tank first targeted at "
+                f"{self.first_on_tank or 0:.1f}s, a marine at {self.first_on_marine or 0:.1f}s"
             )
         if not lings:
-            return failed("all zerglings died, tank still alive")
+            return failed(
+                f"all zerglings died; tank {'alive' if tanks else 'dead'}, {marine_units.amount} marines left"
+            )
+        if not tanks:
+            return None  # only marines left: anything goes
         tank = tanks.first
         # The bot's own capacity for the tank (its slots, capped by the open cells around it), else the
         # plain ring size
@@ -86,6 +95,24 @@ class TankDive(Scenario):
                 )
         else:
             self.gap_since = None
+        # More on the tank than fit is fine only when no other unit has room (every marine's slots full,
+        # by the bot's own capacity for it); a marine with room means the overflow ignored it
+        open_marines = []
+        for tag in marines:
+            note = TARGET_NOTES.get(tag)
+            on_it = sum(1 for z in lings if z.order_target == tag)
+            if note is None or (note[1] is not None and on_it < note[1]):
+                open_marines.append(f"{on_it}/{note[1] if note else '?'}{'' if note else ' (not a candidate)'}")
+        if on_tank > self.capacity and open_marines:
+            self.over_since = self.over_since if self.over_since is not None else bot.time
+            if bot.time - self.over_since > 0.5:
+                assigned = bot.army.taken.get(tank.tag, 0)  # the bot's own count this step (orders can lag)
+                return failed(
+                    f"{on_tank}/{self.capacity} on the tank at {bot.time:.1f}s while marines had room: {open_marines}"
+                    f" (the bot assigned {assigned} to the tank this step)"
+                )
+        else:
+            self.over_since = None
         return None
 
     def on_timeout(self, bot: ScenarioBot) -> Outcome:
