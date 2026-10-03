@@ -6,6 +6,7 @@ into `main` when it's done (benchmark + `scripts/run_scenarios.py` passing), the
 here on that branch.
 
 Numbers are fixed IDs (sections refer to each other by them), so finished items leave gaps.
+~~Struck through~~ = done; **(partly done)** = some of it is covered, the rest is still open.
 
 Impact is rated against where Zasz is now: 6/6 up to Hard, about 50% from Harder upward (difficulty
 sweep at `931c39e`), zergling-only. **High** = likely to move win rates at Harder+ or unblock the
@@ -15,9 +16,12 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
+| 20 | `squads` | **In progress.** Finish and merge squads (patrol / raid / push / help / strike, breach, overlay) | High | - |
+| 21 | `combat-estimates` | Fix the sim's blind spots: approach under fire, sieged tanks, chokes, fog, bunkers | High | `squads` |
+| 22 | `army-cpu` | Keep the army's step time in budget in long games with big armies | High | `squads` |
 | 18 | `safe-build-location` | Build at a safe base, not always the main (rebuilding into a lost main) | High | - |
 | 19 | `creep-to-natural` | Connect main and natural creep down the ramp (queen movement) | Medium | - |
-| 13 | `damage-efficiency` | Damage efficiency (metric, scenarios, target slots done; ramp open) | High | - |
+| 13 | `damage-efficiency` | **(partly done)** ~~metric, scenarios, target slots~~, ~~packed bases / gateway grid~~ (on `blocked-zerglings` / `squads`); ramp throughput and the mutalisk cap still open | High | - |
 | 15 | `external-opponents` | Play against other people's bots | High | - |
 | 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | - |
 | 9 | `mining-rate` | Mining rate per drone | Low | - |
@@ -25,7 +29,7 @@ learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nic
 | 14 | `supply-targeting` | Target supply buildings when the enemy is near its supply cap | Medium | `army-value`, `damage-efficiency` |
 | 2 | `army-variety` | More unit types + army composition logic | High | - (`damage-efficiency` helps tune ranged/air control) |
 | 3 | `army-upgrading` | Upgrades tied to army composition | Medium | `army-variety` |
-| 11 | `decision-explanations` | Explain decisions in chat | Medium | `trade-tracking` (for outcomes) |
+| 11 | `decision-explanations` | **(partly done)** Explain decisions in chat; ~~drawn in the game window~~ (`bot/overlay.py`) | Medium | `trade-tracking` (for outcomes) |
 | 12 | `mutalisk-harass` | Mutalisk worker harass, decided by expected value | Medium-High | `army-variety` (spire tech), `army-value` |
 | 1 | `replay-summary` | Watch replays on Linux | Low | - |
 | 6 | `static-defense-placement` | Better spore / spine placement | Low-Medium | - |
@@ -38,6 +42,90 @@ Zasz now beats 6/6 up to Hard). `trade-tracking`, `mining-rate` and `army-value`
 land as features in `bot/observation.py` (the learning interface is done: observe -> decide -> act,
 see the README), rather than as scattered helpers. `static-defense-placement` and `drone-escape-building` wait until harass
 shows up in losses (check kept replays, summarised by `replay-summary`).
+
+## `squads` (#20): Finish and merge squads
+
+**Status:** in progress on branch `squads` (latest `26301e0`). See notes.md sections 18-26.
+
+**Done:**
+- ~~Squads with jobs (patrol / raid / push / help / gather / engage / defend), replacing the single army
+  and `ArmyPlan`~~
+- ~~Help coalitions (the fewest squads that win together), rallies (gather out of reach, go in
+  together), strikes (enemies shooting us that we can walk to)~~
+- ~~Back off just past the real weapon range; hold outside it for 4 s; engage at VICTORY_MARGINAL, leave
+  at LOSS_DECISIVE~~
+- ~~No idle squads (raids / pushes, one patrol at most with 4+ squads); cornered squads fight;
+  destinations must be walkable (mineral walls)~~
+- ~~Spread out into the unknown; unseen fire; partly seen positions with overlord scout requests~~
+- ~~Bunkers count as threats; structures count as near by their edge~~
+- ~~Debug overlay; `run_scenarios.py --seeds N`; no reinforcements in combat scenarios~~
+
+**Before merging:**
+- **Benchmark the latest commit** headless on Linux (12+ games vs Hard, `--jobs 2`): it should match
+  `main` (12/12, about 525 s, about 1,960 value lost) with no 20-minute ties, and stay well under the
+  step-time limit. The last Windows run (before the final fixes) had 2 ties and 12,092 lost on average.
+- Rerun the seven-scenario comparison (`--seeds 4`) on the latest commit.
+
+**Still open:**
+- **(partly done)** `efficiency_open_army_free`: chasing an army up a ramp held by zealots still costs
+  ~30 zerglings. Needs #21's choke estimate, or a rule not to follow an army up its ramp.
+- `wall_bunker` fails: zerglings that don't fit around the full bunker hit the bays beside it, under its
+  fire. Saved ideas in `experiments/free-hits-two-pass-unit-breach.patch`: overflow only takes free hits
+  (outside every enemy's reach), two-pass target assignment (idle zerglings first), and breaching
+  through a unit (a marine plugging a gap) as well as a building.
+- **(partly done)** Pushes into the unknown: they spread out now, but still walk the whole army into a
+  defended position. Idea: a vanguard (one squad a few tiles ahead) or stopping at the edge of vision
+  until something has looked.
+- Strikes size for the fewest zerglings that win, which sent 2, then 6, then 12 into a defended
+  natural. Add a minimum (a full squad) or a margin; see #21 for the estimate itself.
+- The mineral-wall map from the benchmark (Magannatha or Ley Lines): identify it and add a scenario.
+- `Army.committed` (scenario-only "fight no matter what") is still used by
+  `efficiency_cramped_more_zealots`; revisit once #21 makes the sim's verdict on that fight better.
+- Saved and dropped experiments, kept for reference: `experiments/breach-plan.patch`,
+  `experiments/strikes-v2-full.patch`.
+
+## `combat-estimates` (#21): Fix the combat sim's blind spots
+
+**Idea:** Many bad commits trace back to the sim's verdict being wrong for melee units, not to the
+decision logic. Correct the verdict where we can estimate better, the way the breach and bunker
+estimates already do.
+
+**Depends on:** `squads`
+
+**Revision:**
+- **Approach under fire:** the sim assumes everyone fights at once. Melee units first cross the ranged
+  enemies' range: estimate the damage taken on the way (time to cross x their dps) and take those
+  zerglings off before judging the fight. The sim called 2 zerglings vs 2 sieged tanks
+  VICTORY_EMPHATIC.
+- **Sieged tanks:** splash and the long approach; check what ares' sim does with minimum range
+  (`tank_neutralized` already removes tanks we're inside of).
+- **Chokes:** only as many zerglings as fit around the reachable enemies fight at once (ramp held by
+  zealots). A first try (notes section 20) broke the gateway grid by calling sealed fights hopeless;
+  it must leave free work and breaches alone, and only judge *entering* a choke.
+- **Fog:** enemies revealed by firing are only part of a position (strikes saw the tanks, not the
+  marines). The partly-seen rule holds back now; the estimate could also assume unseen support.
+- **Bunkers:** calibrate the two-step estimate (assumes 4 marines inside).
+
+**Impact:** **High.** It feeds every fight decision (squads, raids, help, strikes), and wrong
+verdicts were behind most of the feeding seen in benchmarks.
+**Blockers:** Estimates that are too pessimistic make the army passive (the choke try did). Measure
+every change on the seeded scenarios *and* a Hard benchmark.
+
+## `army-cpu` (#22): Keep the army's step time in budget
+
+**Idea:** A 20-minute game with a big army used 29 ms per game loop alone (73% of AI Arena's 40 ms),
+and about 98% with 3 games in parallel. Short games use ~9 ms. Find what grows with army size and
+cache or trim it.
+
+**Depends on:** `squads`
+
+**Revision:** Profile a long game (`--jobs 1`, headless): per-squad reach maps (`ReachMap`, rebuilt
+every second per area), approach and group fields (Dijkstra per target), strikes (a reach map per
+enemy group every 0.5 s), region labels, patrol vision checks, `fight_result` sims per squad. Likely
+wins: one reach map per fight area shared by its squads, fewer sims (cache per enemy group per step),
+spreading heavy work over steps.
+**Impact:** **High** for the ladder: a step over the limit loses games outright.
+**Blockers:** None, beyond keeping behavior identical (compare seeded scenarios before and after).
 
 ## `damage-efficiency` (#13): Damage efficiency: how much of the army's damage actually lands
 
@@ -60,6 +148,17 @@ open.
 **Results** (kill time, 2-3 runs each): open field off 31-32s / back 30s; deep base 64-65s / 59-62s;
 ramp 35-36s / 34-38s. Slots cut blocking where there's room to spread out; target choice makes no
 difference on the ramp.
+
+**Done since (branches `blocked-zerglings`, `squads`; see notes.md):**
+- ~~Packed bases: zerglings jammed in 1-tile lanes and tunnelled on one building.~~ Shared target
+  slots across squads, walking around enemy units to reach them (`ReachMap.approach_step`), stepping
+  out of reach of a zealot plugging a gap, and breaking the building that opens a way to sealed-off
+  units (`ReachMap.breaches`, costed). `efficiency_cramped_main` 25/25 on the old army; passes on
+  squads too.
+- ~~Unit fights in the open are inefficient (stalkers dove one at a time by ~20 zerglings).~~ Slots
+  shared across squads: blocked 38% -> 14% in `efficiency_open_army`.
+- New scenarios: `efficiency_cramped_main`, `efficiency_cramped_more_zealots`, `efficiency_open_army`,
+  `efficiency_open_army_free`, `wall_techlab`, `wall_bunker`, `wall_bays`.
 
 **Still open:**
 - **Ramp throughput** (~15% blocked): it's traffic on the ramp itself, not target choice. Ideas: hold
@@ -243,6 +342,11 @@ exists (new upgrades go in `bot/spaces.py` `UPGRADES`).
 **Idea:** Implement vocalization of decisions in chat as well as reasoning (eg deciding to attack because army value is higher and success is high, or expanding because drones = 16, or skipping expansion because rocks are blocking, or skipping expansion because hostile controlled, or focusing attack onto enemy expansion because enemy army value is low nearby area, or deciding to attack with mutalisk for xyz as well as the outcome of that decision like lost 100 minerals but cost enemy 145 minerals and 55 potential minerals)
 
 **Depends on:** `trade-tracking` (for outcomes)
+
+**Partly done:** ~~a visual version~~: `bot/overlay.py` (`--overlay` on the benchmark and scenarios)
+draws squads and their jobs, raids, strikes, the breach target, avoid areas with their reasons, back-off
+lines and scout requests in the game window, for local games. The army's debug log
+(`Army.debug`, on in scenarios) logs the counts behind each decision. Chat and outcomes are still open.
 
 **Revision:** A small `explain(event, reason, outcome)` logger: always write to the log file
 (benchmarks keep logs for crashes), and send a short in-game chat line for key decisions only

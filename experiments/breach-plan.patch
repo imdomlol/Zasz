@@ -1,0 +1,184 @@
+diff --git a/bot/army.py b/bot/army.py
+index f25aa9e..206a3d8 100644
+--- a/bot/army.py
++++ b/bot/army.py
+@@ -43,6 +43,8 @@ from bot.settings import (
+     FIGHT_AT,
+     FIGHTER_PRIORITY_RANGE,
+     FLANK_DISTANCE,
++    FLOOD_RANGE,
++    FLOOD_SECONDS,
+     GATHERED_FRACTION,
+     HELP_RANGE,
+     HELP_ROOM_FACTOR,
+@@ -68,6 +70,7 @@ from bot.settings import (
+ )
+ from bot.squads import (
+     Battle,
++    BreachPlan,
+     EnemyGroup,
+     Patrol,
+     Rally,
+@@ -121,6 +124,8 @@ class Army:
+         self.engaged: set[int] = set()  # tags of our units committed to fights this step
+         self.taken: dict[int, int] = {}  # target tag -> attackers this step, across all squads
+         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
++        self.breach_plans: list[BreachPlan] = []  # one breach target per sealed-off enemy group
++        self.flood: dict[int, float] = {}  # enemy tag -> until when everyone in reach goes for it
+         self.planned_at = -999.0
+         self.helped_at = -999.0
+         self.gathered: set[Point2] = set()  # defended sites (centers) whose raiders have gathered
+@@ -177,6 +182,7 @@ class Army:
+                 self.coordinate_help(ai, squads)
+ 
+         self.update_rallies(ai, squads)
++        self.update_breaches(ai)
+         # Our units that will actually fight: squads fighting, raiding, helping, engaging or defending
+         # (not a patrol standing nearby, nor squads waiting at a rally). A squad judges its fight with
+         # these only
+@@ -506,6 +512,7 @@ class Army:
+             if near_home or self.committed or result >= fight_at:
+                 reach = self.reach_map(ai, units, enemies)
+                 slots = TargetSlots(reach, self.breach_caps(ai, reach, units, enemies, threats, present), self.taken)
++                slots.flood = set(self.flood)
+                 for unit in front_first(units, enemies):
+                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
+             else:
+@@ -550,11 +557,14 @@ class Army:
+         threats: list[Unit],
+         present: list[Unit],
+     ) -> dict[int, int]:
+-        """The structure worth breaking to get at enemy fighters we can't reach (`ReachMap.breaches`),
+-        as {tag: attackers}: exactly as many as can hit it at once (full damage, nobody piling up
+-        behind). Worth it if, after losing what breaking it costs (its health at that damage rate,
+-        times the damage the enemies covering it deal), we still win the fight behind it; the
+-        cheapest such breach. Worked out once per reach map (REACH_SECONDS)."""
++        """The structure being broken to get at enemy fighters we can't reach, as {tag: attackers}:
++        exactly as many as can hit it at once (full damage, nobody piling up behind).
++
++        One breach per sealed-off group of enemies (`BreachPlan`), chosen once and kept until it
++        dies or they can be reached some other way, so every squad works the same building and
++        keeps it saturated. Chosen as the cheapest breach (`ReachMap.breaches`) that's worth it:
++        after losing what breaking it costs (its health at that damage rate, times the damage the
++        enemies covering it deal), we still win the fight behind it."""
+         if reach is None:
+             return {}
+         if reach.breach_caps is not None:
+@@ -564,10 +574,17 @@ class Army:
+         structures = {e.tag: e for e in enemies if e.is_structure and not e.is_flying}
+         if not fighters or not structures:
+             return reach.breach_caps
++        found = reach.breaches(list(structures.values()), fighters)
++        sealed = {t.tag for _, opened in found.values() for t in opened}
++        # A plan already on: keep working its building while it stands and still opens the way
++        for plan in self.breach_plans:
++            if plan.target in found and plan.behind & sealed:
++                reach.breach_caps = {plan.target: found[plan.target][0]}
++                return reach.breach_caps
+         probe = units[0]
+         ours = sorted(present, key=lambda u: u.health + u.shield, reverse=True)
+-        best: tuple[float, int, int] | None = None  # (zerglings lost, tag, attackers)
+-        for tag, (attackers, _opened) in reach.breaches(list(structures.values()), fighters).items():
++        best: tuple[float, int, int, set[int]] | None = None  # (zerglings lost, tag, attackers, behind)
++        for tag, (attackers, opened) in found.items():
+             s = structures[tag]
+             our_dps = attackers * max(probe.calculate_dps_vs_target(s), 0.1)
+             seconds = (s.health + s.shield) / our_dps
+@@ -582,11 +599,29 @@ class Army:
+             survivors = ours[: max(0, len(ours) - int(lost + 0.5))]
+             COUNTS[f"breach considered (lose ~{lost:.0f})"] += 1
+             if wins(ai, survivors, fighters) and (best is None or lost < best[0]):
+-                best = (lost, tag, attackers)
++                best = (lost, tag, attackers, {t.tag for t in opened})
+         if best is not None:
++            self.breach_plans.append(BreachPlan(best[1], best[3]))
++            COUNTS["breach chosen"] += 1
+             reach.breach_caps = {best[1]: best[2]}
+         return reach.breach_caps
+ 
++    def update_breaches(self, ai: AresBot) -> None:
++        """A breach whose building died opens the way: the enemies behind it become targets for
++        every zergling in the fight within FLOOD_RANGE walking distance (not just the few next to
++        the hole) for FLOOD_SECONDS; their melee slots still cap how many go."""
++        alive = {s.tag for s in ai.enemy_structures}
++        units = {u.tag for u in ai.enemy_units}
++        for plan in list(self.breach_plans):
++            if not plan.behind & units:
++                self.breach_plans.remove(plan)  # everything behind it is dead already
++            elif plan.target not in alive:
++                self.breach_plans.remove(plan)
++                COUNTS["breach open: flood"] += 1
++                for tag in plan.behind & units:
++                    self.flood[tag] = ai.time + FLOOD_SECONDS
++        self.flood = {t: until for t, until in self.flood.items() if until > ai.time and t in units}
++
+     def room(
+         self, ai: AresBot, units: list[Unit], threats: list[Unit], enemies: list[Unit], present: list[Unit]
+     ) -> int:
+@@ -722,13 +757,19 @@ def fight(
+     # already touching. Walking distance, not straight-line: a stalker just behind a wall of
+     # gateways is close but a long way round, and isn't worth streaming toward down the lanes
+     # (keep clearing instead), while marines in the open a few tiles away are a short walk
+-    near_fighters = [e for e in fighters if e.position.distance_to(position) < FIGHTER_PRIORITY_RANGE]
++    near_fighters = [
++        e
++        for e in fighters
++        if e.position.distance_to(position) < (FLOOD_RANGE if e.tag in slots.flood else FIGHTER_PRIORITY_RANGE)
++    ]
+     if slots.reach is not None:
+         near_fighters = [
+             e
+             for e in near_fighters
+             if e.position.distance_to(position) - e.radius - unit.radius < 0.75
+             or slots.reach.walk_distance(e, position, FIGHTER_PRIORITY_RANGE) <= FIGHTER_PRIORITY_RANGE
++            # Just opened by a breach: everyone in the fight within a longer walk floods in
++            or (e.tag in slots.flood and slots.reach.walk_distance(e, position, FLOOD_RANGE) <= FLOOD_RANGE)
+         ]
+     workers = [e for e in threats if e.type_id in WORKER_TYPES]
+     structures = [e for e in enemies if e.is_structure]
+diff --git a/bot/settings.py b/bot/settings.py
+index fa7997f..18f52da 100644
+--- a/bot/settings.py
++++ b/bot/settings.py
+@@ -57,6 +57,10 @@ HELP_WIN_AT = EngagementResult.VICTORY_CLOSE
+ HELP_ROOM_FACTOR = 1.5
+ HELP_RANGE = 50
+ HELP_SECONDS = 0.5  # re-check every fight this often
++# When a breach opens, the enemies behind it are targets for every zergling in the fight within
++# FLOOD_RANGE walking distance (normally FIGHTER_PRIORITY_RANGE) for FLOOD_SECONDS
++FLOOD_RANGE = 25
++FLOOD_SECONDS = 15.0
+ RALLY_SECONDS = 25.0  # squads gathering to take a fight together give up after this long
+ BACK_OFF_MARGIN = 2.0  # backing off: this far past the enemy's actual weapon range
+ UNSEEN_FIRE_STEP = 8.0  # shot by something we can't see while patrolling: step back this far
+diff --git a/bot/squads.py b/bot/squads.py
+index b9a189b..6c55d8e 100644
+--- a/bot/squads.py
++++ b/bot/squads.py
+@@ -306,6 +306,14 @@ class Patrol:
+         return best
+ 
+ 
++@dataclass
++class BreachPlan:
++    """The building being broken to get at a sealed-off group of enemy units."""
++
++    target: int  # structure tag
++    behind: set[int]  # tags of the enemy units it opens up
++
++
+ # --- helping ---
+ 
+ 
+diff --git a/bot/targeting.py b/bot/targeting.py
+index 8dcfcdf..7ca3cd9 100644
+--- a/bot/targeting.py
++++ b/bot/targeting.py
+@@ -75,6 +75,7 @@ class TargetSlots:
+         self.taken: dict[int, int] = {} if taken is None else taken
+         self.reach = reach
+         self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
++        self.flood: set[int] = set()  # enemy tags just opened by a breach (see `Army.update_breaches`)
+ 
+     def has_room(self, attacker: Unit, target: Unit) -> bool:
+         if target.tag in self.caps:

@@ -1,4 +1,9 @@
-# Notes: zergling blocking (branch `blocked-zerglings`)
+# Notes: zergling blocking (`blocked-zerglings`), then squads (`squads`)
+
+**Latest (Oct 2-3, branch `squads`, sections 18-26):** the single army is replaced by squads with jobs
+(patrol / raid / push / help / strike), plus breach, the wall and bunker scenarios, a debug overlay
+(`--overlay`) and seeded comparisons (`--seeds N`). All scenarios pass except `wall_bunker` and parts of
+the disengage test; the Hard benchmark of the latest commit (`26301e0`) is still to run, headless.
 
 **Summary (for when you're back):**
 - `efficiency_cramped_main` (5x3 gateway grid, 4 zealots, 4 stalkers): **25/25** in a row (73-108 s).
@@ -309,3 +314,142 @@ Tried and dropped: also requiring the walk to be "no detour" (walk <= straight +
 resort tier with any other surroundable fighter. Bottom side back to 85-97 s, but the top side of
 `efficiency_cramped_main` fell to 5/8: a slower clear beats a failed one.
 
+## Phase 3: squads (branch `squads`, off `scenario-seeds`)
+
+Squads replaced the single army and `ArmyPlan`. Everything is measured on zerglings lost first, speed
+second.
+
+### 18. Groundwork: open-field comparison, shared slots
+
+- `scenario-seeds` (your branch) adds fixed seeds per side, `benchmarks/scenarios.csv` and `--realtime`.
+  At normal speed the gateway grid passes from both sides; in real time the top side lost 38 and timed
+  out. Ladder games aren't real time, so normal speed is what counts.
+- New `efficiency_open_army`: the grid's army in the open, held in place. The first runs looked worse
+  than the grid, but the enemy wasn't actually held: the AI pulled it back up its ramp (my hold only
+  re-issued when units had other orders). With the enemy held every step: **open field 9 / 14 lost (top
+  / bottom), against 17 / 21 in the grid**, so the gateways cost about 7-8 zerglings. The "pull back to
+  the ramp" behavior is kept as `efficiency_open_army_free`, a disengage test.
+- You saw zerglings dive one stalker at a time, about 20 on each. The cause: target slots were counted
+  per squad, each squad starting from zero. **Shared slots across squads:** open army 17 -> 12 lost,
+  blocked 38% -> 14%.
+
+### 19. Squads: the design
+
+- `bot/squads.py`: lasting squads of 8 (they join, merge and split), each with a job: patrol, raid,
+  push, help, gather, engage or defend. `ArmyPlan` is folded in: patrol replaces scout/watch/hold, and
+  help replaces group-up.
+- **Patrol:** goes where *our own units* have had no vision longest (SC2's visibility is useless with a
+  revealed map), moving on once there.
+- **Raids:** enemy sites (structure clusters, or an army in the field) get as many zerglings as the sim
+  says they need for a comfortable win, gathering out of range first.
+- **Help:** every fight is re-checked every 0.5 s. A losing one gets the fewest free squads that win
+  together (two squads that only matter together both go), capped by the room around the targets
+  (surrounded enemies need nobody piling on). Nobody goes if no combination turns it.
+- The first runs exposed several bugs: patrols sitting still, help counting idle patrols as fighting,
+  raids dropped when a site's key changed, helpers losing their job mid-fight. All fixed.
+
+### 20. Backing off, rallies, breach
+
+- **Back off just past the enemy's real weapon range**, not all the way home. ares' danger map pads
+  every range by 4.
+- **Rally:** a losing squad with help in reach waits outside the enemy's reach, the helpers come to it,
+  and they all go in once most have gathered. `alternate_target` went from 13 lost to 2 (top) and 0
+  (bottom).
+- **No blind raids on their main:** one squad walking in blind ran into a sieged tank.
+- **Breach (your idea):** when enemy fighters are sealed off, find the building that borders both our
+  ground and their pocket (`ReachMap.breaches`, scipy region labels). Cost it as the time to break it at
+  full damage, times the damage covering those cells, and staff it with exactly as many zerglings as
+  fit. This fixed the grid's top side.
+- Tried and dropped:
+  - a **choke-aware sim** ("count only the zerglings that fit"): it called the grid's top side
+    hopeless from 0:06, and they hovered at stalker range (your screenshot);
+  - a **persistent breach plan with a flood** (one target per fight, flood the hole when it breaks):
+    no gain on seeds, and `wall_bays` got worse (`experiments/breach-plan.patch`).
+
+### 21. Measuring properly
+
+- One fixed seed per side is repeatable but fragile. Just reordering which zergling picks its target
+  first swung the grid's top side from 23 to 34 lost. Even the same seed differs by about 8 zerglings
+  between running alone and running 3 at once.
+- Added `run_scenarios.py --seeds N` (the same N games every time), and compared versions on 4-6 seeds.
+- Combat scenarios now get **no reinforcements** (larva and eggs removed every step): a `wall_techlab`
+  "win" came from zerglings hatching in the main and walking in.
+- A bug found by measuring: a raid's site was keyed by position. When the scenario killed the enemy CC,
+  the building cluster's center moved, and 40 zerglings went patrolling for 30-45 s. Raids now follow
+  their site by its units and structures, and raid sizing never marks avoid areas; only the whole-army
+  check does.
+
+### 22. Walls and bunkers
+
+- New `wall_techlab`, `wall_bunker` and `wall_bays`: 4 marines inside a ring of engineering bays, 24
+  zerglings. Debug commands won't spawn an enemy supply depot at all, so the 2x2 weak point is a tech
+  lab (the same 400 health and 1 armor). The bunker test keeps the marines loaded, since the AI unloads
+  it.
+- Bunkers weren't threats, because SC2 gives them no weapon. They now count as 4 marines at range 6,
+  judged in two steps, since the sim doesn't know bunkers shoot. Structures count as "near" by their
+  edge, not their center.
+- `wall_bunker` still fails: the zerglings that don't fit around a full bunker hit the bays beside it,
+  under its fire.
+
+### 23. Strikes
+
+- **Strike (your rule):** an enemy group that's shooting us and can be walked to gets the fewest of the
+  nearest zerglings that win, from up to 40 tiles' walk. They gather at the last cell outside the
+  group's reach and go in together. This replaces the old 10-tile "fight what's close" for that case.
+- Seeds 1-4: walls much better (`wall_techlab` 0/4 -> 3/4, `wall_bays` 2/4 -> 4/4), open army even, grid
+  +3.5 lost, `efficiency_open_army_free` 3/4 -> 1/4.
+- Dropped: "the strike decides for everyone near its group". Squads that weren't picked stepped away
+  instead of fighting, and the open army went from 10 to 16 lost (`experiments/strikes-v2-full.patch`).
+- Later fixes from watching the overlay: supporting enemies (tanks behind marines) count in a strike's
+  sim, and "already fighting / being hit by that group" skips gathering.
+- Found by logging what strikes saw: the tanks revealed by firing were seen, the marines weren't. The
+  sim called **2 zerglings against 2 sieged tanks VICTORY_EMPHATIC**, and "fewest that win" sent 2,
+  then 6, then 12.
+
+### 24. Hard benchmarks (12 games, 3 at a time, Windows)
+
+| | `main` | squads + strikes | + the list changes |
+|---|---|---|---|
+| Result | 12/12 | 12/12 | 10 wins, 2 ties |
+| Avg game | 525 s | 682 s | 721 s |
+| Avg value lost | 1,960 | 6,802 | 12,092 |
+| Time per game loop | - | 31.5 ms | 39.3 ms (98% of 40) |
+
+Your question about parallel games: alone, one game used 9.5 ms per loop (24%), so most of the 98% was
+3 games sharing the CPU. But a 20-minute stalemate alone still used 29 ms (73%): big armies are costly.
+
+### 25. The list (your requests during the benchmark) and what followed
+
+- **No idle squads:** while attacking, spare squads join a raid or push (natural, then main, then other
+  bases) as one group. At most one patrol, and only with 4+ squads (with 24 zerglings, 2 of the 3
+  squads had been patrolling).
+- **Next-step threats:** threats are what can hit us within about one step (the margin went from 6 to 1).
+- **Workers:** raid squads in the middle of a fight aren't released by raid planning.
+- **Cornered:** with no reachable ground out of the enemy's reach, fight instead of running into a wall.
+- **Reachable destinations only:** patrol spots, sites and push targets must be walkable (mineral
+  walls). Bug: a walled site's center is inside the pocket; a site now counts if we can stand next to
+  one of its buildings.
+- **Overlay** (`--overlay`): squads (colored by job, raids lettered), raids (assigned / needed),
+  strikes, breach, avoid areas (reason, time left), back-off lines, scout requests. It found several
+  of the issues below.
+- **Avoid areas clear when seen empty;** they used to linger 40 s after the army left.
+- **Spread out** when moving where we can't see (rows of 6, 2 tiles apart), against splash.
+- **Unseen fire:** hit with nothing visible in range, the squad steps back and avoids that spot.
+- **Partly seen positions:** a long-range enemy far past our sight (a tank firing from the fog) is
+  avoided until scouted, and an overlord is sent (20 s at most). The first version fired on any unit at
+  the edge of our vision (units on a ramp top) and kept the army passive; it's now limited to range 7+
+  and well past our sight.
+- **Hold outside the back-off line** for 4 s after backing off. They used to stutter across the enemy's
+  range: out, no longer a threat, back in.
+- **Engage / disengage hysteresis:** take a fight at VICTORY_MARGINAL or better, leave at LOSS_DECISIVE
+  or worse.
+- Last single game, Terran on Ultralove vs Hard: a win in 485 s, 2,450 lost, 8.6 ms per loop. The game
+  before it, on older code, was a 20-minute tie with 37,925 lost. Committed as `26301e0`; a full
+  benchmark is still to run (headless on Linux).
+
+### 26. Open questions for next time
+
+- Is the combat sim's take on sieged tanks, and on crossing a ranged enemy's range under fire, behind
+  many of the bad commits?
+- `wall_bunker`: should 24 zerglings take on 4 marines in a bunker at all? Today they mostly lose.
+- `efficiency_open_army_free`: chasing an army up a ramp held by zealots still costs a lot of zerglings.
