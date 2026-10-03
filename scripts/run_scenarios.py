@@ -6,6 +6,7 @@
     uv run python scripts/run_scenarios.py efficiency_cramped_main --side both --replays all
     uv run python scripts/run_scenarios.py tank_dive --realtime   # watch it (Windows: game window)
     uv run python scripts/run_scenarios.py --random --repeat 5    # random starts, to catch flaky ones
+    uv run python scripts/run_scenarios.py efficiency_cramped_main --seeds 8   # the same 8 games each time
     uv run python scripts/run_scenarios.py --list
 
 Every run uses a fixed game seed for its side (`scenarios/seeds.py`), so it plays out the same way
@@ -214,6 +215,13 @@ def main() -> None:
     )
     parser.add_argument("--random", action="store_true", help="Random starts instead of the fixed seeds")
     parser.add_argument(
+        "--seeds",
+        type=int,
+        default=0,
+        help="Play each scenario with game seeds 1..N instead of one fixed seed per side: the same N games "
+        "every time (sides mixed by the seed), to compare versions over more than one game",
+    )
+    parser.add_argument(
         "--replays",
         default="failed",
         choices=["failed", "all", "none"],
@@ -248,6 +256,9 @@ def main() -> None:
     for name in names:
         if args.random:
             plays.append((name, "random", None))  # sides don't apply: StarCraft II picks
+            continue
+        if args.seeds:
+            plays += [(name, f"seed {n}", n) for n in range(1, args.seeds + 1)]
             continue
         for side in sides:
             seed, side_name = seeds.seed_for(by_name[name].map, side)
