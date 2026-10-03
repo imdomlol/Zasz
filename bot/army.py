@@ -37,6 +37,7 @@ from bot.settings import (
     AVOID_SECONDS,
     BACK_OFF_MARGIN,
     BREAKTHROUGH_RANGE,
+    BUNKER_MARINES,
     CLEAR_THE_WAY_RANGE,
     DEFEND_RADIUS,
     ENGAGE_RANGE,
@@ -49,6 +50,8 @@ from bot.settings import (
     HELP_SECONDS,
     HELP_WIN_AT,
     LEVEL_TOLERANCE,
+    MARINE_DPS,
+    MARINE_RANGE,
     MEMORY_THREAT_MARGIN,
     MIN_OPEN_SIDES,
     PATROL_FIGHT_AT,
@@ -411,7 +414,7 @@ class Army:
                 continue
             # Losing, but these squads turn it: the losing squad waits outside the enemy's reach and
             # the helpers come to it; everyone goes in together (`update_rallies`)
-            reach = max(t.ground_range + t.radius for t in battle.threats) + max(
+            reach = max(weapon_range(t) + t.radius for t in battle.threats) + max(
                 t.position.distance_to(battle.center) for t in battle.threats
             )
             spot = battle.center.towards(fighting.squad_position, reach + STAGING_MARGIN)
@@ -473,7 +476,7 @@ class Army:
         weapon range), replacing an older entry for the same spot."""
         center = center_of(threats)
         spread = max(t.position.distance_to(center) for t in threats)
-        radius = spread + max(t.ground_range + t.radius for t in threats) + AVOID_MARGIN
+        radius = spread + max(weapon_range(t) + t.radius for t in threats) + AVOID_MARGIN
         self.turned_back_at = [(p, r, t) for p, r, t in self.turned_back_at if p.distance_to(center) > radius / 2]
         self.turned_back_at.append((center, radius, ai.time + AVOID_SECONDS))
 
@@ -492,7 +495,7 @@ class Army:
         `target`. Returns the fight (for the other squads to watch), if any."""
         units = squad.squad_units
         enemies = enemies_near(ai, units)
-        threats = [e for e in enemies if (not e.is_structure or e.can_attack_ground) and can_reach_soon(e, units)]
+        threats = [e for e in enemies if (not e.is_structure or armed(e)) and can_reach_soon(e, units)]
         under_fire = any(ai.time - self.last_damaged.get(u.tag, -99) < UNDER_FIRE_SECONDS for u in units)
 
         if threats:
@@ -566,7 +569,7 @@ class Army:
         if reach.breach_caps is not None:
             return reach.breach_caps
         reach.breach_caps = {}
-        fighters = [e for e in threats if not e.is_structure and e.type_id not in WORKER_TYPES]
+        fighters = [e for e in threats if (not e.is_structure or armed(e)) and e.type_id not in WORKER_TYPES]
         structures = {e.tag: e for e in enemies if e.is_structure and not e.is_flying}
         if not fighters or not structures:
             return reach.breach_caps
@@ -580,10 +583,9 @@ class Army:
             covering = [
                 f
                 for f in fighters
-                if f.can_attack_ground
-                and f.position.distance_to(s.position) - s.radius - f.radius < f.ground_range + 1.5
+                if armed(f) and f.position.distance_to(s.position) - s.radius - f.radius < weapon_range(f) + 1.5
             ]
-            incoming = sum(f.calculate_dps_vs_target(probe) for f in covering)
+            incoming = sum(dps_vs(f, probe) for f in covering)
             lost = incoming * seconds / max(probe.health_max, 1)
             survivors = ours[: max(0, len(ours) - int(lost + 0.5))]
             COUNTS[f"breach considered (lose ~{lost:.0f})"] += 1
@@ -626,7 +628,7 @@ def can_reach_soon(enemy: Unit, units: list[Unit]) -> bool:
     enemies (they can step in), a smaller one for remembered ones (last seen in the fog). Enemies
     farther away don't turn a squad back, so going *around* an army at a safe distance works."""
     margin = MEMORY_THREAT_MARGIN if enemy.is_memory else VISIBLE_THREAT_MARGIN
-    reach = enemy.ground_range + enemy.radius + margin
+    reach = weapon_range(enemy) + enemy.radius + margin
     return any(u.position.distance_to(enemy.position) - u.radius <= reach for u in units)
 
 
@@ -666,7 +668,38 @@ def fight_result(
     threats = [t for t in threats if not tank_neutralized(t, own)]
     if not threats:
         return EngagementResult.VICTORY_EMPHATIC, own
+    bunkers = [t for t in threats if t.type_id == UnitTypeId.BUNKER]
+    melee = [u for u in own if u.type_id in ARMY_TYPES]
+    if bunkers and melee:
+        return through_bunkers(ai, own, melee, bunkers, [t for t in threats if t not in bunkers]), own
     return ai.mediator.can_win_fight(own_units=own, enemy_units=threats, workers_do_no_damage=True), own
+
+
+def through_bunkers(
+    ai: AresBot, own: list[Unit], melee: list[Unit], bunkers: list[Unit], others: list[Unit]
+) -> EngagementResult:
+    """The sim doesn't know a bunker shoots (its marines are inside), so judge it in two steps: the
+    zerglings that fit around the bunkers kill them while the marines inside fire; then the
+    survivors take on whatever else is there."""
+    probe = melee[0]
+    attackers = min(len(melee), sum(attack_capacity(probe, b) or len(melee) for b in bunkers))
+    our_dps = attackers * max(probe.calculate_dps_vs_target(bunkers[0]), 0.1)
+    seconds = sum(b.health + b.shield for b in bunkers) / our_dps
+    lost = sum(dps_vs(b, probe) for b in bunkers) * seconds / max(probe.health_max, 1)
+    COUNTS[f"bunker fight (lose ~{lost:.0f})"] += 1
+    keep = max(0, len(melee) - int(lost + 0.5))
+    survivors = sorted(melee, key=lambda u: u.health, reverse=True)[:keep]
+    if not survivors:
+        return EngagementResult.LOSS_OVERWHELMING
+    if others:
+        rest = [u for u in own if u.type_id not in ARMY_TYPES] + survivors
+        return ai.mediator.can_win_fight(own_units=rest, enemy_units=others, workers_do_no_damage=True)
+    share = keep / len(melee)  # what's left of us once the bunkers are dead
+    if share >= 0.75:
+        return EngagementResult.VICTORY_DECISIVE
+    if share >= 0.5:
+        return EngagementResult.VICTORY_CLOSE
+    return EngagementResult.VICTORY_MARGINAL if share >= 0.25 else EngagementResult.LOSS_MARGINAL
 
 
 def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
@@ -728,7 +761,12 @@ def fight(
     # already touching. Walking distance, not straight-line: a stalker just behind a wall of
     # gateways is close but a long way round, and isn't worth streaming toward down the lanes
     # (keep clearing instead), while marines in the open a few tiles away are a short walk
-    near_fighters = [e for e in fighters if e.position.distance_to(position) < FIGHTER_PRIORITY_RANGE]
+    # (Measured to a structure's edge: a bunker's center is well behind the face we can hit)
+    near_fighters = [
+        e
+        for e in fighters
+        if e.position.distance_to(position) - (e.radius if e.is_structure else 0) < FIGHTER_PRIORITY_RANGE
+    ]
     if slots.reach is not None:
         near_fighters = [
             e
@@ -756,7 +794,11 @@ def fight(
         def surroundable(e: Unit) -> bool:
             return slots.reach.open_sides(e, unit.radius) >= MIN_OPEN_SIDES
 
-        pinned = [e for e in near_fighters if touching(e) and not surroundable(e) and e.ground_range <= 1]
+        pinned = [
+            e
+            for e in near_fighters
+            if touching(e) and not surroundable(e) and not e.is_structure and e.ground_range <= 1
+        ]
         if pinned:
             nearest = min(pinned, key=lambda e: e.position.distance_to(position))
             COUNTS["step away (gap)"] += 1
@@ -894,16 +936,37 @@ def chase_behavior(unit: Unit, goal: Unit) -> AttackTarget | AMove | None:
     return AttackTarget(unit=unit, target=goal)
 
 
+def armed(enemy: Unit) -> bool:
+    """Can it shoot ground units: anything with a ground weapon, and a bunker (no weapon of its own,
+    but the marines inside shoot from it)."""
+    return enemy.can_attack_ground or enemy.type_id == UnitTypeId.BUNKER
+
+
+def weapon_range(enemy: Unit) -> float:
+    """Ground weapon range; a bunker's is its marines' plus one."""
+    if enemy.type_id == UnitTypeId.BUNKER:
+        return MARINE_RANGE + 1
+    return enemy.ground_range
+
+
+def dps_vs(enemy: Unit, target: Unit) -> float:
+    """Damage per second `enemy` deals to `target`. An enemy bunker's cargo isn't visible to us, so
+    it's assumed full: BUNKER_MARINES marines."""
+    if enemy.type_id == UnitTypeId.BUNKER:
+        return BUNKER_MARINES * MARINE_DPS
+    return enemy.calculate_dps_vs_target(target)
+
+
 def reach_of(threat: Unit, unit: Unit) -> float:
     """How close `unit` can be to `threat` before it can be hit (edge to edge plus weapon range)."""
-    return threat.ground_range + threat.radius + unit.radius
+    return weapon_range(threat) + threat.radius + unit.radius
 
 
 def back_off(ai: AresBot, units: list[Unit], threats: list[Unit], hold_at: Point2 | None) -> None:
     """Get out of the threats' actual weapon range (not ares' danger map, which pads every range by
     4 and sent zerglings all the way home), then stop: at `hold_at` if given (a rally), else right
     there. Units already out of reach wait."""
-    shooters = [t for t in threats if t.can_attack_ground]
+    shooters = [t for t in threats if armed(t)]
     center = center_of(threats)
     for unit in units:
         exposed = [t for t in shooters if unit.position.distance_to(t.position) < reach_of(t, unit) + BACK_OFF_MARGIN]

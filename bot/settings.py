@@ -98,6 +98,11 @@ FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; r
 # (the sim ignores minimum range). Judgement call: revert (set very high) if it causes big mistakes.
 TANK_NEUTRALIZED_BY = 3
 UNDER_FIRE_SECONDS = 1.5  # a unit damaged this recently counts as under fire
+# Enemy bunkers: their cargo isn't visible to us, so each counts as BUNKER_MARINES marines shooting
+# from it (MARINE_DPS each, at MARINE_RANGE + 1)
+BUNKER_MARINES = 4
+MARINE_DPS = 9.8  # 6 damage every 0.61 s (no upgrades)
+MARINE_RANGE = 5
 
 # --- Queens and defense ---
 CREEP_QUEENS = 2  # queens beyond one per hatchery, used to spread creep
