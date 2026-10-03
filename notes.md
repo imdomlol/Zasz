@@ -453,3 +453,27 @@ Your question about parallel games: alone, one game used 9.5 ms per loop (24%), 
   many of the bad commits?
 - `wall_bunker`: should 24 zerglings take on 4 marines in a bunker at all? Today they mostly lose.
 - `efficiency_open_army_free`: chasing an army up a ramp held by zealots still costs a lot of zerglings.
+
+### 27. Status at stop (Oct 3): tank_dive and targeting, work in progress
+
+Committed (`c1a4cbd`): fight_winnable fixed (squads go for winnable fights in sight; strikes already
+together skip gathering; patrol spots never seen no longer count as seen at 0 s; patrols use the normal
+engage bar). `tank_dive` judged by targeting; overlay priority labels (`1: 6/7`); `--slow X`.
+
+**Uncommitted** (in the working copy, not fully working):
+- `tank_dive` stricter: pass only when every enemy unit is dead; fail if the tank holds more zerglings
+  than fit while a marine still has room (>0.5 s), or a marine is targeted while the tank has room (>1 s).
+- Target capacities settled once per step (`TargetSlots.settled`), so squads with different reach maps
+  agree on a target's slots. Fixed the top side.
+- "Plugging a gap" redefined (your rule): a unit is a plug only if it blocks our way to other enemy units
+  (`ReachMap.plugs`, via `breaches`) and isn't hitting us (range < `PLUG_HARM_RANGE`). A clump of marines
+  in the open is a normal target now.
+
+**Still failing:** `tank_dive` bottom: 10 zerglings assigned to the 7-slot tank while marines had room
+(0/1, 1/2). The bot itself assigned 10 (not stale orders), so the overflow decision is the cause: likely
+the "everything full -> closest in the best tier" fallback in `pick_tiered`, or marines not being
+candidates for those zerglings (walk distance > 10 / blocked). Next step: log per zergling why the open
+marine wasn't picked.
+
+Also still open: the choke case (3 zealots on a ramp with stalkers behind: don't take it even if the sim
+barely says win; see todo #21).
