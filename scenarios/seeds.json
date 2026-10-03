@@ -20,5 +20,17 @@
         "side": "bottom"
       }
     }
+  },
+  "97563": {
+    "PersephoneAIE_v4": {
+      "first": {
+        "seed": 1,
+        "side": "top"
+      },
+      "second": {
+        "seed": 2,
+        "side": "bottom"
+      }
+    }
   }
 }
