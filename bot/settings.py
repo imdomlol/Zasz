@@ -57,6 +57,9 @@ HELP_WIN_AT = EngagementResult.VICTORY_CLOSE
 HELP_ROOM_FACTOR = 1.5
 HELP_RANGE = 50
 HELP_SECONDS = 0.5  # re-check every fight this often
+RALLY_SECONDS = 25.0  # squads gathering to take a fight together give up after this long
+BACK_OFF_MARGIN = 2.0  # backing off: this far past the enemy's actual weapon range
+UNSEEN_FIRE_STEP = 8.0  # shot by something we can't see while patrolling: step back this far
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
 MELEE_SURROUND_FRACTION = 0.75

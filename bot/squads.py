@@ -167,7 +167,7 @@ def enemy_sites(ai: AresBot, structures: list[Unit], groups: list[EnemyGroup]) -
 class Squad:
     id: int
     tags: set[int]
-    job: str = "patrol"  # patrol, raid, help, defend
+    job: str = "patrol"  # patrol, raid, help, gather, engage, defend
     target: Point2 | None = None  # patrol spot, raid site, or the fight being helped
     helping: int | None = None  # the squad whose fight we're joining
     site: Point2 | None = None  # the site being raided (its center)
@@ -307,6 +307,17 @@ class Patrol:
 
 
 # --- helping ---
+
+
+@dataclass
+class Rally:
+    """A losing squad and the squads coming to help it, gathering outside the enemy's reach to go in
+    together."""
+
+    spot: Point2  # where they gather
+    enemy: Point2  # the fight they go into
+    squads: list[int]  # squad ids
+    since: float
 
 
 @dataclass
