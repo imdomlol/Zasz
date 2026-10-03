@@ -171,6 +171,7 @@ class Squad:
     target: Point2 | None = None  # patrol spot, raid site, or the fight being helped
     helping: int | None = None  # the squad whose fight we're joining
     site: Point2 | None = None  # the site being raided (its center)
+    site_tags: set[int] = field(default_factory=set)  # enemy units and structures at that site
     units: list[Unit] = field(default_factory=list)  # this step's units
 
     # Shaped like an ares UnitSquad, for the per-squad fight logic in bot/army.py
@@ -184,6 +185,7 @@ class Squad:
 
     def free(self, job: str = "patrol") -> None:
         self.job, self.target, self.helping, self.site = job, None, None, None
+        self.site_tags = set()
 
 
 class SquadBook:

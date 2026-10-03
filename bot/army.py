@@ -267,17 +267,22 @@ class Army:
 
         # Sites move a little as structures die or get found (the center shifts): a raid follows its
         # site to the nearest one still there
-        def same_site(spot: Point2) -> Site | None:
+        def same_site(spot: Point2, tags: set[int] | None = None) -> Site | None:
+            # The site with any of the same enemy units or structures (it may have moved a lot: an
+            # army walking off, a building at one end of a cluster dying), else the nearest one
+            if tags and (kept := [s for s in sites if tags & {u.tag for u in s.defenders + s.structures}]):
+                return min(kept, key=lambda s: s.center.distance_to(spot))
             near = [s for s in sites if s.center.distance_to(spot) < SITE_RADIUS]
             return min(near, key=lambda s: s.center.distance_to(spot)) if near else None
 
         for squad in squads:
             if squad.job == "raid":
-                if (site := same_site(squad.site)) is None:
+                if (site := same_site(squad.site, squad.site_tags)) is None:
                     COUNTS["raid dropped: site gone"] += 1
                     squad.free()
                 else:
                     squad.site = site.center
+                    squad.site_tags = {u.tag for u in site.defenders + site.structures}
         raiding = [s.site for s in squads if s.job == "raid"]
         # Everyone who gathered at a site is gone: gather again first
         self.gathered = {
@@ -315,6 +320,7 @@ class Army:
                 if staffed >= demand:
                     break
                 s.job, s.site, s.helping = "raid", site.center, None
+                s.site_tags = {u.tag for u in site.defenders + site.structures}
                 on_it.append(s)
                 staffed += len(s.tags)
             target = site.center
