@@ -45,6 +45,8 @@ def current_commit() -> str:
 class StructureAssault(Scenario):
     """Base: spawn the layout, clear the enemy's workers and command center, then the zerglings."""
 
+    reinforcements = False  # only the units it spawns fight
+
     time_limit = 90
 
     def __init__(self) -> None:

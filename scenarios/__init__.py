@@ -59,6 +59,9 @@ class Scenario:
     map: str = "PersephoneAIE_v4"
     enemy_race: Race = Race.Terran
     time_limit: float = 60
+    # False: no new units hatch during the scenario (larva and eggs are removed every step), so a
+    # fight is decided by the units it spawned, not by reinforcements walking in from the main
+    reinforcements: bool = True
 
     async def setup(self, bot: "ScenarioBot") -> None: ...
 
@@ -120,6 +123,9 @@ class ScenarioBot(ZaszBot):
             await self.scenario.setup(self)
             return
         await self.scenario.on_step(self)
+        hatching = [u.tag for u in self.units.of_type({UnitTypeId.LARVA, UnitTypeId.EGG})]
+        if hatching and not self.scenario.reinforcements:
+            await self.client.debug_kill_unit(hatching)
         if self.time >= self.scenario.time_limit:
             self.outcome = self.scenario.on_timeout(self)
         else:

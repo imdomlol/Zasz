@@ -44,6 +44,8 @@ APPROACH = 15  # zerglings start this far out from the weak side
 class WalledMarines(Scenario):
     """Base: the ring with a weak slot (`WEAK`: a structure type and its pieces), 4 marines inside."""
 
+    reinforcements = False  # only the units it spawns fight
+
     time_limit = 150
     WEAK: list[tuple[UnitTypeId, int, int, int]] = []  # (type, u, v, size) in the top row
 

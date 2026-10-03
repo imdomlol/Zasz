@@ -8,6 +8,7 @@ TANKS = {UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}
 
 
 class TankDive(Scenario):
+    reinforcements = False  # only the units it spawns fight
     name = "tank_dive"
     description = "Zerglings run past closer marines to kill a sieged tank first (DIVE_FIRST)"
     time_limit = 40
@@ -55,6 +56,7 @@ class TankDive(Scenario):
 
 
 class RetreatFromLosingFight(Scenario):
+    reinforcements = False  # only the units it spawns fight
     name = "retreat_losing_fight"
     description = "A few zerglings near a big marine/tank force don't throw themselves away"
     time_limit = 25
@@ -81,6 +83,7 @@ class RetreatFromLosingFight(Scenario):
 
 
 class FightWinnable(Scenario):
+    reinforcements = False  # only the units it spawns fight
     name = "fight_winnable"
     description = "The same few zerglings do take a fight they win (pairs with retreat_losing_fight)"
     time_limit = 25
@@ -105,6 +108,8 @@ class AlternateTarget(Scenario):
     """No map reveal, like a real game: the zerglings head for the enemy, run into an army they
     can't beat at the natural, and have to find (and kill) an unprotected third on their own instead
     of hovering in front of the natural."""
+
+    reinforcements = False  # only the units it spawns fight
 
     name = "alternate_target"
     description = "Fog: an unbeatable army at the enemy natural; zerglings find and kill an unprotected base"
