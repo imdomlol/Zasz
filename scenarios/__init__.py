@@ -24,6 +24,8 @@ Debug quirks found so far:
 Run them with `scripts/run_scenarios.py`.
 """
 
+import os
+import time
 from collections import Counter
 from dataclasses import dataclass
 
@@ -118,6 +120,7 @@ class ScenarioBot(ZaszBot):
         if self.outcome:
             return
         await super().on_step(iteration)
+        self.slow_down()
         if iteration == 0:
             self.army.debug = True  # log what the squads decide (scenario logs are only shown on request)
             await self.scenario.setup(self)
@@ -142,6 +145,19 @@ class ScenarioBot(ZaszBot):
     async def spawn(self, unit_type: UnitTypeId, position: Point2, amount: int = 1, enemy: bool = False) -> None:
         owner = self.enemy_id if enemy else self.player_id
         await self.client.debug_create_unit([[unit_type, amount, position, owner]])
+
+    def slow_down(self) -> None:
+        """`--slow X` (ZASZ_SLOW): play X times slower than real time, to watch. The game waits for the
+        bot every step in normal (not realtime) runs, so pausing here changes nothing it decides."""
+        factor = float(os.environ.get("ZASZ_SLOW", "0") or 0)
+        if factor <= 0:
+            return
+        step_seconds = self.client.game_step / 22.4  # game loops per step, at faster speed
+        now = time.perf_counter()
+        wait = step_seconds * factor - (now - getattr(self, "_last_step", now))
+        if wait > 0:
+            time.sleep(wait)
+        self._last_step = time.perf_counter()
 
     def siege_enemy_tanks(self) -> None:
         for tank in self.enemy_units(UnitTypeId.SIEGETANK):

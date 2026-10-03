@@ -10,7 +10,9 @@ turning it on doesn't change a single decision.
 - strikes: a ring around the enemy group, a box on the gathering spot, `strike 10: gathering`/`in`
 - breach: the structure being broken and its estimated cost in zerglings
 - avoid areas: circles with the reason and the seconds left
-- backing off: a circle around each enemy at the distance squads back off to (its reach + margin)
+- targets: over each enemy with zerglings on it, its priority (targeting tier, 1 = first; ties share a
+  number) and zerglings assigned / how many fit
+- retreating: a circle around each enemy close by at the distance squads back off to (reach + margin)
 - scout requests: a purple box where the army asked an overlord for vision
 """
 
@@ -47,6 +49,7 @@ BREACH_COLOR = (255, 255, 0)
 AVOID_COLOR = (150, 150, 150)
 BACK_OFF_COLOR = (0, 200, 255)
 SCOUT_COLOR = (180, 90, 255)
+TARGET_COLOR = (255, 255, 255)
 
 
 def lifted(ai: AresBot, p: Point2, lift: float = 0.3) -> Point3:
@@ -91,7 +94,15 @@ def draw(ai: AresBot, army: Army) -> None:
         if ai.time - when < 3:
             client.debug_sphere_out(lifted(ai, position), 2.2, BREACH_COLOR)
             client.debug_text_world(text, lifted(ai, position, 2.0), BREACH_COLOR, 12)
-    from bot.army import BACK_OFF_CIRCLES
+    from bot.army import BACK_OFF_CIRCLES, TARGET_NOTES
+
+    # Targets with zerglings on them: priority (targeting tier, 1 = first) and attackers / capacity
+    for tag, (priority, capacity) in TARGET_NOTES.items():
+        taken = army.taken.get(tag, 0)
+        if taken and tag in enemies:
+            room = "-" if capacity is None else capacity
+            label = f"{priority}: {taken}/{room}"
+            client.debug_text_world(label, lifted(ai, enemies[tag].position, 1.2), TARGET_COLOR, 14)
 
     if scouting := getattr(ai, "scouting", None):
         for spot in scouting.requests:

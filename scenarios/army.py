@@ -2,16 +2,23 @@
 
 from sc2.ids.unit_typeid import UnitTypeId
 
+from bot.army import TARGET_NOTES
+from bot.targeting import attack_capacity
 from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
 
 TANKS = {UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}
 
 
 class TankDive(Scenario):
-    reinforcements = False  # only the units it spawns fight
+    """Zerglings dive a sieged tank behind marines: the tank gets attackers first, as many as fit
+    around it, and only zerglings that don't fit take the marines. Judged by the targeting itself
+    (each zergling's attack order every step), not by what dies first: with more zerglings than fit
+    around the tank, the overflow can kill the marines before the tank falls, which is fine."""
+
     name = "tank_dive"
-    description = "Zerglings run past closer marines to kill a sieged tank first (DIVE_FIRST)"
+    description = "Zerglings dive a sieged tank behind marines first (DIVE_FIRST), overflow takes the marines"
     time_limit = 40
+    reinforcements = False  # only the units it spawns fight
 
     async def setup(self, bot: ScenarioBot) -> None:
         await bot.client.debug_show_map()
@@ -25,6 +32,11 @@ class TankDive(Scenario):
 
     def __init__(self) -> None:
         self.was_sieged = False
+        self.bad_steps = 0  # consecutive steps with a zergling on a marine while the tank had room
+        self.first_on_tank: float | None = None
+        self.first_on_marine: float | None = None
+        self.most_on_tank = 0
+        self.capacity = 0
 
     async def on_step(self, bot: ScenarioBot) -> None:
         # The built-in AI unsieges the tank and walks the marines off; keep them in place
@@ -39,19 +51,44 @@ class TankDive(Scenario):
         tanks = bot.enemy_units.of_type(TANKS)
         if not tanks and not self.was_sieged:
             return failed("setup: the tank died before it was ever sieged")
-        marines = bot.enemy_units(UnitTypeId.MARINE)
-        if not bot.units(UnitTypeId.ZERGLING) and tanks:
-            return failed("all zerglings died, tank still alive")
+        lings = bot.units(UnitTypeId.ZERGLING)
         if not tanks:
-            return passed(f"tank dead at {bot.time:.0f}s with {marines.amount} marines still alive")
-        if not marines:
-            return failed("killed every marine before the tank")
+            return passed(
+                f"tank dead at {bot.time:.0f}s; tank first targeted at {self.first_on_tank or 0:.1f}s, "
+                f"a marine at {self.first_on_marine or 0:.1f}s; most on the tank {self.most_on_tank}/{self.capacity}"
+            )
+        if not lings:
+            return failed("all zerglings died, tank still alive")
+        tank = tanks.first
+        # The bot's own capacity for the tank (its slots, capped by the open cells around it), else the
+        # plain ring size
+        noted = TARGET_NOTES.get(tank.tag)
+        self.capacity = (noted[1] if noted and noted[1] else None) or attack_capacity(lings.first, tank) or len(lings)
+        marines = {m.tag for m in bot.enemy_units(UnitTypeId.MARINE)}
+        on_tank = sum(1 for z in lings if z.order_target == tank.tag)
+        on_marines = sum(1 for z in lings if z.order_target in marines)
+        self.most_on_tank = max(self.most_on_tank, on_tank)
+        if on_tank and self.first_on_tank is None:
+            self.first_on_tank = bot.time
+        if on_marines and self.first_on_marine is None:
+            self.first_on_marine = bot.time
+        # A zergling on a marine while the tank still has room is not diving (one step of grace: orders
+        # given this step show up next step)
+        if on_marines and on_tank < self.capacity:
+            self.bad_steps += 1
+            if self.bad_steps >= 2:
+                return failed(
+                    f"{on_marines} zerglings on marines at {bot.time:.1f}s while the tank had room "
+                    f"({on_tank}/{self.capacity} on it)"
+                )
+        else:
+            self.bad_steps = 0
         return None
 
     def on_timeout(self, bot: ScenarioBot) -> Outcome:
         return failed(
-            f"no result in {self.time_limit:.0f}s: {bot.units(UnitTypeId.ZERGLING).amount} zerglings, "
-            f"{bot.enemy_units(UnitTypeId.MARINE).amount} marines, tank alive (zerglings never engaged?)"
+            f"tank still alive after {self.time_limit:.0f}s: {bot.units(UnitTypeId.ZERGLING).amount} zerglings, "
+            f"most on the tank {self.most_on_tank}/{self.capacity}"
         )
 
 

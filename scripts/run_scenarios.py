@@ -207,6 +207,9 @@ def main() -> None:
     parser.add_argument(
         "--overlay", action="store_true", help="Draw what the army is doing in the game window (bot/overlay.py)"
     )
+    parser.add_argument(
+        "--slow", type=float, default=0, help="Play this many times slower than real time, to watch (e.g. 3)"
+    )
     parser.add_argument("--repeat", type=int, default=1, help="Run each scenario this many times")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every scenario's game log")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit")
@@ -243,6 +246,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.overlay:
         os.environ["ZASZ_OVERLAY"] = "1"  # read by the game processes (bot/overlay.py)
+    if args.slow:
+        os.environ["ZASZ_SLOW"] = str(args.slow)  # read by the game processes (ScenarioBot.slow_down)
 
     if args.list:
         for s in ALL:

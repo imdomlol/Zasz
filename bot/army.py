@@ -109,8 +109,10 @@ from bot.squads import (
 from bot.targeting import BlockTracker, Detours, ReachMap, TargetSlots, attack_capacity, pick_tiered
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
-# Debug overlay: this step's back-off lines (an enemy's position, how far from it we back off to)
+# Debug overlay: this step's back-off lines (an enemy's position, how far from it we back off to),
+# and each candidate target's priority (its targeting tier, 1 = first) and how many attackers it takes
 BACK_OFF_CIRCLES: list[tuple[Point2, float]] = []
+TARGET_NOTES: dict[int, tuple[int, int | None]] = {}  # enemy tag -> (priority, capacity)
 COUNTS: Counter[str] = Counter()  # debug: zergling decisions since the last log (see Army.debug)
 SIEGE_MIN_RANGE = 2.0  # sieged tanks can't fire at targets this close
 IGNORED_THREATS = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTypeId.OVERSEER}
@@ -187,6 +189,7 @@ class Army:
         self.clear_empty_avoid_areas(ai)
         self.partly_seen = self.find_partly_seen(ai)
         BACK_OFF_CIRCLES.clear()
+        TARGET_NOTES.clear()
         self.blocks.forget_dead(alive)
         self.detours.forget_dead(alive)
         if not self.patrol.spots:
@@ -869,7 +872,7 @@ class Army:
                 # what we can see; back off until an overlord shows us the rest
                 COUNTS["partly seen: back off"] += len(units)
                 self.backed_off[squad.id] = ai.time + BACK_OFF_HOLD_SECONDS
-                back_off(ai, units, threats, None)
+                back_off(ai, units, threats, None, retreat=True)
                 return None
             result, present = fight_result(ai, units, threats, self.engaged)
             battle = Battle(
@@ -907,7 +910,7 @@ class Army:
                 # (and isn't an avoid area: one squad losing isn't the army losing)
                 COUNTS[f"back off ({result.name})"] += len(units)
                 self.backed_off[squad.id] = ai.time + BACK_OFF_HOLD_SECONDS
-                back_off(ai, units, threats, None)
+                back_off(ai, units, threats, None, retreat=True)
             return battle
 
         self.fighting.discard(squad.id)  # no enemies close: not in a fight any more
@@ -1259,6 +1262,10 @@ def fight(
         key = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
         tiers = [(fighters, True), (workers, True), (key, True), ([s for s in structures if s not in key], True)]
     tiers = [(t, back) for t, back in tiers if t]
+    for rank, (tier, _) in enumerate(tiers, start=1):
+        for e in tier:
+            if e.tag not in TARGET_NOTES or TARGET_NOTES[e.tag][0] > rank:
+                TARGET_NOTES[e.tag] = (rank, slots.capacity(unit, e))
     if not tiers:
         return  # nothing to go after (e.g. only far-off remembered units)
 
@@ -1390,14 +1397,21 @@ def reach_of(threat: Unit, unit: Unit) -> float:
     return weapon_range(threat) + threat.radius + unit.radius
 
 
-def back_off(ai: AresBot, units: list[Unit], threats: list[Unit], hold_at: Point2 | None) -> None:
+def back_off(
+    ai: AresBot, units: list[Unit], threats: list[Unit], hold_at: Point2 | None, retreat: bool = False
+) -> None:
     """Get out of the threats' actual weapon range (not ares' danger map, which pads every range by
     4 and sent zerglings all the way home), then stop: at `hold_at` if given (a rally), else right
     there. Units already out of reach wait."""
     shooters = [t for t in threats if armed(t)]
     center = center_of(threats)
     probe = units[0]
-    BACK_OFF_CIRCLES.extend((t.position, reach_of(t, probe) + BACK_OFF_MARGIN) for t in shooters)
+    if retreat:  # (overlay: only retreats draw the line, and only for enemies close to the units)
+        BACK_OFF_CIRCLES.extend(
+            (t.position, reach_of(t, probe) + BACK_OFF_MARGIN)
+            for t in shooters
+            if any(u.position.distance_to(t.position) < reach_of(t, probe) + BACK_OFF_MARGIN + 3 for u in units)
+        )
     for unit in units:
         exposed = [t for t in shooters if unit.position.distance_to(t.position) < reach_of(t, unit) + BACK_OFF_MARGIN]
         if exposed:

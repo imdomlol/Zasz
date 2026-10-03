@@ -77,13 +77,18 @@ class TargetSlots:
         self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
         self.strike: set[int] = set()  # enemy tags this attacker's strike goes for (no distance limit)
 
-    def has_room(self, attacker: Unit, target: Unit) -> bool:
+    def capacity(self, attacker: Unit, target: Unit) -> int | None:
+        """How many attackers like `attacker` `target` takes at once (None: no limit)."""
         if target.tag in self.caps:
-            return self.taken.get(target.tag, 0) < self.caps[target.tag]
+            return self.caps[target.tag]
         capacity = attack_capacity(attacker, target)
         if capacity is not None and self.reach is not None and not target.is_structure and not target.is_memory:
             # A unit plugging a gap only has room for as many attackers as open cells touch it
             capacity = min(capacity, max(1, self.reach.open_sides(target, attacker.radius)))
+        return capacity
+
+    def has_room(self, attacker: Unit, target: Unit) -> bool:
+        capacity = self.capacity(attacker, target)
         return capacity is None or self.taken.get(target.tag, 0) < capacity
 
     def take(self, target: Unit) -> None:
