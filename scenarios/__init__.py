@@ -116,6 +116,7 @@ class ScenarioBot(ZaszBot):
             return
         await super().on_step(iteration)
         if iteration == 0:
+            self.army.debug = True  # log what the squads decide (scenario logs are only shown on request)
             await self.scenario.setup(self)
             return
         await self.scenario.on_step(self)

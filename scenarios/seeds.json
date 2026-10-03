@@ -31,6 +31,16 @@
         "seed": 2,
         "side": "bottom"
       }
+    },
+    "TorchesAIE_v4": {
+      "first": {
+        "seed": 1,
+        "side": "top"
+      },
+      "second": {
+        "seed": 2,
+        "side": "bottom"
+      }
     }
   }
 }

@@ -24,27 +24,39 @@ FIGHTER_PRIORITY_RANGE = 10
 # bases instead of walking back into it
 AVOID_SECONDS = 45
 AVOID_MARGIN = 3
-CHECK_AGAIN_SECONDS = 60  # an enemy expansion spot seen empty isn't checked again for this long
 APPROACH_DISTANCE = 12  # advancing squads path around known enemy fire until this close to the target
 # Enemies only count as a threat to a squad within their weapon range + this of one of its units, so
 # a squad going *around* an army at a safe distance isn't turned back by it
 VISIBLE_THREAT_MARGIN = 6
 MEMORY_THREAT_MARGIN = 4  # remembered enemies (last seen in the fog) can't be chasing us as well
-LOOKOUT_FLEE_MARGIN = 0.5  # lookouts back off within an enemy's range + this (less than PEEK_MARGIN)
-# Army plan (`bot/army_plan.py`): grouping only when necessary
-PLAN_SECONDS = 2.0  # re-plan who does what this often
+# Squads (`bot/squads.py`): lasting groups of zerglings, each with its own job
+SQUAD_SIZE = 8  # zerglings per squad: new ones fill a squad up to this, then start the next one
+SQUAD_MAX = 12  # a squad bigger than this (out of combat) splits in two
+JOIN_RADIUS = 12  # a new zergling joins a squad (with room) whose center is this close
+MERGE_RADIUS = 8  # two squads (out of combat) this close that fit in one squad merge
+PLAN_SECONDS = 2.0  # re-assign raids this often
 ENEMY_GROUP_RADIUS = 10  # enemy units this close together are one group
-RAID_MIN = 6  # smallest fighting detachment; raids grow in steps of this until the sim says they win
-MAX_RAIDS = 2  # enemy bases raided at once
-MAX_SCOUTS = 3  # single zerglings checking the enemy main and expansions
-SCOUT_ZERGLINGS = 2  # while attacking, zerglings that run ahead as lookouts (outside the army plan)
-MAX_WATCHERS = 4  # single zerglings watching known enemy groups
-PEEK_MARGIN = 1.5  # peeking zerglings stop this far outside the remembered enemy's range
-PEEK_AGAIN_SECONDS = 20  # don't peek at the same remembered group more often than this
-WATCH_MARGIN = 6  # watchers sit this far outside an enemy group's range
-STAGING_MARGIN = 6  # when grouping up, gather this far outside the enemy's range
-GATHERED_FRACTION = 0.8  # engage once this share of the army has gathered
-FORWARD_FRACTIONS = (0.5, 0.4, 0.3)  # waiting spots, as a share of the way from our rally to their natural
+RAID_MIN = 6  # smallest fighting force; the sim's estimate of what a fight needs grows in steps of this
+SITE_RADIUS = 12  # enemy structures this close together are one site (a base, a proxy)
+SITE_DEFENSE_RADIUS = 15  # enemy army units this close to a site defend it
+STAGING_MARGIN = 6  # squads raiding a defended site gather this far outside its defenders' range...
+GATHERED_FRACTION = 0.8  # ...and go in once this share of the zerglings assigned to it is there
+# Patrol: squads not fighting go where we've had no vision the longest (expansions and a grid over
+# the map), nearest first among equally stale spots
+PATROL_GRID = 20  # spacing of the patrol grid's spots
+PATROL_STALE_CAP = 120.0  # seconds; staler than this counts the same
+PATROL_DISTANCE_COST = 0.5  # seconds of staleness one tile of distance is worth
+PATROL_CLAIM_RADIUS = 15  # squads don't pick spots this close to another squad's spot
+PATROL_FRESH = 30.0  # a spot one of our units saw this recently isn't worth a patrol
+# Not attacking: a patrol meeting the enemy only fights a fight the sim calls at least this
+PATROL_FIGHT_AT = EngagementResult.VICTORY_DECISIVE
+# Helping (`bot/squads.py`, `choose_helpers`): a squad in a fight the sim calls worse than
+# HELP_WIN_AT gets help, if more zerglings fit around its targets (melee slots x HELP_ROOM_FACTOR,
+# room for replacements) and some set of free squads within HELP_RANGE makes it a win
+HELP_WIN_AT = EngagementResult.VICTORY_CLOSE
+HELP_ROOM_FACTOR = 1.5
+HELP_RANGE = 50
+HELP_SECONDS = 0.5  # re-check every fight this often
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
 # MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
 MELEE_SURROUND_FRACTION = 0.75
@@ -78,8 +90,6 @@ LEVEL_TOLERANCE = 1.0  # terrain z within this counts as the same level (cliff l
 # later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with
 # room; "off" = no slots (closest target)
 TARGET_FILL = "back"
-SQUAD_RADIUS = 9  # zerglings this close together form one squad
-REGROUP_DISTANCE = 15  # squads farther than this from the main squad rejoin it before attacking
 FIGHT_AT = EngagementResult.TIE  # fight while the sim predicts at least this; retreat on any predicted loss
 # Leave a sieged tank out of the combat sim once this many zerglings are inside its minimum range
 # (the sim ignores minimum range). Judgement call: revert (set very high) if it causes big mistakes.
