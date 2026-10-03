@@ -48,7 +48,6 @@ from bot.settings import (
     ENEMY_GROUP_RADIUS,
     ENGAGE_RANGE,
     FIGHT_AT,
-    FIGHTER_PRIORITY_RANGE,
     FLANK_DISTANCE,
     GATHERED_FRACTION,
     HELP_RANGE,
@@ -1203,25 +1202,10 @@ def fight(
     """
     position = unit.position
     fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
-    # Fighters we can walk to soon: a short walk (around enemy units) to a spot next to them, or
-    # already touching. Walking distance, not straight-line: a stalker just behind a wall of
-    # gateways is close but a long way round, and isn't worth streaming toward down the lanes
-    # (keep clearing instead), while marines in the open a few tiles away are a short walk
-    # (Measured to a structure's edge: a bunker's center is well behind the face we can hit)
-    near_fighters = [
-        e
-        for e in fighters
-        if e.tag in slots.strike
-        or e.position.distance_to(position) - (e.radius if e.is_structure else 0) < FIGHTER_PRIORITY_RANGE
-    ]
-    if slots.reach is not None:
-        near_fighters = [
-            e
-            for e in near_fighters
-            if e.tag in slots.strike  # sent for it: however far (see `Army.update_strikes`)
-            or e.position.distance_to(position) - e.radius - unit.radius < 0.75
-            or slots.reach.walk_distance(e, position, FIGHTER_PRIORITY_RANGE) <= FIGHTER_PRIORITY_RANGE
-        ]
+    # Every fighter in this fight is a candidate, however far: whether to engage it (and with whom) was
+    # decided for the group (the squad's sim verdict, a strike, a raid), not by each zergling. Plugs
+    # are filtered out below; slots cap how many go for each
+    near_fighters = list(fighters)
     workers = [e for e in threats if e.type_id in WORKER_TYPES]
     structures = [e for e in enemies if e.is_structure]
     # The structure worth breaking to get at enemy fighters behind it (`Army.breach_caps`): before

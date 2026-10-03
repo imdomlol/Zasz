@@ -16,9 +16,6 @@ ATTACK_AT_ZERGLINGS = 16  # start attacking with this many zerglings...
 STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this many
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
 ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
-# Enemy units that fight back within this *walking* distance (around enemy units) beat
-# buildings/workers as targets
-FIGHTER_PRIORITY_RANGE = 10
 # After a squad is turned back by a fight the sim says we'd lose, attack targets inside that enemy
 # group's reach (its spread + weapon range + AVOID_MARGIN) are skipped for AVOID_SECONDS: try other
 # bases instead of walking back into it
