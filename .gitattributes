@@ -3,3 +3,5 @@
 *.SC2Replay binary
 *.SC2Map binary
 *.zip binary
+# Results from every machine: on merge keep both sides' rows (no conflicts when two machines append)
+benchmarks/*.csv merge=union
