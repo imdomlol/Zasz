@@ -45,7 +45,7 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 
 ## `squads` (#20): Finish and merge squads
 
-**Status:** in progress on branch `squads`. See notes.md sections 18-28 (28: the latest state and next steps).
+**Status:** in progress on branch `squads`. See notes.md sections 18-29 (29: the latest state and next steps).
 
 **Done:**
 - ~~Squads with jobs (patrol / raid / push / help / gather / engage / defend), replacing the single army
@@ -73,9 +73,10 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 - Rerun the seven-scenario comparison (`--seeds 4`) on the latest commit.
 
 **Still open:**
-- `efficiency_cramped_more_zealots` top regressed after the Oct 3 changes (36 lost, stalkers alive; it
-  was 10/10). Run it with `-v` and the `breach eval:` lines to find out why.
-- Breach acceptability flickers between evaluations at the same cost (notes 28, open item 2).
+- ~~`efficiency_cramped_more_zealots` top regressed~~: passes again (105 s, 23 lost) with safe cells,
+  active-enemy breach acceptance and "open chokes up first" (notes 29). Run the regression set.
+- ~~Breach acceptability flickers~~ (judged against active enemies now)
+- Help sends and frees a squad repeatedly while the verdict hovers around the help bar.
 - A squad freed by "leave" turns into a patrol inside the raid's site and marks "no help possible"
   avoid areas. Proposed: raid squads stay on their raid; patrols fighting at a raid's site join it.
 - `tank_dive` bottom: overfills the tank while a marine has room.

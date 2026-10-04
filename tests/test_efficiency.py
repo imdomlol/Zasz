@@ -295,3 +295,33 @@ def test_cornered_when_no_reachable_ground_is_out_of_reach():
     blocker = [unit(11.5, 14.5, radius=1.6, is_memory=False)]  # ...until something blocks the corridor
     reach = ReachMap(grid, [ling], blocker, margin=20)
     assert not reach.safe_ground(covered)
+
+
+def test_safe_cells_are_the_faces_outside_enemy_reach_and_the_walk_goes_around():
+    # A 3x3 building at (15, 15) in the open; a shooter whose reach covers its top face (y > 15)
+    # but not the bottom. A zergling below-left. Safe attack cells: only below; the way there stays out
+    # of the danger circle
+    grid = np.ones((30, 30), dtype=np.float32)
+    grid[14:17, 14:17] = np.inf
+    building = unit(15.5, 15.5, radius=1.5, structure=True)
+    shooter = unit(15.5, 22.5, ground_range=5.0, is_memory=False)
+    ling = zergling(5.5, 5.5)
+    reach = ReachMap(grid, [ling], [shooter], margin=20)
+    reach.set_danger([(shooter.position, 6.0)], 1.0)
+    area = reach.safe_area(ling.position)
+    assert area > 0
+    cells = reach.safe_attack_cells(building, ling.radius, area)
+    assert cells
+    assert not any(reach.point(c).y > 17 for c in cells)  # nothing on the face it covers
+    assert all(reach.point(c).distance_to(shooter.position) > 6.0 for c in cells)
+    # Walking to one of them never steps into the danger circle
+    goal = cells[0]
+    position = ling.position
+    for _ in range(40):
+        step = reach.safe_step(goal, position)
+        assert step is not None
+        assert step.distance_to(shooter.position) > 6.0
+        if step == position:
+            break
+        position = step
+    assert position.distance_to(reach.point(goal)) < 1.5

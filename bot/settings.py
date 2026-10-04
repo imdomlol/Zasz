@@ -25,7 +25,6 @@ NOTICE_RANGE = 14
 # bases instead of walking back into it
 AVOID_SECONDS = 45
 AVOID_MARGIN = 3
-APPROACH_DISTANCE = 12  # advancing squads path around known enemy fire until this close to the target
 # Enemies only count as a threat to a squad within their weapon range + this of one of its units:
 # what can hit us within about the next step. An army still walking in doesn't make a squad back off
 # from what it's doing (workers it's killing, a fight it's winning); it counts once it's in range
@@ -139,6 +138,17 @@ BREACH_KEEP_SECONDS = 10
 # of the enemy fighters, fights told apart by which BREACH_VIEW_CELL-sized cell their center falls in
 BREACH_VIEW_RANGE = 30
 BREACH_VIEW_CELL = 20
+# Safe work: a cell is in danger if an armed enemy's reach (weapon range + both radii) plus
+# SAFE_WORK_MARGIN covers it. Structures outside the breach are worked only from safe cells next to
+# them (within ATTACK_CELL_SLACK of hitting it), one zergling per cell, walked to around danger
+SAFE_WORK_MARGIN = 1.0
+ATTACK_CELL_SLACK = 0.6
+# An enemy unit counts as active (it'll join a fight) once it has moved ACTIVE_MOVE, turned ACTIVE_TURN
+# radians (units on hold turn to shoot) or dealt a hit we can match to it; idle again after
+# ENEMY_IDLE_SECONDS. Idle supporters (like a forgotten group) don't count against a breach
+ACTIVE_MOVE = 0.5
+ACTIVE_TURN = 0.3
+ENEMY_IDLE_SECONDS = 20
 LEVEL_TOLERANCE = 1.0  # terrain z within this counts as the same level (cliff levels differ by ~2)
 # How melee attackers spread over targets (structures and units): "back" = first ones in go deepest,
 # later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with

@@ -551,3 +551,56 @@ from zerglings working gateways inside stalker range while no strike formed.
 4. `tank_dive` bottom still overfills the tank while a marine has room (section 27).
 5. Cloaked units: we have no detection (no lair/overseers). Unseen fire now only retreats on sustained
    damage, but detection is the real answer (todo).
+
+### 29. Oct 4: safe cells, active enemies, open chokes up first
+
+The 6-zealot gateway grid (top) went from FAIL (36-48 lost, no breach ever accepted) to **PASS: 105 s,
+23 of 48 lost**. Watched runs with the new per-zergling overlay labels drove each change:
+
+- **Per-zergling labels** (overlay): squad, decision this step and why. Examples:
+  `S3 unit: zealot@42,132 [fighter 2/2]`, `safe work: gateway@.. [2/4] walking to its cell`,
+  `step away from zealot@.. (open it up first: gateway@..)`, `hold outside their reach`, `strike | ...`.
+- **Safe-cell model** (`ReachMap.set_danger`, `safe_attack_cells`, `safe_step`; `safe_work`,
+  `work_from_cell`):
+  - The old check tested one point on the building's edge facing the zergling, on ares' danger map. A
+    gateway looked safe from off to the side; the zergling then stood wherever its path ended, in
+    stalker range. As it walked closer the verdict flipped to "nothing to do", which gave no order, so
+    the old attack order carried it on to die.
+  - Now: danger cells = within any armed enemy's reach + `SAFE_WORK_MARGIN` (melee included, so a
+    zealot makes the faces next to it unsafe). A building is safe work only through its safe attack
+    cells on the zergling's patch of safe ground, with capacity = that many cells. Each zergling claims a
+    cell, walks there around the danger (dijkstra over safe cells) and attacks from it.
+  - No cell, no safe way, or nothing to do: an explicit hold outside their reach, replacing old orders.
+- **Breach acceptance vs active enemies** (your rule): a breach is judged against what it opens plus
+  enemies that are active. Active means moved `ACTIVE_MOVE`, turned `ACTIVE_TURN` (units on hold turn
+  to shoot), or dealt a hit we can match by reach and damage amount; idle again after
+  `ENEMY_IDLE_SECONDS` = 20. Before, the survivors had to beat all 9 fighters at once, so no breach was
+  ever accepted with 6 zealots, and acceptance flickered with 4.
+- **Choke cost**: covering enemies measured to the attack cells (`ReachMap.attack_points`).
+- **Open chokes up first** (your idea): a partly enclosed melee unit (fewer open sides than in the
+  open) isn't attacked while a building touching it has safe cells. Breaking that costs nothing and
+  opens it up. Only then does the worth check apply. This was the change that made the 6-zealot grid
+  pass: about 2,200 "open it up first" decisions, 14 zealot fights taken.
+- **Distance limits that left units stranded** (the pattern: a radius that starts fight mode, 18, bigger
+  than the one that gives work, 10):
+  - Dropped `CLEAR_THE_WAY_RANGE` for safe work: 8 zerglings had parked down the ramp with "nothing to
+    do" and every gateway 10+ away.
+  - Dropped the strikes' 12-tile building limit (any building in the strike's map).
+  - Dropped `APPROACH_DISTANCE`: no attack-move for the last 12 tiles, ares' path around fire all the
+    way.
+  - Raid staging times out after `RALLY_SECONDS`.
+- **Patrols / help**:
+  - A patrol is kept only while raids are staffed, gathered and their fights at the bar (`raids_ok`).
+  - "Room" for helpers counts breach slots and safe building cells, not just open sides around units.
+  - You decided against "no patrols during raids / helpers stay until the end": we keep splitting forces.
+- Note: a squad that's fighting keeps its job label (a "patrol" fought all game next to the raid). It's
+  skipped by raid assignment and help while fighting. Harmless; proposal (b) would relabel it.
+
+**Open:**
+- Regression set not yet run on this commit: both 4-zealot grids, 6-zealot bottom, open_army,
+  open_army_free bottom, tank_dive. You're running it on Linux.
+- The "UNSAFE" counts only mean the zergling stood in enemy range when ordered (breach work and
+  strikes count). A count of real "walked into fire for nothing" would be more useful.
+- Help sends and frees a squad repeatedly while a fight's verdict hovers around the help bar.
+- The sim still drives raid sizing (36 for the 6-zealot grid) and the squad verdicts, and doesn't know
+  chokes (todo #21).

@@ -15,6 +15,8 @@ turning it on doesn't change a single decision.
 - retreating: a circle around each enemy close by at the distance squads back off to (reach + margin)
 - scout requests: a purple box where the army asked an overlord for vision
 - choke fights: `choke: lose ~N, worth M (take/skip)` over a unit with only 1-2 open sides
+- each zergling: its squad, its decision this step and why (`S3 unit: zealot@42,132 [fighter 2/2]`,
+  `step away from zealot@.. (choke not worth it, lose ~16 vs worth 4)`, `hold outside their reach`)
 - unseen fire: a pink circle where recent hits came from nothing we could see, with their damage
 """
 
@@ -53,6 +55,7 @@ BACK_OFF_COLOR = (0, 200, 255)
 SCOUT_COLOR = (180, 90, 255)
 TARGET_COLOR = (255, 255, 255)
 UNSEEN_COLOR = (255, 60, 160)
+UNIT_COLOR = (200, 230, 255)
 
 
 def lifted(ai: AresBot, p: Point2, lift: float = 0.3) -> Point3:
@@ -97,13 +100,22 @@ def draw(ai: AresBot, army: Army) -> None:
         if ai.time - when < 3:
             client.debug_sphere_out(lifted(ai, position), 2.2, BREACH_COLOR)
             client.debug_text_world(text, lifted(ai, position, 2.0), BREACH_COLOR, 12)
-    from bot.army import BACK_OFF_CIRCLES, CHOKE_NOTES, TARGET_NOTES
+    from bot.army import BACK_OFF_CIRCLES, CHOKE_NOTES, CHOKE_OPENERS, TARGET_NOTES, UNIT_NOTES
+
+    # Each of our units: its squad, and what it was told to do this step and why
+    squad_of = {t: sq.id for sq in army.book.squads.values() for t in sq.tags}
+    for u in ai.units:
+        if u.tag in UNIT_NOTES:
+            label = f"S{squad_of[u.tag]} {UNIT_NOTES[u.tag]}" if u.tag in squad_of else UNIT_NOTES[u.tag]
+            client.debug_text_world(label, lifted(ai, u.position, 0.6), UNIT_COLOR, 10)
 
     # Choke fights judged this step: what killing it would cost against what it's worth
     for tag, (lost, worth, taken) in CHOKE_NOTES.items():
         if tag in enemies:
             verdict = "take" if taken else "skip"
             label = f"choke: lose ~{lost:.0f}, worth {worth:.0f} ({verdict})"
+            if tag in CHOKE_OPENERS:
+                label = f"choke: open it up first ({CHOKE_OPENERS[tag]})"
             client.debug_text_world(label, lifted(ai, enemies[tag].position, 2.2), BREACH_COLOR, 12)
 
     # Targets with zerglings on them: priority (targeting tier, 1 = first) and attackers / capacity

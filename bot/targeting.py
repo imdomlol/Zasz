@@ -29,6 +29,7 @@ from scipy.sparse.csgraph import dijkstra
 
 from bot.settings import (
     APPROACH_DETOUR_SLACK,
+    ATTACK_CELL_SLACK,
     BLOCKED_MEMORY_SECONDS,
     BLOCKED_SECONDS,
     DETOUR_CROWD_COST,
@@ -73,6 +74,7 @@ class TargetSlots:
         caps: dict[int, int] | None = None,
         taken: dict[int, int] | None = None,
         settled: dict[int, int | None] | None = None,
+        cells: set[tuple[int, int]] | None = None,
     ) -> None:
         # Attackers per target tag. Pass one dict to every squad in a step, so squads fighting
         # the same enemy share its slots (each counting from zero put 20 zerglings on one stalker)
@@ -83,11 +85,19 @@ class TargetSlots:
         # settles it (squads' reach maps cover different areas and can disagree by a cell or two)
         self.settled: dict[int, int | None] = {} if settled is None else settled
         self.strike: set[int] = set()  # enemy tags this attacker's strike goes for (no distance limit)
+        # Structure tag -> the safe cells (outside every enemy's reach) to hit it from (`Army` fills it per
+        # zergling); its capacity is that many. Cells taken this step are shared like `taken`
+        self.safe_cells: dict[int, list[tuple[int, int]]] = {}
+        self.cells_taken: set[tuple[int, int]] = set() if cells is None else cells
 
     def capacity(self, attacker: Unit, target: Unit) -> int | None:
         """How many attackers like `attacker` `target` takes at once (None: no limit)."""
         if target.tag in self.caps:
             return self.caps[target.tag]
+        if target.tag in self.safe_cells:
+            capacity = attack_capacity(attacker, target)
+            cells = len(self.safe_cells[target.tag])
+            return cells if capacity is None else min(capacity, cells)
         if target.tag in self.settled:
             return self.settled[target.tag]
         capacity = attack_capacity(attacker, target)
@@ -347,6 +357,12 @@ class ReachMap:
         # breach structure tag -> the cells our attackers stand on to hit it (`breaches`)
         self.attack_cells: dict[int, list[Point2]] = {}
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
+        # Danger (cells some armed enemy can hit), set per step by `set_danger`; safe cells as areas
+        self.danger = np.zeros_like(walkable, dtype=bool)
+        self.danger_stamp: float | None = None
+        self.safe_labels = np.zeros(walkable.shape, dtype=np.int32)
+        self._safe_graph = None
+        self._safe_fields: dict[tuple[int, int], np.ndarray] = {}
         self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
@@ -387,32 +403,111 @@ class ReachMap:
                     continue  # no squeezing diagonally between two blocked cells
                 yield nx, ny
 
+    def cell(self, p: Point2) -> tuple[int, int] | None:
+        """The map cell `p` is in (None outside the window)."""
+        c = (int(p.x) - self.x0, int(p.y) - self.y0)
+        w, h = self.walkable.shape
+        return c if 0 <= c[0] < w and 0 <= c[1] < h else None
+
+    def point(self, c: tuple[int, int]) -> Point2:
+        return Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5))
+
+    def attack_points(self, target: Unit, attacker_radius: float = 0.375) -> list[Point2]:
+        """The reached cells an attacker can stand on to hit `target` (as points)."""
+        return [self.point(c) for c in self._ring(target, attacker_radius)]
+
+    def set_danger(self, zones: list[tuple[Point2, float]], stamp: float) -> None:
+        """Mark the cells within each (center, radius) zone as danger (once per `stamp`, e.g. per step)."""
+        if self.danger_stamp == stamp:
+            return
+        self.danger_stamp = stamp
+        w, h = self.walkable.shape
+        xs = np.arange(w) + self.x0 + 0.5
+        ys = np.arange(h) + self.y0 + 0.5
+        gx, gy = np.meshgrid(xs, ys, indexing="ij")
+        danger = np.zeros((w, h), dtype=bool)
+        for center, radius in zones:
+            danger |= (gx - center.x) ** 2 + (gy - center.y) ** 2 <= radius * radius
+        self.danger = danger
+        self.safe_labels, _ = label(self.walkable & ~danger, structure=np.ones((3, 3), dtype=bool))
+        self._safe_graph = None
+        self._safe_fields = {}
+
+    def safe_area(self, p: Point2) -> int:
+        """Which connected patch of safe ground `p` is on (0: in danger, blocked or off the map)."""
+        c = self.cell(p)
+        return 0 if c is None else int(self.safe_labels[c])
+
+    def safe_attack_cells(self, target: Unit, attacker_radius: float, area: int) -> list[tuple[int, int]]:
+        """Cells next to `target` (close enough to hit it) outside every enemy's reach, in safe `area`."""
+        if not area:
+            return []
+        return [
+            c
+            for c in self._ring(target, attacker_radius)
+            if self.safe_labels[c] == area
+            and self.point(c).distance_to(target.position) - target.radius - attacker_radius <= ATTACK_CELL_SLACK
+        ]
+
+    def safe_cell_count(self, target: Unit, attacker_radius: float) -> int:
+        """How many cells next to `target` (close enough to hit it) are outside every enemy's reach."""
+        return sum(
+            1
+            for c in self._ring(target, attacker_radius)
+            if not self.danger[c]
+            and self.point(c).distance_to(target.position) - target.radius - attacker_radius <= ATTACK_CELL_SLACK
+        )
+
+    def safe_step(self, goal: tuple[int, int], position: Point2, lookahead: int = 4) -> Point2 | None:
+        """Where to move next to reach cell `goal` without entering danger. None if there's no such way."""
+        if goal not in self._safe_fields:
+            if self._safe_graph is None:
+                self._safe_graph = self._build_graph(self.walkable & ~self.danger)
+            dist = dijkstra(self._safe_graph, directed=False, indices=goal[0] * self.walkable.shape[1] + goal[1])
+            self._safe_fields[goal] = dist.reshape(self.walkable.shape)
+        field = self._safe_fields[goal]
+        here_cell = self.cell(position)
+        if here_cell is None or not np.isfinite(field[here_cell]):
+            return None
+        cx, cy = here_cell
+        here = field[cx, cy]
+        for _ in range(lookahead):
+            if here == 0:
+                break
+            options = [n for n in self._neighbors(cx, cy) if field[n] < here]
+            if not options:
+                break
+            cx, cy = min(options, key=lambda n: field[n])
+            here = field[cx, cy]
+        return self.point((cx, cy))
+
     def _cell_graph(self):
         """Walkable cells (enemy units as walls) as a graph: 8 neighbors, no diagonal squeezing."""
         if self._graph is None:
-            walk = self.walkable
-            w, h = walk.shape
-            index = np.arange(w * h).reshape(w, h)
-            rows, cols, weights = [], [], []
-            for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
-                # pairs (x, y) -> (x + dx, y + dy), both inside the window
-                xs, xe = 0, w - dx
-                ys, ye = max(0, -dy), h - max(0, dy)
-                src = (slice(xs, xe), slice(ys, ye))
-                dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
-                ok = walk[src] & walk[dst]
-                if dx and dy:
-                    # one of the two orthogonal cells in between must be open
-                    ok &= (
-                        walk[(slice(xs + dx, xe + dx), slice(ys, ye))] | walk[(slice(xs, xe), slice(ys + dy, ye + dy))]
-                    )
-                rows.append(index[src][ok])
-                cols.append(index[dst][ok])
-                weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
-            self._graph = coo_matrix(
-                (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
-            ).tocsr()
+            self._graph = self._build_graph(self.walkable)
         return self._graph
+
+    def _build_graph(self, walk: np.ndarray):
+        """Cells where `walk` is True as a graph: 8 neighbors, no diagonal squeezing."""
+        w, h = walk.shape
+        index = np.arange(w * h).reshape(w, h)
+        rows, cols, weights = [], [], []
+        for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
+            # pairs (x, y) -> (x + dx, y + dy), both inside the window
+            xs, xe = 0, w - dx
+            ys, ye = max(0, -dy), h - max(0, dy)
+            src = (slice(xs, xe), slice(ys, ye))
+            dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
+            ok = walk[src] & walk[dst]
+            if dx and dy:
+                # one of the two orthogonal cells in between must be open
+                ok &= walk[(slice(xs + dx, xe + dx), slice(ys, ye))] | walk[(slice(xs, xe), slice(ys + dy, ye + dy))]
+            rows.append(index[src][ok])
+            cols.append(index[dst][ok])
+            weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
+        return coo_matrix(
+            (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
+        ).tocsr()
 
     def approach_step(self, target: Unit, position: Point2, lookahead: int = 4) -> Point2 | None:
         """Where to move next to get next to `target` walking around enemy units (pathing ignores

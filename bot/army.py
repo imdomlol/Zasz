@@ -18,6 +18,7 @@ can't hit the front of the squad unnoticed.
 Whether to attack at all is a decision (`Decision.attack`); this module only executes.
 """
 
+import math
 from collections import Counter
 from dataclasses import dataclass
 
@@ -35,7 +36,8 @@ from scipy.ndimage import label
 
 from bot import overlay
 from bot.settings import (
-    APPROACH_DISTANCE,
+    ACTIVE_MOVE,
+    ACTIVE_TURN,
     AVOID_MARGIN,
     AVOID_SECONDS,
     BACK_OFF_HOLD_SECONDS,
@@ -51,6 +53,7 @@ from bot.settings import (
     DEFEND_RADIUS,
     DISENGAGE_AT,
     ENEMY_GROUP_RADIUS,
+    ENEMY_IDLE_SECONDS,
     FIGHT_AT,
     FLANK_DISTANCE,
     GATHERED_FRACTION,
@@ -75,6 +78,7 @@ from bot.settings import (
     RALLY_SECONDS,
     REACH_SECONDS,
     REGIONS_SECONDS,
+    SAFE_WORK_MARGIN,
     SITE_DEFENSE_RADIUS,
     SITE_RADIUS,
     SPREAD_LOOKAHEAD,
@@ -123,6 +127,20 @@ ARMY_TYPES = {UnitTypeId.ZERGLING}
 BACK_OFF_CIRCLES: list[tuple[Point2, float]] = []
 TARGET_NOTES: dict[int, tuple[int, int | None]] = {}  # enemy tag -> (priority, capacity)
 CHOKE_NOTES: dict[int, tuple[float, float, bool]] = {}  # enemy tag -> (zerglings lost, worth, taken)
+CHOKE_OPENERS: dict[int, str] = {}  # enemy tag -> the building to break first to open it up (overlay)
+UNIT_NOTES: dict[int, str] = {}  # our unit tag -> its latest decision this step (overlay)
+
+
+def note(units: list[Unit], text: str) -> None:
+    """Record what these units were told to do, and why (the overlay shows it over each one)."""
+    for u in units:
+        UNIT_NOTES[u.tag] = text
+
+
+def name_of(e: Unit) -> str:
+    return f"{e.type_id.name.lower()}@{e.position.x:.0f},{e.position.y:.0f}"
+
+
 COUNTS: Counter[str] = Counter()  # debug: zergling decisions since the last log (see Army.debug)
 SIEGE_MIN_RANGE = 2.0  # sieged tanks can't fire at targets this close
 IGNORED_THREATS = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTypeId.OVERSEER}
@@ -159,6 +177,8 @@ class Army:
         self.battles: dict[int, Battle] = {}  # squad id -> its fight, last step
         self.taken: dict[int, int] = {}  # target tag -> attackers this step, across all squads
         self.settled: dict[int, int | None] = {}  # target tag -> its capacity this step (`TargetSlots`)
+        self.cells_taken: set[tuple[int, int]] = set()  # safe attack cells claimed this step
+        self.enemy_state: dict[int, tuple[Point2, float, float]] = {}  # tag -> (where, facing, last active)
         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
         self.breach_kept: dict[int, float] = {}  # the breach targets we're committed to -> last confirmed
         self.breach_evals: dict[tuple[int, int], tuple[float, dict[int, int]]] = {}  # fight area -> (when, caps)
@@ -180,6 +200,8 @@ class Army:
         self.regions_at = -999.0
         self.helped_at = -999.0
         self.gathered: set[Point2] = set()  # defended sites (centers) whose raiders have gathered
+        self.staging_since: dict[Point2, float] = {}  # defended site -> when its raiders started gathering
+        self.raids_ok = True  # every raid staffed, gathered and not short of the bar (patrols allowed)
         self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
         self.detours = Detours()  # routes around our own crowd for blocked zerglings
         self.reach_cache: dict[tuple[int, int], tuple[float, ReachMap]] = {}  # area -> (built at, map)
@@ -203,9 +225,41 @@ class Army:
             and unit.position.distance_to(position) <= reach + unit.radius + 1.0
             for position, reach, seen in self.recent_shooters.values()
         )
+        # The visible enemies that could have dealt this hit (in reach, and the damage fits their
+        # weapon) have done something: they count as active
+        for e in ai.enemy_units:
+            if (
+                armed(e)
+                and unit.position.distance_to(e.position) <= reach_of(e, unit) + 0.5
+                and hit_fits(e, unit, amount)
+            ):
+                self.mark_active(e, ai.time)
         if not explained and unit.type_id in ARMY_TYPES:
             self.unseen_hits.append((unit.position, amount, ai.time))
             COUNTS["unseen hit"] += 1
+
+    def track_activity(self, ai: AresBot) -> None:
+        """Note when each visible enemy unit last did something: moved, or turned (a unit on hold turns
+        to shoot). See `active`."""
+        for e in ai.enemy_units:
+            prev = self.enemy_state.get(e.tag)
+            if prev is None:
+                self.enemy_state[e.tag] = (e.position, e.facing, -math.inf)  # idle until it does something
+                continue
+            where, facing, active = prev
+            turn = abs((e.facing - facing + math.pi) % (2 * math.pi) - math.pi)
+            if e.position.distance_to(where) > ACTIVE_MOVE or turn > ACTIVE_TURN:
+                self.enemy_state[e.tag] = (e.position, e.facing, ai.time)
+
+    def mark_active(self, e: Unit, now: float) -> None:
+        where, facing, _ = self.enemy_state.get(e.tag, (e.position, e.facing, 0.0))
+        self.enemy_state[e.tag] = (where, facing, now)
+
+    def active(self, ai: AresBot, e: Unit) -> bool:
+        """Has this enemy unit done anything (moved, turned, hit us) in the last ENEMY_IDLE_SECONDS? An
+        idle one (on hold and untouched, like a forgotten group) won't come to help its friends."""
+        state = self.enemy_state.get(e.tag)
+        return state is not None and ai.time - state[2] < ENEMY_IDLE_SECONDS
 
     def remember_shooters(self, ai: AresBot) -> None:
         """Every armed enemy we see this step: where it is, its weapon reach, when (to explain damage)."""
@@ -253,10 +307,13 @@ class Army:
         self.clear_empty_avoid_areas(ai)
         self.breach_kept = {t: when for t, when in self.breach_kept.items() if ai.time - when < BREACH_KEEP_SECONDS}
         self.remember_shooters(ai)
+        self.track_activity(ai)
         self.partly_seen = self.find_partly_seen(ai)
         BACK_OFF_CIRCLES.clear()
         TARGET_NOTES.clear()
         CHOKE_NOTES.clear()
+        CHOKE_OPENERS.clear()
+        UNIT_NOTES.clear()
         self.blocks.forget_dead(alive)
         self.detours.forget_dead(alive)
         if not self.patrol.spots:
@@ -291,6 +348,7 @@ class Army:
         self.update_rallies(ai, squads)
         self.taken.clear()  # target slots, shared by every squad this step
         self.settled.clear()
+        self.cells_taken.clear()
         self.update_strikes(ai, lings)
         striking = {t for s in self.strikes for t in s.lings}
         battles: dict[int, Battle] = {}
@@ -422,6 +480,13 @@ class Army:
             if s.job == "push":
                 s.free()  # re-planned below: joins a raid if there's one now, else pushes on
         free = [s for s in squads if s.job in ("patrol", "raid") and s.id not in self.battles]
+        # Spare capacity only exists if every raid is going well (staffed, gathered, its fights at the
+        # engage bar or better); otherwise spare squads join a raid instead of patrolling
+        self.raids_ok = all(
+            b.result >= FIGHT_AT
+            for sid, b in self.battles.items()
+            if (sq := self.book.squads.get(sid)) is not None and sq.job in ("raid", "help", "engage", "gather")
+        )
         for site in sites:
             on_it = [s for s in free if s.job == "raid" and s.site == site.center]
             if any(b.center.distance_to(site.center) < SITE_DEFENSE_RADIUS for b in self.battles.values()):
@@ -473,15 +538,23 @@ class Army:
                 )
                 staging = group.outside(rally_point(ai), STAGING_MARGIN)
                 there = sum(1 for s in on_it for u in s.units if u.position.distance_to(staging) < 12)
-                if there >= GATHERED_FRACTION * staffed:
+                since = self.staging_since.setdefault(site.center, ai.time)
+                if there >= GATHERED_FRACTION * staffed or ai.time - since > RALLY_SECONDS:
+                    # Gathered, or waited RALLY_SECONDS (some can't get there): go in with what's there
+                    if there < GATHERED_FRACTION * staffed:
+                        COUNTS["raid staging timed out"] += 1
                     self.gathered.add(site.center)
+                    self.staging_since.pop(site.center, None)
                 else:
                     target = staging
             for s in on_it:
                 s.target = target
             free = [s for s in free if s not in on_it]
             state = "gathering" if target != site.center else "in"
+            if staffed < demand or state == "gathering":
+                self.raids_ok = False
             self.site_notes.append((site.center, f"raid {self.site_letters[site.center]}: {staffed}/{demand} {state}"))
+        self.staging_since = {c: t for c, t in self.staging_since.items() if c in raiding}
         self.no_idle_squads(ai, squads, sites, free)
 
     def label_sites(self, sites: list[Site]) -> None:
@@ -509,7 +582,7 @@ class Army:
         nothing known to raid, push toward their natural, then their main, then other bases, all to
         the same place so they go as one group."""
         idle = [s for s in free if s.job == "patrol"]
-        keep = MAX_PATROLS_ATTACKING if len(squads) >= PATROL_MIN_SQUADS else 0
+        keep = MAX_PATROLS_ATTACKING if len(squads) >= PATROL_MIN_SQUADS and self.raids_ok else 0
         patrols = sorted(idle, key=lambda s: len(s.tags))[:keep]
         spare = [s for s in idle if s not in patrols]
         if not spare:
@@ -803,15 +876,22 @@ class Army:
             if not strike.go:
                 # Gather out of their reach (step out first if in it)
                 COUNTS["strike: gathering"] += len(units)
+                note(units, "strike: gathering")
                 back_off(ai, units, group, strike.spot)
                 continue
             COUNTS["strike: in"] += len(units)
             center = center_of(group)
-            nearby = [e for e in enemies.values() if e.is_structure and e.position.distance_to(center) < 12]
-            slots = TargetSlots(strike.reach, taken=self.taken, settled=self.settled)
+            # Structures to break or work safely while there: any in the strike's map (safe work decides
+            # which are worth it), not just those within 12 of the enemies
+            if strike.reach is not None:
+                nearby = [e for e in enemies.values() if e.is_structure and strike.reach.cell(e.position) is not None]
+            else:
+                nearby = [e for e in enemies.values() if e.is_structure and e.position.distance_to(center) < 12]
+            slots = TargetSlots(strike.reach, taken=self.taken, settled=self.settled, cells=self.cells_taken)
             slots.strike = strike.targets
             for unit in front_first(units, group):
                 fight(ai, unit, group, group + nearby, slots, center, self.blocks, self.detours)
+                note([unit], f"strike | {UNIT_NOTES.get(unit.tag, '')}")
 
     def avoid_armies_we_cannot_beat(self, ai: AresBot, lings: list[Unit]) -> None:
         """Mark every known enemy group (seen now or remembered) the whole army can't beat as an
@@ -925,7 +1005,6 @@ class Army:
         holding = self.backed_off.get(squad.id, -99) > ai.time
         extra = BACK_OFF_MARGIN + 0.5 if holding else 0.0
         threats = [e for e in enemies if (not e.is_structure or armed(e)) and can_reach_soon(e, units, extra)]
-        under_fire = any(ai.time - self.last_damaged.get(u.tag, -99) < UNDER_FIRE_SECONDS for u in units)
         if not threats:
             # Nothing can hit us yet, but enemy units in sight (NOTICE_RANGE) we'd beat are worth going
             # for: the next-step margin decides when to back off, not which fights we notice
@@ -947,6 +1026,7 @@ class Army:
             back = squad.squad_position.towards(fire, -UNSEEN_FIRE_STEP)
             self.mark_avoid(ai, fire, UNSEEN_RADIUS * 2, "unseen fire")
             COUNTS["unseen fire: back off"] += len(units)
+            note(units, "unseen fire: back off")
             for unit in units:
                 move(ai, unit, back)
             return None
@@ -957,6 +1037,7 @@ class Army:
                 # Only part of their position is seen (something fired from the fog): don't fight
                 # what we can see; back off until an overlord shows us the rest
                 COUNTS["partly seen: back off"] += len(units)
+                note(units, "partly seen: back off")
                 self.backed_off[squad.id] = ai.time + BACK_OFF_HOLD_SECONDS
                 back_off(ai, units, threats, None, retreat=True)
                 return None
@@ -968,6 +1049,7 @@ class Army:
                 # Waiting for help: stay out of their reach (the helpers count in the sim before
                 # they're here, so going in now would be alone)
                 COUNTS["gathering"] += len(units)
+                note(units, "gathering for help")
                 back_off(ai, units, threats, squad.target)
                 return battle
             # Engage at `fight_at` (VICTORY_MARGINAL, or stricter for a patrol not attacking); once in,
@@ -981,7 +1063,11 @@ class Army:
             if near_home or self.committed or squad.id in self.fighting:
                 reach = self.reach_map(ai, units, enemies)
                 slots = TargetSlots(
-                    reach, self.breach_caps(ai, reach, units, enemies, threats, present), self.taken, self.settled
+                    reach,
+                    self.breach_caps(ai, reach, units, enemies, threats, present),
+                    self.taken,
+                    self.settled,
+                    self.cells_taken,
                 )
                 busy = 0
                 for unit in front_first(units, enemies):
@@ -993,6 +1079,7 @@ class Army:
                     # and do something else
                     reason = "choke not worth it" if refused else "nothing to do safely"
                     COUNTS[f"leave: {reason}"] += len(units)
+                    note(units, f"leave: {reason}")
                     self.fighting.discard(squad.id)
                     self.turned_back(ai, refused or threats, reason)
                     if squad.job != "defend":
@@ -1003,13 +1090,14 @@ class Army:
                 # between us and safety): do as much damage as we can instead of dying for free
                 COUNTS["cornered: fight"] += len(units)
                 reach = self.reach_map(ai, units, enemies)
-                slots = TargetSlots(reach, taken=self.taken, settled=self.settled)
+                slots = TargetSlots(reach, taken=self.taken, settled=self.settled, cells=self.cells_taken)
                 for unit in front_first(units, enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
             else:
                 # Just out of their reach, not home: from there it waits for help or patrols on
                 # (and isn't an avoid area: one squad losing isn't the army losing)
                 COUNTS[f"back off ({result.name})"] += len(units)
+                note(units, f"back off: sim {result.name}")
                 self.backed_off[squad.id] = ai.time + BACK_OFF_HOLD_SECONDS
                 back_off(ai, units, threats, None, retreat=True)
             return battle
@@ -1022,32 +1110,35 @@ class Army:
             not threats
             and not any(e.is_structure for e in enemies)
             and len(units) > 1
-            and center.distance_to(target) > (APPROACH_DISTANCE if advancing else 5)
+            and center.distance_to(target) > 5
             and not ai.is_visible(center.towards(target, min(SPREAD_LOOKAHEAD, center.distance_to(target))))
         ):
             COUNTS["spread out"] += len(units)
+            note(units, f"spread out: {squad.job}")
             spread_move(ai, units, center, target)
             return None
 
         slots = TargetSlots(
-            self.reach_map(ai, units, enemies) if enemies else None, taken=self.taken, settled=self.settled
+            self.reach_map(ai, units, enemies) if enemies else None,
+            taken=self.taken,
+            settled=self.settled,
+            cells=self.cells_taken,
         )
         for unit in front_first(units, enemies):
             if advancing:
                 if threats or any(e.is_structure for e in enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
-                elif under_fire or unit.distance_to(target) < APPROACH_DISTANCE:
-                    # Close to the target (or shot from out of sight): attack-move in, all the way
-                    # (AMove's default does nothing within 7 of the target: zerglings stood next
-                    # to a lone zealot that wasn't a threat yet, doing nothing)
-                    if not (unit.is_attacking and unit.order_target == target):
-                        ai.register_behavior(AMove(unit=unit, target=target, success_at_distance=0))
                 else:
-                    # On the way: follow ares' path around known enemy fire (e.g. the army that
-                    # turned us back) instead of walking straight through it
+                    # Follow ares' path around known enemy fire all the way in (an attack-move for the last
+                    # stretch walked straight through it). Enemies on the way are handled as fights: one
+                    # that can reach us is a threat, one we'd beat in sight is a winnable fight
+                    note([unit], f"{squad.job}: moving")
                     move(ai, unit, target)
             elif unit.distance_to(target) > 5:
+                note([unit], f"{squad.job}: moving")
                 move(ai, unit, target)
+            else:
+                note([unit], f"{squad.job}: there")
         return None
 
     def members(self, ai: AresBot, squad: Squad, threats: list[Unit]) -> list[Unit]:
@@ -1143,7 +1234,7 @@ class Army:
         candidates = reach.breaches(list(structures.values()), fighters)
         best: tuple[float, int, int] | None = None  # (zerglings lost, tag, attackers)
         acceptable: dict[int, tuple[float, int, int]] = {}
-        for tag, (attackers, _opened) in candidates.items():
+        for tag, (attackers, opened) in candidates.items():
             s = structures[tag]
             cells = reach.attack_cells.get(tag, [])
             seconds = (s.health + s.shield) / (attackers * max(probe.calculate_dps_vs_target(s), 0.1))
@@ -1158,14 +1249,18 @@ class Army:
             ]
             lost = sum(dps_vs(f, probe) for f in covering) * seconds / max(probe.health_max, 1)
             survivors = survivors_from[: max(0, len(survivors_from) - int(lost + 0.5))]
-            ok = wins(ai, survivors, fighters)
+            # The fight behind it: what it opens up, plus every enemy that's active (it would come to help);
+            # idle ones (on hold, untouched) are left out until they move or attack
+            counted = [f for f in fighters if f in opened or self.active(ai, f)]
+            ok = not counted or wins(ai, survivors, counted)
             COUNTS[f"breach considered (lose ~{lost:.0f})"] += 1
             if self.debug:
                 logger.info(
                     f"{ai.time_formatted} breach eval: {s.type_id.name}@({s.position.x:.0f}, {s.position.y:.0f})"
                     f" hp {s.health + s.shield:.0f}, {attackers} attack cells, covered by {len(covering)}"
                     f" ({', '.join(sorted(f.type_id.name.lower() for f in covering)) or 'nothing'}),"
-                    f" {seconds:.1f}s, lose ~{lost:.1f}, {'acceptable' if ok else 'not acceptable'}"
+                    f" {seconds:.1f}s, lose ~{lost:.1f}, vs {len(counted)} of {len(fighters)} fighters (active or"
+                    f" opened), {'acceptable' if ok else 'not acceptable'}"
                 )
             if ok:
                 acceptable[tag] = (lost, tag, attackers)
@@ -1218,6 +1313,17 @@ class Army:
             if reach is not None and not t.is_structure and not t.is_memory:
                 capacity = min(capacity, reach.open_sides(t, probe.radius))
             slots += capacity
+        if reach is not None:
+            # Work there besides fighting units: the breach (as many as hit it at once) and the safe cells
+            # next to other structures (outside every enemy's reach)
+            caps = self.breach_caps(ai, reach, units, enemies, threats, present)
+            slots += sum(caps.values())
+            if reach.danger_stamp is not None:
+                slots += sum(
+                    reach.safe_cell_count(s, probe.radius)
+                    for s in enemies
+                    if s.is_structure and not s.is_flying and s.tag not in caps
+                )
         mine = sum(1 for u in present if u.type_id in ARMY_TYPES)
         return int(slots * HELP_ROOM_FACTOR) - mine
 
@@ -1365,6 +1471,10 @@ def fight(
     zergling breaking through switches back to the units as soon as one is reachable.
     """
     position = unit.position
+    dive: list[Unit] = []
+    in_the_way: list[Unit] = []
+    clear: list[Unit] = []
+    key: list[Unit] = []
     fighters = [e for e in threats if e.type_id not in WORKER_TYPES]
     # Every fighter in this fight is a candidate, however far: whether to engage it (and with whom) was
     # decided for the group (the squad's sim verdict, a strike, a raid), not by each zergling. Plugs
@@ -1388,6 +1498,11 @@ def fight(
             return e.position.distance_to(position) - e.radius - unit.radius < 0.75
 
         plugs = slots.reach.plugs([e for e in fighters if not e.is_structure], fighters)
+        # Danger: every cell an armed enemy can hit (its reach plus a margin; melee units included, so a
+        # zealot in a gap makes the gateway faces next to it unsafe too)
+        slots.reach.set_danger(
+            [(e.position, reach_of(e, unit) + SAFE_WORK_MARGIN) for e in enemies if armed(e)], ai.time
+        )
 
         def surroundable(e: Unit) -> bool:
             # Reachable, and not plugging a gap. A plug blocks our way to other enemy units (a zealot
@@ -1399,7 +1514,7 @@ def fight(
                 return False
             if e.tag in plugs and weapon_range(e) < PLUG_HARM_RANGE:
                 return False
-            return choke_worth(ai, unit, e, slots, fighters)
+            return choke_worth(ai, unit, e, slots, fighters, structures)
 
         pinned = [
             e
@@ -1409,6 +1524,13 @@ def fight(
         if pinned:
             nearest = min(pinned, key=lambda e: e.position.distance_to(position))
             COUNTS["step away (gap)"] += 1
+            why = "plug" if nearest.tag in plugs else "choke not worth it"
+            if nearest.tag in CHOKE_OPENERS:
+                why = f"open it up first: {CHOKE_OPENERS[nearest.tag]}"
+            elif nearest.tag in CHOKE_NOTES:
+                lost, worth, _ = CHOKE_NOTES[nearest.tag]
+                why += f", lose ~{lost:.0f} vs worth {worth:.0f}"
+            note([unit], f"step away from {name_of(nearest)} ({why})")
             unit.move(nearest.position.towards(position, nearest.radius + unit.radius + 2.0))
             return False
         near_fighters = [e for e in near_fighters if surroundable(e) or touching(e)]
@@ -1417,8 +1539,8 @@ def fight(
         dive = [e for e in near_fighters if e.type_id in DIVE_FIRST]
         # When every close fighter is full or blocked (e.g. zealots in 1-tile gaps between
         # gateways), break through the structure in the way rather than die in the lane
-        in_the_way = safe_structures(
-            ai, [s for s in structures if s.position.distance_to(position) - s.radius < BREAKTHROUGH_RANGE], unit
+        in_the_way = safe_work(
+            ai, slots, [s for s in structures if s.position.distance_to(position) - s.radius < BREAKTHROUGH_RANGE], unit
         )
         tiers = [
             (dive, True),
@@ -1430,9 +1552,15 @@ def fight(
     elif any(e.type_id not in WORKER_TYPES for e in threats):
         # Fighters around but none we can reach: the breach target (inside their range, capped at its
         # slots), else the closest structures we can hit from outside their range
-        clear = safe_structures(
-            ai, [s for s in structures if s.position.distance_to(position) - s.radius < CLEAR_THE_WAY_RANGE], unit
-        )
+        # Any structure with a free safe cell we can walk to around the danger, however far: distance adds no
+        # safety (a zergling parked down the ramp had "nothing to do" with every gateway 10+ tiles away).
+        # Without a reach map (no safe cells), only the ones close by
+        if slots.reach is not None:
+            clear = safe_work(ai, slots, structures, unit)
+        else:
+            clear = safe_structures(
+                ai, [s for s in structures if s.position.distance_to(position) - s.radius < CLEAR_THE_WAY_RANGE], unit
+            )
         tiers = [(workers, False), (breach, False), (clear, False)]
     else:
         key = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
@@ -1443,11 +1571,16 @@ def fight(
             if e.tag not in TARGET_NOTES or TARGET_NOTES[e.tag][0] > rank:
                 TARGET_NOTES[e.tag] = (rank, slots.capacity(unit, e))
     if not tiers:
+        # Nothing worth doing here: replace whatever order it still has (an attack picked earlier would
+        # carry it on into their fire) with stepping out of their reach and waiting there
+        note([unit], "nothing to do (no safe work, no breach): hold outside their reach")
+        hold(ai, unit, threats)
         return False  # nothing to go after (e.g. only far-off remembered units, or nothing safe to break)
     if not near_fighters and fighters and not any(slots.has_room(unit, e) for t, _ in tiers for e in t):
         # Only structure work, and all of it full (the breach target saturated): wait just outside
         # their reach to take the place of a breach attacker that dies, instead of piling on
         COUNTS["hold for the breach"] += 1
+        note([unit], "hold outside their reach (all work full)")
         back_off(ai, [unit], [e for e in threats if armed(e)], None)
         return True
 
@@ -1459,6 +1592,7 @@ def fight(
         waypoint = detours.next_waypoint(unit) if goal is not None else None
         if goal is not None and waypoint is not None and not unit.target_in_range(goal, 0.25):
             COUNTS["detour follow"] += 1
+            note([unit], f"detour to {name_of(goal)}")
             maneuver.add(ShootTargetInRange(unit=unit, targets=[goal]))
             maneuver.add(
                 PathUnitToTarget(unit=unit, grid=ai.mediator.get_ground_grid, target=waypoint, sense_danger=False)
@@ -1474,7 +1608,12 @@ def fight(
         depth_from = squad_position if TARGET_FILL == "back" else None
         goal, flank = pick_tiered(slots, blocks, unit, tiers, depth_from, now)
     if goal is None:
+        note([unit], "no target picked: hold outside their reach")
+        hold(ai, unit, threats)
         return False
+    if goal.is_structure and goal.tag in slots.safe_cells and goal.tag not in slots.caps:
+        # Safe work: stand on a safe cell next to it (walking there around their reach), hit it from there
+        return work_from_cell(ai, unit, goal, slots, threats)
     same_level = goal.is_flying or abs(ai.get_terrain_z_height(unit) - ai.get_terrain_z_height(goal)) < LEVEL_TOLERANCE
     if not flank and blocks.update(unit, goal, now, same_level):
         # Just got stuck on this one. An enemy unit: go around our own crowd to it if there's a
@@ -1496,8 +1635,28 @@ def fight(
         if unit.target_in_range(goal, 0.25):
             COUNTS["unit in range"] += 1
     COUNTS[category] += 1
-    if not ai.mediator.is_position_safe(grid=ai.mediator.get_ground_grid, position=position):
+    unsafe = not ai.mediator.is_position_safe(grid=ai.mediator.get_ground_grid, position=position)
+    if unsafe:
         COUNTS[f"UNSAFE {category}"] += 1
+    if goal in dive:
+        tier = "dive"
+    elif goal in near_fighters:
+        tier = "fighter"
+    elif goal in workers:
+        tier = "worker"
+    elif goal in breach:
+        tier = "breach"
+    elif goal in in_the_way:
+        tier = "break through (safe)"
+    elif goal in clear:
+        tier = "clear the way (safe)"
+    elif goal in key:
+        tier = "key structure"
+    else:
+        tier = "target"
+    capacity = slots.capacity(unit, goal)
+    room = f" {slots.taken.get(goal.tag, 0)}/{'-' if capacity is None else capacity}"
+    note([unit], f"{category}: {name_of(goal)} [{tier}{room}]{' IN RANGE' if unsafe else ''}")
 
     if flank and not goal.is_memory:
         side = 1 if unit.tag % 2 else -1  # alternate sides so they spread around the jam
@@ -1528,11 +1687,17 @@ def fight(
     return True
 
 
-def choke_worth(ai: AresBot, unit: Unit, target: Unit, slots: TargetSlots, fighters: list[Unit]) -> bool:
-    """A melee target with room for at most CHOKE_SLOTS attackers (a zealot in a 1-tile lane or on a ramp)
-    is taken only if what we'd lose killing it that slowly is worth it: zerglings lost = the damage of
-    everything covering its attack cells (itself included) over the time that many zerglings take to
-    kill it, against its cost in zerglings. Worked out once per target per step (`CHOKE_NOTES`)."""
+def choke_worth(
+    ai: AresBot, unit: Unit, target: Unit, slots: TargetSlots, fighters: list[Unit], structures: list[Unit]
+) -> bool:
+    """Whether to attack a melee unit that isn't in the open (a zealot in a lane or on a ramp).
+
+    First: while a building touching it can be worked from safe cells, open it up instead. Breaking that
+    building costs nothing and gives the unit more open sides, so the fight gets cheaper. Then, with room
+    for at most CHOKE_SLOTS attackers, it's taken only if what we'd lose killing it that slowly is worth
+    it: zerglings lost = the damage of everything covering its attack cells (itself included) over the
+    time that many zerglings take to kill it, against its cost in zerglings. Worked out once per target
+    per step (`CHOKE_NOTES`)."""
     if target.is_structure or weapon_range(target) >= PLUG_HARM_RANGE:
         # Only a unit that can't hit us from where it stands (a zealot) can be left alone: refusing a
         # stalker in a gap doesn't stop it shooting us
@@ -1540,14 +1705,50 @@ def choke_worth(ai: AresBot, unit: Unit, target: Unit, slots: TargetSlots, fight
     if target.tag in CHOKE_NOTES:
         return CHOKE_NOTES[target.tag][2]
     capacity = slots.capacity(unit, target)
+    full = attack_capacity(unit, target)
+    if (
+        capacity is not None
+        and full is not None
+        and capacity < full
+        and slots.reach is not None
+        and slots.reach.danger_stamp is not None
+    ):
+        # Partly enclosed: a building next to it we can break without taking fire comes first
+        opener = next(
+            (
+                s
+                for s in structures
+                if s.position.distance_to(target.position) - s.radius - target.radius < 1.5
+                and slots.reach.safe_cell_count(s, unit.radius) > 0
+            ),
+            None,
+        )
+        if opener is not None:
+            CHOKE_NOTES[target.tag] = (0.0, 0.0, False)
+            CHOKE_OPENERS[target.tag] = name_of(opener)
+            COUNTS["choke: open it up first"] += 1
+            return False
     if capacity is None or capacity > CHOKE_SLOTS:
         return True
     seconds = (target.health + target.shield) / (capacity * max(unit.calculate_dps_vs_target(target), 0.1))
-    covering = [
-        f
-        for f in fighters
-        if armed(f) and f.position.distance_to(target.position) - target.radius - f.radius < weapon_range(f) + 1.5
-    ]
+    cells = slots.reach.attack_points(target, unit.radius) if slots.reach is not None else []
+    if cells:
+        # Whoever can hit the cells our attackers would stand on (weapon reach to those cells)
+        covering = [
+            f
+            for f in fighters
+            if armed(f)
+            and any(
+                f.position.distance_to(c) <= weapon_range(f) + f.radius + unit.radius + VISIBLE_THREAT_MARGIN
+                for c in cells
+            )
+        ]
+    else:
+        covering = [
+            f
+            for f in fighters
+            if armed(f) and f.position.distance_to(target.position) - target.radius - f.radius < weapon_range(f) + 1.5
+        ]
     if target not in covering and armed(target):
         covering.append(target)
     lost = sum(dps_vs(f, unit) for f in covering) * seconds / max(unit.health_max, 1)
@@ -1557,6 +1758,61 @@ def choke_worth(ai: AresBot, unit: Unit, target: Unit, slots: TargetSlots, fight
     CHOKE_NOTES[target.tag] = (lost, worth, taken)
     COUNTS["choke: taken" if taken else "choke: not worth it"] += 1
     return taken
+
+
+def hold(ai: AresBot, unit: Unit, threats: list[Unit]) -> None:
+    """Step out of the threats' reach and wait there (cancelling any older order)."""
+    if threats:
+        back_off(ai, [unit], threats, None)
+    elif unit.orders:
+        unit.stop()
+
+
+def safe_work(ai: AresBot, slots: TargetSlots, structures: list[Unit], unit: Unit) -> list[Unit]:
+    """The structures this zergling can work without taking fire: ones with cells next to them outside
+    every enemy's reach (`ReachMap.set_danger`), on the same patch of safe ground as the zergling (so
+    it can walk there around the danger). Each takes as many zerglings as it has such cells
+    (`TargetSlots.safe_cells`). Closest first. Without a reach map: `safe_structures`."""
+    if slots.reach is None or slots.reach.danger_stamp is None:
+        return safe_structures(ai, structures, unit)
+    area = slots.reach.safe_area(unit.position)
+    found = []
+    for s in structures:
+        cells = slots.reach.safe_attack_cells(s, unit.radius, area)
+        if cells:
+            slots.safe_cells[s.tag] = cells
+            found.append(s)
+    return sorted(found, key=lambda s: s.position.distance_to(unit.position))
+
+
+def work_from_cell(ai: AresBot, unit: Unit, goal: Unit, slots: TargetSlots, threats: list[Unit]) -> bool:
+    """Hit `goal` from a safe cell next to it: the one it's on if it's free, else the closest free one;
+    walk there around the danger. No free cell or no safe way: hold outside their reach."""
+    reach = slots.reach
+    free = [c for c in slots.safe_cells.get(goal.tag, []) if c not in slots.cells_taken]
+    here = reach.cell(unit.position)
+    if not free:
+        note([unit], f"hold: no free safe cell at {name_of(goal)}")
+        hold(ai, unit, threats)
+        return True
+    cell = here if here in free else min(free, key=lambda c: reach.point(c).distance_to(unit.position))
+    slots.cells_taken.add(cell)
+    spot = reach.point(cell)
+    capacity = len(slots.safe_cells[goal.tag])
+    room = f"{slots.taken.get(goal.tag, 0)}/{capacity}"
+    if reach.safe_area(unit.position) and unit.target_in_range(goal, 0.05):
+        note([unit], f"safe work: {name_of(goal)} [{room}] hitting it")
+        if not (unit.is_attacking and unit.order_target == goal.tag):
+            unit.attack(goal)
+        return True
+    step = reach.safe_step(cell, unit.position)
+    if step is None:
+        note([unit], f"hold: no safe way to {name_of(goal)}")
+        hold(ai, unit, threats)
+        return True
+    note([unit], f"safe work: {name_of(goal)} [{room}] walking to its cell")
+    unit.move(step if step.distance_to(unit.position) > 0.3 else spot)
+    return True
 
 
 def safe_structures(ai: AresBot, structures: list[Unit], unit: Unit) -> list[Unit]:
@@ -1605,6 +1861,15 @@ def dps_vs(enemy: Unit, target: Unit) -> float:
     if enemy.type_id == UnitTypeId.BUNKER:
         return BUNKER_MARINES * MARINE_DPS
     return enemy.calculate_dps_vs_target(target)
+
+
+def hit_fits(enemy: Unit, unit: Unit, amount: float) -> bool:
+    """Could one attack (or one of its hits, e.g. a zealot's two blades) from `enemy` deal `amount`?"""
+    try:
+        damage = enemy.calculate_damage_vs_target(unit)[0]
+    except Exception:  # noqa: BLE001 - no weapon data: can't tell, don't count it
+        return False
+    return damage > 0 and (abs(amount - damage) <= 2 or abs(amount - damage / 2) <= 2)
 
 
 def center_of_points(points: list[Point2]) -> Point2:
