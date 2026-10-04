@@ -1,10 +1,16 @@
 """Army control (`bot/army.py`): target priority and when to fight."""
 
+import os
+from collections import Counter
+
+from loguru import logger
 from sc2.ids.unit_typeid import UnitTypeId
 
-from bot.army import TARGET_NOTES
+from bot.army import TARGET_NOTES, UNIT_NOTES
 from bot.targeting import attack_capacity
 from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+
+ORDER_LOG = os.environ.get("ZASZ_ORDER_LOG") == "1"  # tank_dive: log decision vs game order per zergling
 
 TANKS = {UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}
 GAP_SECONDS = 1.0  # tank_dive: how long one open slot on the tank may last while zerglings are on marines
@@ -35,6 +41,7 @@ class TankDive(Scenario):
         self.was_sieged = False
         self.gap_since: float | None = None  # since when a zergling is on a marine while the tank has room
         self.over_since: float | None = None  # since when the tank has more than fit while marines are alive
+        self.mismatch_since: dict[tuple, float] = {}  # diagnostic: (zergling, decided, ordered) -> first seen
         self.tank_dead_at: float | None = None
         self.first_on_tank: float | None = None
         self.first_on_marine: float | None = None
@@ -75,8 +82,17 @@ class TankDive(Scenario):
         noted = TARGET_NOTES.get(tank.tag)
         self.capacity = (noted[1] if noted and noted[1] else None) or attack_capacity(lings.first, tank) or len(lings)
         marines = {m.tag for m in bot.enemy_units(UnitTypeId.MARINE)}
-        on_tank = sum(1 for z in lings if z.order_target == tank.tag)
-        on_marines = sum(1 for z in lings if z.order_target in marines)
+        # What each zergling is going for: the bot's own assignment this step (a zergling walking around
+        # others has a move order, so its game order doesn't say), else its attack order
+        book = bot.army.assignments
+
+        def going_for(z) -> int | None:
+            if bot.time - book.picked_at.get(z.tag, -99) <= 0.3:
+                return book.target.get(z.tag)
+            return z.order_target
+
+        on_tank = sum(1 for z in lings if going_for(z) == tank.tag)
+        on_marines = sum(1 for z in lings if going_for(z) in marines)
         self.most_on_tank = max(self.most_on_tank, on_tank)
         if on_tank and self.first_on_tank is None:
             self.first_on_tank = bot.time
@@ -97,19 +113,43 @@ class TankDive(Scenario):
             self.gap_since = None
         # More on the tank than fit is fine only when no other unit has room (every marine's slots full,
         # by the bot's own capacity for it); a marine with room means the overflow ignored it
+        # Diagnostic: zerglings whose decision this step names a different target than their order in the
+        # game (an order should show up one step later; a mismatch that lasts means it never got through),
+        # and zerglings in more than one strike (handled twice per step)
+        # Off unless ZASZ_ORDER_LOG=1 (it logs every mismatching zergling every step)
+        names = {e.tag: f"{e.type_id.name.lower()}@{e.position.x:.0f},{e.position.y:.0f}" for e in bot.enemy_units}
+        strikes_of = Counter(t for st in bot.army.strikes for t in st.lings)
+        for z in lings if ORDER_LOG else []:
+            decided = UNIT_NOTES.get(z.tag, "")
+            ordered = names.get(z.order_target, str(z.order_target)) if z.order_target is not None else "none"
+            target = next((n for n in names.values() if n in decided), None)
+            if (target is not None and target != ordered) or strikes_of.get(z.tag, 0) > 1:
+                key = (z.tag, target, ordered)
+                self.mismatch_since.setdefault(key, bot.time)
+                orders = [
+                    (o.ability.id.name, names.get(o.target, o.target) if isinstance(o.target, int) else "pos")
+                    for o in z.orders
+                ]
+                logger.info(
+                    f"{bot.time:.2f}s zergling {z.tag % 10000}: decided '{decided}', game order {ordered}"
+                    f" (for {bot.time - self.mismatch_since[key]:.2f}s), in {strikes_of.get(z.tag, 0)} strikes,"
+                    f" orders {orders}"
+                )
         open_marines = []
         for tag in marines:
             note = TARGET_NOTES.get(tag)
-            on_it = sum(1 for z in lings if z.order_target == tag)
+            on_it = sum(1 for z in lings if going_for(z) == tag)
             if note is None or (note[1] is not None and on_it < note[1]):
                 open_marines.append(f"{on_it}/{note[1] if note else '?'}{'' if note else ' (not a candidate)'}")
         if on_tank > self.capacity and open_marines:
             self.over_since = self.over_since if self.over_since is not None else bot.time
             if bot.time - self.over_since > 0.5:
                 assigned = bot.army.taken.get(tank.tag, 0)  # the bot's own count this step (orders can lag)
+                # Why each zergling on the tank is there (its decision this step), most common first
+                reasons = Counter(UNIT_NOTES.get(z.tag, "no note") for z in lings if going_for(z) == tank.tag)
                 return failed(
                     f"{on_tank}/{self.capacity} on the tank at {bot.time:.1f}s while marines had room: {open_marines}"
-                    f" (the bot assigned {assigned} to the tank this step)"
+                    f" (the bot assigned {assigned} to the tank this step); their decisions: {dict(reasons)}"
                 )
         else:
             self.over_since = None

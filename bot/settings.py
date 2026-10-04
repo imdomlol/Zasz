@@ -89,6 +89,8 @@ UNSEEN_FIRE_STEP = 8.0
 # sieged tank): what's around it is unknown. Avoid its reach + PARTLY_SEEN_MARGIN until we see the
 # spot (an overlord is sent), and don't fight it meanwhile
 PARTLY_SEEN_MARGIN = 4
+SCOUTED_SECONDS = 60.0  # an expansion a scouting squad has looked at isn't scouted again for this long
+LING_SCOUT_MIN_SECONDS = 6.0  # a squad held back by a partly seen position scouts if the overlord is this far off
 PARTLY_SEEN_RANGE = 7  # ...only enemies with at least this weapon range (they fire from beyond our sight)
 PARTLY_SEEN_SECONDS = 20  # ...and the area is held at most this long
 # Moving somewhere we can't see (SPREAD_LOOKAHEAD ahead): an open formation against splash, rows of

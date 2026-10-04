@@ -604,3 +604,50 @@ The 6-zealot gateway grid (top) went from FAIL (36-48 lost, no breach ever accep
 - Help sends and frees a squad repeatedly while a fight's verdict hovers around the help bar.
 - The sim still drives raid sizing (36 for the 6-zealot grid) and the squad verdicts, and doesn't know
   chokes (todo #21).
+
+### 30. Oct 4, later: stable targets, routes around danger, scouting while waiting
+
+**`tank_dive`: both sides pass** (top 8 s / 5 lost, bottom 9 s / 10 lost; bottom never passed before).
+- The bottom-side "overfill" was zerglings swapping targets every step. A zergling only kept its
+  target if its game order still pointed at it, but zerglings walking around others have *move* orders,
+  so they re-picked from scratch. Slots are handed out fresh each step, so they found their slot taken
+  and swapped tank <-> marine. `ZASZ_ORDER_LOG=1` logs decision vs game order per zergling (it showed
+  orders do get through, one step late).
+- `Assignments` (targeting.py): each zergling's target is kept across steps. Its slot is reserved until
+  it's handled that step, so newcomers only get really free slots. Detour-following claims its slot too.
+- The `tank_dive` checker counts the bot's assignments, not game orders.
+
+**`alternate_target`: both sides pass** (top 85 s / 3 lost, bottom 91 s / 9 lost; it lost 13-16 every
+run before).
+- What was wrong, in order of discovery:
+  1. Pushes kept walking back into the tanks: a push's destination never re-checked for danger.
+  2. Even re-planned, the only way to the next target (their main) went past the tanks.
+  3. The "scout needed" area cleared as soon as its center (the tank) was visible.
+  4. The real trigger: when a tank's reveal from firing wears off it becomes a *remembered* unit, and
+     partly-seen only looked at visible ones. So the remembered tank became a plain target (the sim saw
+     2 tanks, not the 16 marines) and zerglings dove its last known spot. (Your correction: they never
+     saw the tanks.)
+  5. Waiting for the overlord wasted time; the area then expired after 20 s and they walked back in.
+  6. No overlord came at all: the only one sat on a post, and requests only used free overlords.
+- Fixes:
+  - Pushes re-plan right away when their destination is in an avoid area or in reach of a group they
+    can't beat (`dangerous_for`). Raids/strikes/helps keep their own rules.
+  - `RouteMap` (targeting.py): map-wide routes with danger as walls (avoid areas, reach of groups we
+    can't beat). Push/patrol/raid/scout squads follow it, and destinations without a route are skipped.
+    Cost: a rebuild every 2 s takes 3-5 ms; lookups ~0.1 ms; the army went from ~1.3 to ~1.7 ms/step.
+  - "Scout needed" areas: everything armed in them stays partly seen, remembered units included. They
+    clear only when actually scouted (center + 8 points at 60% out visible), and stay while an overlord
+    is on its way (`Scouting.eta`).
+  - Requests take an overlord off its post if no free one exists.
+  - Scouting while waiting (your design): a squad held back by a partly seen position becomes a
+    `scout` for the closest expansion it can reach and return from before the overlord's vision
+    arrives (along the route; up to `SCOUTED_SECONDS` = 60 s if no overlord is coming). One spot per
+    squad. It's done when the spot is seen, half its time is used, or it's hit after setting out. Then
+    it goes back to the job it had before. Seen spots are skipped for 60 s. Scouting squads can be taken
+    for a raid at once, which is how the third got killed.
+- Debug log: army ms/step (avg, max) and route timings each 3 s; `squad scout:` rejection reasons.
+
+**Open:**
+- Regression set on this commit (everything else touches targeting/movement now): grids (4 and 6
+  zealots, both sides), open_army, open_army_free, wall_*, fight_winnable.
+- Squads that hit "partly seen" with no overlord at all get no time limit beyond 60 s; check real games.

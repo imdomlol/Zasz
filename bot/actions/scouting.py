@@ -40,6 +40,21 @@ class Scouting:
         if not any(spot.distance_to(s) < 6 for s in self.requests):
             self.requests[spot] = ai.time
 
+    def eta(self, ai: AresBot, spot: Point2) -> float | None:
+        """Seconds until an overlord flying to a requested spot near `spot` sees it (it sees from its
+        sight range out); None if no overlord is on its way."""
+        best = None
+        for tag, target in self.sent.items():
+            if target.distance_to(spot) >= 8:
+                continue
+            overlord = ai.units.find_by_tag(tag)
+            if overlord is None:
+                continue
+            # real_speed: per game second (what ai.time counts), upgrades and creep included
+            seconds = max(0.0, overlord.distance_to(target) - overlord.sight_range) / max(overlord.real_speed, 0.1)
+            best = seconds if best is None else min(best, seconds)
+        return best
+
     def on_damage(self, ai: AresBot, unit: Unit) -> None:
         if unit.tag in self.sent:
             self.sent.pop(unit.tag)  # shot on the way: give up, another one tries
@@ -88,8 +103,12 @@ class Scouting:
                 u for u in overlords if u.tag not in self.posts and u.tag not in self.sent and u.health_percentage == 1
             ]
             if not free:
+                # Seeing what shot at our army matters more than watching an expansion: take one off its post
+                free = [u for u in overlords if u.tag in self.posts and u.health_percentage == 1]
+            if not free:
                 break
             overlord = min(free, key=lambda u: u.distance_to(spot))
+            self.posts.pop(overlord.tag, None)
             self.sent[overlord.tag] = spot
             ai.mediator.assign_role(tag=overlord.tag, role=UnitRole.SCOUTING)
 

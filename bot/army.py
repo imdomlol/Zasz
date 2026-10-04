@@ -19,6 +19,7 @@ Whether to attack at all is a decision (`Decision.attack`); this module only exe
 """
 
 import math
+import time
 from collections import Counter
 from dataclasses import dataclass
 
@@ -62,6 +63,7 @@ from bot.settings import (
     HELP_SECONDS,
     HELP_WIN_AT,
     LEVEL_TOLERANCE,
+    LING_SCOUT_MIN_SECONDS,
     MARINE_DPS,
     MARINE_RANGE,
     MAX_PATROLS_ATTACKING,
@@ -79,6 +81,7 @@ from bot.settings import (
     REACH_SECONDS,
     REGIONS_SECONDS,
     SAFE_WORK_MARGIN,
+    SCOUTED_SECONDS,
     SITE_DEFENSE_RADIUS,
     SITE_RADIUS,
     SPREAD_LOOKAHEAD,
@@ -119,7 +122,16 @@ from bot.squads import (
     needed,
     wins,
 )
-from bot.targeting import BlockTracker, Detours, ReachMap, TargetSlots, attack_capacity, pick_tiered
+from bot.targeting import (
+    Assignments,
+    BlockTracker,
+    Detours,
+    ReachMap,
+    RouteMap,
+    TargetSlots,
+    attack_capacity,
+    pick_tiered,
+)
 
 ARMY_TYPES = {UnitTypeId.ZERGLING}
 # Debug overlay: this step's back-off lines (an enemy's position, how far from it we back off to),
@@ -178,6 +190,13 @@ class Army:
         self.taken: dict[int, int] = {}  # target tag -> attackers this step, across all squads
         self.settled: dict[int, int | None] = {}  # target tag -> its capacity this step (`TargetSlots`)
         self.cells_taken: set[tuple[int, int]] = set()  # safe attack cells claimed this step
+        self.assignments = Assignments()  # each zergling's target, kept across steps
+        self.routes: RouteMap | None = None  # map-wide routes around danger (`route_map`)
+        # Squads scouting while waiting on an overlord: squad id -> (spot, deadline, started, what it was
+        # doing before: job, target, site, site tags, helping)
+        self.squad_scouts: dict[int, tuple] = {}
+        self.scouted_at: dict[Point2, float] = {}  # expansion spots our scouts have looked at -> when
+        self.routes_at = -99.0
         self.enemy_state: dict[int, tuple[Point2, float, float]] = {}  # tag -> (where, facing, last active)
         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
         self.breach_kept: dict[int, float] = {}  # the breach targets we're committed to -> last confirmed
@@ -207,6 +226,8 @@ class Army:
         self.reach_cache: dict[tuple[int, int], tuple[float, ReachMap]] = {}  # area -> (built at, map)
         # Debug: count what zerglings decide, logged every few seconds (scenarios switch this on)
         self.debug = False
+        self.step_ms: list[float] = []  # army time per step (ms), logged and reset with the debug counts
+        self.route_ms: list[float] = []  # time spent on route checks (ms), same
         self.counts = COUNTS
         self.counts_logged_at = 0.0
         self.helps: list[tuple[float, int, int]] = []  # (time, helper squad, helped squad), for scenarios
@@ -300,6 +321,14 @@ class Army:
         return center
 
     def control(self, ai: AresBot, attacking: bool) -> None:
+        started = time.perf_counter()
+        try:
+            self._control(ai, attacking)
+        finally:
+            spent = time.perf_counter() - started
+            self.step_ms.append(spent * 1000)
+
+    def _control(self, ai: AresBot, attacking: bool) -> None:
         """Every squad does its job (`bot.squads`): defend if enemies are at our bases; otherwise
         raid enemy sites while attacking, help squads in fights they'd lose, and patrol (scout)
         the rest of the time."""
@@ -349,6 +378,7 @@ class Army:
         self.taken.clear()  # target slots, shared by every squad this step
         self.settled.clear()
         self.cells_taken.clear()
+        self.assignments.start(ai.time, {u.tag for u in ai.units if u.type_id in ARMY_TYPES})
         self.update_strikes(ai, lings)
         striking = {t for s in self.strikes for t in s.lings}
         battles: dict[int, Battle] = {}
@@ -379,11 +409,18 @@ class Army:
         summary = ", ".join(f"{k} {v}" for k, v in sorted(self.counts.items()))
         enemy = " ".join(f"{k} {v}" for k, v in sorted(seen.items()))
         raids = "; ".join(text for _, text in self.site_notes)
+        steps = self.step_ms or [0.0]
+        timing = f"army {sum(steps) / len(steps):.1f} ms/step avg, {max(steps):.1f} max"
+        if self.route_ms:
+            timing += f"; routes {len(self.route_ms)} checks, {sum(self.route_ms) / len(self.route_ms):.1f} ms avg"
+            timing += f", {max(self.route_ms):.1f} max"
         logger.info(
             f"{ai.time_formatted} army debug: {len(squads)} squads ({mode}), {lings} zerglings vs {enemy}"
-            f" | raids: {raids or 'none'} | {summary}"
+            f" | raids: {raids or 'none'} | {timing} | {summary}"
         )
         self.counts.clear()
+        self.step_ms.clear()
+        self.route_ms.clear()
 
     def squad_goal(self, ai: AresBot, squad: Squad, squads: list[Squad]) -> tuple[Point2, bool]:
         """Where this squad is headed, and whether it's advancing (attacking its way there) or just
@@ -394,9 +431,19 @@ class Army:
             return squad.target, False
         if squad.job == "engage":
             return squad.target, True
+        if squad.job == "scout":
+            return self.scout_goal(ai, squad)
         if squad.job == "push":
-            if squad.squad_position.distance_to(squad.target) < 6 or self.patrol.fresh(squad.target, ai.time):
-                squad.target = self.push_target(ai)  # seen it: on to the next
+            # Seen it, or it turned dangerous (an avoid area, or in reach of a group we can't beat: a push
+            # only travels, so it doesn't walk back into a known position): on to the next, right away
+            units = squad.units
+            if (
+                squad.squad_position.distance_to(squad.target) < 6
+                or self.patrol.fresh(squad.target, ai.time)
+                or self.dangerous_for(ai, units, squad.target)
+                or not self.route_ok(ai, units, squad.target)
+            ):
+                squad.target = self.push_target(ai, units)
             return squad.target, True
         if squad.job == "help":
             battle = self.battles.get(squad.helping) or self.battles.get(squad.id)
@@ -479,7 +526,7 @@ class Army:
         for s in squads:
             if s.job == "push":
                 s.free()  # re-planned below: joins a raid if there's one now, else pushes on
-        free = [s for s in squads if s.job in ("patrol", "raid") and s.id not in self.battles]
+        free = [s for s in squads if s.job in ("patrol", "raid", "scout") and s.id not in self.battles]
         # Spare capacity only exists if every raid is going well (staffed, gathered, its fights at the
         # engage bar or better); otherwise spare squads join a raid instead of patrolling
         self.raids_ok = all(
@@ -492,7 +539,8 @@ class Army:
             if any(b.center.distance_to(site.center) < SITE_DEFENSE_RADIUS for b in self.battles.values()):
                 continue  # a fight is on there: reinforcing it is for the help logic, not one squad at a time
             others = sorted(
-                (s for s in free if s.job == "patrol"), key=lambda s: s.squad_position.distance_to(site.center)
+                (s for s in free if s.job in ("patrol", "scout")),
+                key=lambda s: s.squad_position.distance_to(site.center),
             )
             # Squads already raiding it count, fighting or not (left out, a raid in full swing looked
             # like one patrol squad against the defenders)
@@ -524,6 +572,7 @@ class Army:
                     break
                 s.job, s.site, s.helping = "raid", site.center, None
                 s.site_tags = {u.tag for u in site.defenders + site.structures}
+                self.squad_scouts.pop(s.id, None)
                 on_it.append(s)
                 staffed += len(s.tags)
             target = site.center
@@ -594,21 +643,139 @@ class Army:
                 s.site_tags = {u.tag for u in site.defenders + site.structures}
                 COUNTS["joined a raid"] += 1
             return
-        target = self.push_target(ai)
+        target = self.push_target(ai, [u for s in spare for u in s.units])
         for s in spare:
             s.job, s.site, s.helping, s.target = "push", None, None, target
         COUNTS["pushing"] += len(spare)
 
-    def push_target(self, ai: AresBot) -> Point2:
+    def push_target(self, ai: AresBot, units: list[Unit] | None = None) -> Point2:
         """Where spare squads push when nothing is known to raid: their natural, then their main, then
-        the other bases, skipping places we've seen lately, avoid areas and places we can't walk to."""
+        the other bases, skipping places we've seen lately, avoid areas, places in reach of a group
+        `units` can't beat, and places we can't walk to."""
         spots = [ai.mediator.get_enemy_nat, ai.enemy_start_locations[0]]
         spots += [spot for spot, _ in ai.mediator.get_enemy_expansions]
         for spot in spots:
-            if self.patrol.fresh(spot, ai.time) or self.blocked(ai, spot) or not self.can_walk_to(ai, spot):
+            if (
+                self.patrol.fresh(spot, ai.time)
+                or self.dangerous_for(ai, units or [], spot)
+                or not self.can_walk_to(ai, spot)
+                or not self.route_ok(ai, units or [], spot)
+            ):
                 continue
             return spot
         return ai.enemy_start_locations[0]
+
+    def send_squad_scout(self, ai: AresBot, squad: Squad) -> None:
+        """A squad held back waiting for an overlord to look at a partly seen position doesn't just wait:
+        it becomes a scout for an enemy expansion we haven't looked at lately (the closest one it can get
+        to and back from, along the route around danger, before the overlord's vision arrives; one spot
+        per squad). See `scout_goal` for coming back."""
+        if squad.id in self.squad_scouts or not squad.units:
+            return
+        areas = [(c, r, u) for c, r, u in self.turned_back_at if self.avoid_reasons.get(c) == "scout needed"]
+        if not areas:
+            return
+        center, _, until = min(areas, key=lambda x: x[0].distance_to(squad.squad_position))
+        scouting = getattr(ai, "scouting", None)
+        eta = scouting.eta(ai, center) if scouting is not None else None
+        # No overlord on its way: our squads are the only scouts, so they can go farther (a round trip up
+        # to SCOUTED_SECONDS)
+        budget = eta if eta is not None else SCOUTED_SECONDS
+        if budget < LING_SCOUT_MIN_SECONDS:
+            COUNTS[f"squad scout: no time ({budget:.0f}s)"] += 1
+            return
+        units = squad.units
+        routes = self.route_map(ai, units)
+        busy = [plan[0] for plan in self.squad_scouts.values()]
+        speed = max(min(u.real_speed for u in units), 0.1)
+        sight = min(u.sight_range for u in units)
+        position = squad.squad_position
+        for spot, _ in sorted(ai.mediator.get_enemy_expansions, key=lambda e: e[0].distance_to(position)):
+            if ai.is_visible(spot) or ai.time - self.scouted_at.get(spot, -999) < SCOUTED_SECONDS:
+                COUNTS["squad scout: skip seen"] += 1
+                continue
+            if any(spot.distance_to(b) < 10 for b in busy):
+                COUNTS["squad scout: skip taken"] += 1
+                continue
+            if self.dangerous_for(ai, units, spot):
+                COUNTS["squad scout: skip dangerous"] += 1
+                continue
+            # There and back (seeing it from sight range) before the overlord gets there
+            walk = max(0.0, routes.distance(position, spot) - sight)
+            if 2 * walk / speed > budget:
+                COUNTS[f"squad scout: too far ({2 * walk / speed:.0f}s > {budget:.0f}s)"] += 1
+                continue
+            before = (squad.job, squad.target, squad.site, set(squad.site_tags), squad.helping)
+            self.squad_scouts[squad.id] = (spot, ai.time + budget, ai.time, before)
+            squad.job, squad.target = "scout", spot
+            COUNTS[f"squad scout sent ({2 * walk / speed:.0f}s of {budget:.0f}s)"] += 1
+            return
+
+    def scout_goal(self, ai: AresBot, squad: Squad) -> tuple[Point2, bool]:
+        """A scouting squad heads for its spot; once it has seen it, half its time is gone, or it's being
+        shot, it's done: the spot counts as looked at and the squad goes back to what it was doing before
+        (its job, target, site; a push whose target turned dangerous re-plans itself)."""
+        plan = self.squad_scouts.get(squad.id)
+        if plan is None:
+            squad.free()
+            return self.squad_goal(ai, squad, list(self.book.squads.values()))
+        spot, deadline, started, before = plan
+        seen = ai.is_visible(spot) and any(u.distance_to(spot) <= u.sight_range + 1 for u in squad.units)
+        # Hit since it set out (not the fire it was backing away from when it was sent)
+        hit = any(
+            self.last_damaged.get(u.tag, -99) > started + UNDER_FIRE_SECONDS
+            and ai.time - self.last_damaged[u.tag] < UNDER_FIRE_SECONDS
+            for u in squad.units
+        )
+        if seen or hit or ai.time >= started + (deadline - started) / 2:
+            if seen:
+                self.scouted_at[spot] = ai.time
+            del self.squad_scouts[squad.id]
+            COUNTS["squad scout done (seen)" if seen else "squad scout done (time or hit)"] += 1
+            squad.job, squad.target, squad.site, squad.site_tags, squad.helping = before
+            return self.squad_goal(ai, squad, list(self.book.squads.values()))
+        note(squad.units, f"scout: {spot.x:.0f},{spot.y:.0f} (back by {deadline - ai.time:.0f}s)")
+        return spot, True
+
+    def route_map(self, ai: AresBot, units: list[Unit]) -> RouteMap:
+        """Routes around danger, rebuilt every PLAN_SECONDS: avoid areas, and the reach (+ BACK_OFF_MARGIN)
+        of every unit in an enemy group these units can't beat."""
+        if self.routes is None or ai.time - self.routes_at >= PLAN_SECONDS:
+            started = time.perf_counter()
+            zones = list(self.avoided(ai))
+            for g in enemy_groups(ai):
+                if units and wins(ai, units, g.units):
+                    continue
+                zones += [
+                    (u.position, weapon_range(u) + u.radius + 0.375 + BACK_OFF_MARGIN) for u in g.units if armed(u)
+                ]
+            self.routes = RouteMap(ai.mediator.get_ground_grid, zones)
+            self.routes_at = ai.time
+            self.route_ms.append((time.perf_counter() - started) * 1000)
+        return self.routes
+
+    def route_ok(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:
+        """Can these units travel to `spot` without crossing danger (`route_map`)?"""
+        if not units:
+            return True
+        routes = self.route_map(ai, units)
+        started = time.perf_counter()
+        ok = routes.reaches(center_of(units), spot)
+        self.route_ms.append((time.perf_counter() - started) * 1000)
+        return ok
+
+    def dangerous_for(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:
+        """Is `spot` somewhere a travelling squad shouldn't go: an avoid area, or within the reach of an
+        enemy group these units can't beat (the same test patrols use)."""
+        if self.blocked(ai, spot):
+            return True
+        if not units:
+            return False
+        return any(
+            spot.distance_to(g.center) < g.spread + g.reach + STAGING_MARGIN
+            for g in enemy_groups(ai)
+            if not wins(ai, units, g.units)
+        )
 
     def site_reachable(self, ai: AresBot, site: Site) -> bool:
         """Can we get next to it: ground beside any of its structures (a site's center can be inside a
@@ -887,7 +1054,13 @@ class Army:
                 nearby = [e for e in enemies.values() if e.is_structure and strike.reach.cell(e.position) is not None]
             else:
                 nearby = [e for e in enemies.values() if e.is_structure and e.position.distance_to(center) < 12]
-            slots = TargetSlots(strike.reach, taken=self.taken, settled=self.settled, cells=self.cells_taken)
+            slots = TargetSlots(
+                strike.reach,
+                taken=self.taken,
+                settled=self.settled,
+                cells=self.cells_taken,
+                assignments=self.assignments,
+            )
             slots.strike = strike.targets
             for unit in front_first(units, group):
                 fight(ai, unit, group, group + nearby, slots, center, self.blocks, self.detours)
@@ -951,7 +1124,37 @@ class Army:
                 )
             if scouting := getattr(ai, "scouting", None):
                 scouting.request(ai, e.position)
+        # Until a "scout needed" area has really been looked at, everything armed in it stays partly seen,
+        # remembered units included: once a tank's reveal from firing wears off it's only remembered, and
+        # was then treated as a plain target (the sim saw 2 tanks, not what stands around them)
+        areas = [(c, r) for c, r, _ in self.turned_back_at if self.avoid_reasons.get(c) == "scout needed"]
+        if areas:
+            for group in ai.mediator.get_units_in_range(
+                start_points=[c for c, _ in areas],
+                distances=[r for _, r in areas],
+                query_tree=UnitTreeQueryType.EnemyGround,
+            ):
+                for e in group:
+                    if armed(e) and e.type_id not in WORKER_TYPES:
+                        found.add(e.tag)
         return found
+
+    @staticmethod
+    def scouted(ai: AresBot, center: Point2, radius: float) -> bool:
+        """Have we actually looked at this area: its center and points around it (8 directions, 60% of
+        the way out) all in vision now. Seeing just the unit at the center doesn't count."""
+        if not ai.is_visible(center):
+            return False
+        for i in range(8):
+            angle = i * math.pi / 4
+            p = Point2((center.x + math.cos(angle) * radius * 0.6, center.y + math.sin(angle) * radius * 0.6))
+            if (
+                0 <= p.x < ai.game_info.map_size.width
+                and 0 <= p.y < ai.game_info.map_size.height
+                and not ai.is_visible(p)
+            ):
+                return False
+        return True
 
     def mark_avoid(
         self, ai: AresBot, center: Point2, radius: float, reason: str, seconds: float = AVOID_SECONDS
@@ -970,9 +1173,12 @@ class Army:
         for center, radius, until in self.turned_back_at:
             unseen = self.avoid_reasons.get(center) == "unseen fire"  # the shooter isn't at the center
             if self.avoid_reasons.get(center) == "scout needed":
-                if ai.is_visible(center):
+                if self.scouted(ai, center, radius):
                     COUNTS["avoid area cleared (scouted)"] += 1
                     continue
+                scouting = getattr(ai, "scouting", None)
+                if until <= ai.time + 1 and scouting is not None and scouting.eta(ai, center) is not None:
+                    until = ai.time + 1  # an overlord is on its way: keep it until it has looked
                 kept.append((center, radius, until))
                 continue
             if (
@@ -1040,6 +1246,7 @@ class Army:
                 note(units, "partly seen: back off")
                 self.backed_off[squad.id] = ai.time + BACK_OFF_HOLD_SECONDS
                 back_off(ai, units, threats, None, retreat=True)
+                self.send_squad_scout(ai, squad)
                 return None
             result, present = fight_result(ai, units, threats, self.members(ai, squad, threats))
             battle = Battle(
@@ -1068,6 +1275,7 @@ class Army:
                     self.taken,
                     self.settled,
                     self.cells_taken,
+                    self.assignments,
                 )
                 busy = 0
                 for unit in front_first(units, enemies):
@@ -1090,7 +1298,9 @@ class Army:
                 # between us and safety): do as much damage as we can instead of dying for free
                 COUNTS["cornered: fight"] += len(units)
                 reach = self.reach_map(ai, units, enemies)
-                slots = TargetSlots(reach, taken=self.taken, settled=self.settled, cells=self.cells_taken)
+                slots = TargetSlots(
+                    reach, taken=self.taken, settled=self.settled, cells=self.cells_taken, assignments=self.assignments
+                )
                 for unit in front_first(units, enemies):
                     fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
             else:
@@ -1103,6 +1313,16 @@ class Army:
             return battle
 
         self.fighting.discard(squad.id)  # no enemies close: not in a fight any more
+
+        if squad.job in ("push", "patrol", "raid", "scout") and units:
+            # Travelling: follow the route around danger (a sieged tank's range, avoid areas), not ares'
+            # path, which goes straight through when there's no cheap way round
+            routes = self.route_map(ai, units)
+            started = time.perf_counter()
+            step = routes.waypoint(squad.squad_position, target)
+            self.route_ms.append((time.perf_counter() - started) * 1000)
+            if step is not None and step.distance_to(target) > 3:
+                target = step
 
         # Heading somewhere we can't see: spread out, so splash (tanks, storms, banelings) hits few
         center = squad.squad_position
@@ -1123,6 +1343,7 @@ class Army:
             taken=self.taken,
             settled=self.settled,
             cells=self.cells_taken,
+            assignments=self.assignments,
         )
         for unit in front_first(units, enemies):
             if advancing:
@@ -1592,6 +1813,10 @@ def fight(
         waypoint = detours.next_waypoint(unit) if goal is not None else None
         if goal is not None and waypoint is not None and not unit.target_in_range(goal, 0.25):
             COUNTS["detour follow"] += 1
+            # Still going for it: it holds a slot there (its move order doesn't say so)
+            slots.assignments.release(unit)
+            slots.take(goal)
+            slots.assignments.assign(unit, goal, now)
             note([unit], f"detour to {name_of(goal)}")
             maneuver.add(ShootTargetInRange(unit=unit, targets=[goal]))
             maneuver.add(

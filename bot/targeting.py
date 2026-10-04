@@ -65,6 +65,43 @@ def attack_capacity(attacker: Unit, target: Unit) -> int | None:
     return max(1, int(ring // (2 * attacker.radius * MELEE_SPACING)))
 
 
+class Assignments:
+    """Which target each attacker went for, kept across steps (`Army` keeps one). Slots are handed out
+    fresh every step, so without this an attacker walking around others (a move order, no target to
+    read back) re-picked from scratch, found its slot taken and switched, back and forth. Each step
+    (`start`), every attacker that picked a target last step has its slot reserved until it's handled;
+    newcomers only get slots that are actually free."""
+
+    def __init__(self) -> None:
+        self.target: dict[int, int] = {}  # attacker tag -> target tag
+        self.picked_at: dict[int, float] = {}  # attacker tag -> when it last picked
+        self.reserved: dict[int, int] = {}  # target tag -> reservations not yet handled this step
+        self.handled: set[int] = set()  # attackers handled this step (their reservation released)
+
+    def start(self, now: float, alive: set[int], recent: float = 0.5) -> None:
+        """New step: forget dead attackers; reserve the targets of those that picked one recently."""
+        self.target = {a: t for a, t in self.target.items() if a in alive}
+        self.picked_at = {a: w for a, w in self.picked_at.items() if a in self.target}
+        self.reserved = {}
+        for attacker, target in self.target.items():
+            if now - self.picked_at.get(attacker, -99) <= recent:
+                self.reserved[target] = self.reserved.get(target, 0) + 1
+        self.handled = set()
+
+    def release(self, attacker: Unit) -> None:
+        """This attacker is being handled now: its reservation becomes an ordinary pick (or not)."""
+        if attacker.tag in self.handled:
+            return
+        self.handled.add(attacker.tag)
+        target = self.target.get(attacker.tag)
+        if target is not None and self.reserved.get(target, 0) > 0 and target in self.reserved:
+            self.reserved[target] -= 1
+
+    def assign(self, attacker: Unit, target: Unit, now: float) -> None:
+        self.target[attacker.tag] = target.tag
+        self.picked_at[attacker.tag] = now
+
+
 class TargetSlots:
     """Per step: how many attackers each target already has."""
 
@@ -75,6 +112,7 @@ class TargetSlots:
         taken: dict[int, int] | None = None,
         settled: dict[int, int | None] | None = None,
         cells: set[tuple[int, int]] | None = None,
+        assignments: Assignments | None = None,
     ) -> None:
         # Attackers per target tag. Pass one dict to every squad in a step, so squads fighting
         # the same enemy share its slots (each counting from zero put 20 zerglings on one stalker)
@@ -89,6 +127,7 @@ class TargetSlots:
         # zergling); its capacity is that many. Cells taken this step are shared like `taken`
         self.safe_cells: dict[int, list[tuple[int, int]]] = {}
         self.cells_taken: set[tuple[int, int]] = set() if cells is None else cells
+        self.assignments = assignments if assignments is not None else Assignments()
 
     def capacity(self, attacker: Unit, target: Unit) -> int | None:
         """How many attackers like `attacker` `target` takes at once (None: no limit)."""
@@ -108,8 +147,13 @@ class TargetSlots:
         return capacity
 
     def has_room(self, attacker: Unit, target: Unit) -> bool:
+        """Room for one more, counting attackers that kept this target from last step and haven't been
+        handled yet (their slot is held for them)."""
         capacity = self.capacity(attacker, target)
-        return capacity is None or self.taken.get(target.tag, 0) < capacity
+        if capacity is None:
+            return True
+        held = self.assignments.reserved.get(target.tag, 0)
+        return self.taken.get(target.tag, 0) + held < capacity
 
     def take(self, target: Unit) -> None:
         self.taken[target.tag] = self.taken.get(target.tag, 0) + 1
@@ -128,7 +172,9 @@ class TargetSlots:
         if not candidates:
             raise ValueError("TargetSlots.pick needs at least one candidate")
         by_distance = sorted(candidates, key=lambda e: e.position.distance_to(attacker.position))
-        current = next((e for e in candidates if e.tag == attacker.order_target), None)
+        self.assignments.release(attacker)
+        kept = self.assignments.target.get(attacker.tag, attacker.order_target)
+        current = next((e for e in candidates if e.tag == kept), None)
         if current is not None and self.has_room(attacker, current):
             choice = current  # stick with it until it dies or fills up (re-picking on the way thrashes)
         elif depth_from is not None:
@@ -210,7 +256,11 @@ def pick_tiered(
     candidates = [t for tier, _ in tiers for t in tier]
     if not candidates:
         return None, False
-    current = next((t for t in candidates if t.tag == attacker.order_target), None)
+    # Its target from last step (kept by `Assignments`: a zergling walking around others has a move
+    # order, so its game order doesn't say what it was going for)
+    slots.assignments.release(attacker)
+    kept = slots.assignments.target.get(attacker.tag, attacker.order_target)
+    current = next((t for t in candidates if t.tag == kept), None)
     best_tier = next(
         (tier for tier, _ in tiers if any(slots.has_room(attacker, e) for e in blocks.reachable(attacker, tier, now))),
         None,
@@ -225,6 +275,7 @@ def pick_tiered(
         # Stick with it, but only while it's in the best tier we can reach: a zergling breaking
         # through a gateway switches back to the units as soon as one is reachable
         slots.take(current)
+        slots.assignments.assign(attacker, current, now)
         return current, False
     for tier, back in tiers:
         reachable = blocks.reachable(attacker, tier, now)
@@ -236,12 +287,14 @@ def pick_tiered(
             ordered = reachable  # already in the caller's preferred order
         if choice := next((e for e in ordered if slots.has_room(attacker, e)), None):
             slots.take(choice)
+            slots.assignments.assign(attacker, choice, now)
             return choice, False
     # Everything reachable is full: the closest reachable one in the best tier that has any
     for tier, _ in tiers:
         if reachable := blocks.reachable(attacker, tier, now):
             choice = min(reachable, key=lambda e: e.position.distance_to(attacker.position))
             slots.take(choice)
+            slots.assignments.assign(attacker, choice, now)
             return choice, False
     # Blocked from everything: go around the closest
     return min(candidates, key=lambda e: e.position.distance_to(attacker.position)), True
@@ -659,3 +712,120 @@ class ReachMap:
         if target.is_flying or target.is_memory:
             return True  # air isn't a melee problem; remembered units: we don't know where they stand
         return self.open_sides(target) > 0
+
+
+class RouteMap:
+    """Map-wide routes around danger: the walkable map with every danger zone (center, radius) as a
+    wall. A destination is only worth travelling to if a route reaches it; squads then follow that
+    route (skirting a sieged tank's range) instead of ares' path, which treats danger as extra cost
+    and goes straight through when there's no cheap way round."""
+
+    def __init__(self, grid: np.ndarray, zones: list[tuple[Point2, float]]) -> None:
+        walkable = np.isfinite(grid)
+        w, h = walkable.shape
+        gx, gy = np.meshgrid(np.arange(w) + 0.5, np.arange(h) + 0.5, indexing="ij")
+        danger = np.zeros((w, h), dtype=bool)
+        for center, radius in zones:
+            x0, x1 = max(0, int(center.x - radius) - 1), min(w, int(center.x + radius) + 2)
+            y0, y1 = max(0, int(center.y - radius) - 1), min(h, int(center.y + radius) + 2)
+            inside = (gx[x0:x1, y0:y1] - center.x) ** 2 + (gy[x0:x1, y0:y1] - center.y) ** 2 <= radius * radius
+            danger[x0:x1, y0:y1] |= inside
+        self.open = walkable & ~danger
+        self.shape = (w, h)
+        self._graph = None
+        self._fields: dict[tuple[int, int], np.ndarray] = {}
+
+    def _cell(self, p: Point2) -> tuple[int, int] | None:
+        c = (int(p.x), int(p.y))
+        return c if 0 <= c[0] < self.shape[0] and 0 <= c[1] < self.shape[1] else None
+
+    def _nearest_open(self, c: tuple[int, int], radius: int = 4) -> tuple[int, int] | None:
+        """`c` if it's open, else the closest open cell within `radius` (a destination's center can be
+        inside a building, a squad can stand just inside danger while backing off)."""
+        if self.open[c]:
+            return c
+        best = None
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                n = (c[0] + dx, c[1] + dy)
+                if 0 <= n[0] < self.shape[0] and 0 <= n[1] < self.shape[1] and self.open[n]:
+                    d = dx * dx + dy * dy
+                    if best is None or d < best[0]:
+                        best = (d, n)
+        return None if best is None else best[1]
+
+    def field(self, goal: Point2) -> np.ndarray | None:
+        """Walking distance to `goal` over open ground, from every cell (inf: no route)."""
+        c = self._cell(goal)
+        c = self._nearest_open(c) if c is not None else None
+        if c is None:
+            return None
+        if c not in self._fields:
+            if self._graph is None:
+                self._graph = _open_graph(self.open)
+            dist = dijkstra(self._graph, directed=False, indices=c[0] * self.shape[1] + c[1])
+            self._fields[c] = dist.reshape(self.shape)
+        return self._fields[c]
+
+    def distance(self, start: Point2, goal: Point2) -> float:
+        """Walking distance from `start` to `goal` around the danger (inf: no route)."""
+        field = self.field(goal)
+        c = self._cell(start)
+        c = self._nearest_open(c, 8) if c is not None else None
+        if field is None or c is None:
+            return math.inf
+        return float(field[c])
+
+    def reaches(self, start: Point2, goal: Point2) -> bool:
+        field = self.field(goal)
+        c = self._cell(start)
+        c = self._nearest_open(c, 8) if c is not None else None
+        return field is not None and c is not None and bool(np.isfinite(field[c]))
+
+    def waypoint(self, start: Point2, goal: Point2, lookahead: int = 8) -> Point2 | None:
+        """The next point on the route to `goal` (lookahead cells on), or None without a route."""
+        field = self.field(goal)
+        c = self._cell(start)
+        c = self._nearest_open(c, 8) if c is not None else None
+        if field is None or c is None or not np.isfinite(field[c]):
+            return None
+        cx, cy = c
+        here = field[cx, cy]
+        for _ in range(lookahead):
+            if here == 0:
+                break
+            options = [
+                (cx + dx, cy + dy)
+                for dx in (-1, 0, 1)
+                for dy in (-1, 0, 1)
+                if (dx or dy)
+                and 0 <= cx + dx < self.shape[0]
+                and 0 <= cy + dy < self.shape[1]
+                and field[cx + dx, cy + dy] < here
+            ]
+            if not options:
+                break
+            cx, cy = min(options, key=lambda n: field[n])
+            here = field[cx, cy]
+        return Point2((cx + 0.5, cy + 0.5))
+
+
+def _open_graph(walk: np.ndarray):
+    """Cells where `walk` is True as a graph: 8 neighbors, no diagonal squeezing."""
+    w, h = walk.shape
+    index = np.arange(w * h).reshape(w, h)
+    rows, cols, weights = [], [], []
+    for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
+        xs, xe = 0, w - dx
+        ys, ye = max(0, -dy), h - max(0, dy)
+        src = (slice(xs, xe), slice(ys, ye))
+        dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
+        ok = walk[src] & walk[dst]
+        if dx and dy:
+            ok &= walk[(slice(xs + dx, xe + dx), slice(ys, ye))] | walk[(slice(xs, xe), slice(ys + dy, ye + dy))]
+        rows.append(index[src][ok])
+        cols.append(index[dst][ok])
+        weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
+    return coo_matrix(
+        (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
+    ).tocsr()

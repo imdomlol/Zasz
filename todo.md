@@ -45,7 +45,7 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 
 ## `squads` (#20): Finish and merge squads
 
-**Status:** in progress on branch `squads`. See notes.md sections 18-29 (29: the latest state and next steps).
+**Status:** in progress on branch `squads`. See notes.md sections 18-30 (30: the latest state and next steps).
 
 **Done:**
 - ~~Squads with jobs (patrol / raid / push / help / gather / engage / defend), replacing the single army
@@ -79,7 +79,7 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 - Help sends and frees a squad repeatedly while the verdict hovers around the help bar.
 - A squad freed by "leave" turns into a patrol inside the raid's site and marks "no help possible"
   avoid areas. Proposed: raid squads stay on their raid; patrols fighting at a raid's site join it.
-- `tank_dive` bottom: overfills the tank while a marine has room.
+- ~~`tank_dive` bottom: overfills the tank while a marine has room~~ (persistent assignments, notes 30)
 - **(partly done)** `efficiency_open_army_free`: chasing an army up a ramp held by zealots still costs
   ~30 zerglings. Needs #21's choke estimate, or a rule not to follow an army up its ramp.
 - `wall_bunker` fails: zerglings that don't fit around the full bunker hit the bays beside it, under its

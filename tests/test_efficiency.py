@@ -325,3 +325,30 @@ def test_safe_cells_are_the_faces_outside_enemy_reach_and_the_walk_goes_around()
             break
         position = step
     assert position.distance_to(reach.point(goal)) < 1.5
+
+
+def test_routes_go_around_danger_and_skip_cut_off_destinations():
+    from bot.targeting import RouteMap
+
+    # Open 60x40 map; a danger circle (a sieged tank's reach) in the middle. Going from left to right
+    # skirts it; a pocket sealed off by the circle and walls has no route
+    grid = np.ones((60, 40), dtype=np.float32)
+    tank = Point2((30.5, 20.5))
+    routes = RouteMap(grid, [(tank, 10.0)])
+    start, goal = Point2((5.5, 20.5)), Point2((55.5, 20.5))
+    assert routes.reaches(start, goal)
+    position = start
+    for _ in range(200):
+        step = routes.waypoint(position, goal)
+        assert step is not None and step.distance_to(tank) > 10.0
+        if step == position:
+            break
+        position = step
+    assert position.distance_to(goal) < 1.5
+    # A pocket behind the tank: walls around x 40..50, open only toward the tank's circle
+    walled = np.ones((60, 40), dtype=np.float32)
+    walled[38:52, 14:16] = np.inf
+    walled[38:52, 26:28] = np.inf
+    walled[50:52, 14:28] = np.inf
+    pocket = RouteMap(walled, [(Point2((36.5, 20.5)), 7.0)])
+    assert not pocket.reaches(start, Point2((45.5, 20.5)))
