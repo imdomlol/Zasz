@@ -1692,6 +1692,9 @@ def fight(
     zergling breaking through switches back to the units as soon as one is reachable.
     """
     position = unit.position
+    # Its own slot from last step is its to take again: release the reservation before any room check (the
+    # "all work full: hold" check counted it as taken, so zerglings on the breach left it every other step)
+    slots.assignments.release(unit)
     dive: list[Unit] = []
     in_the_way: list[Unit] = []
     clear: list[Unit] = []

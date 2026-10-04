@@ -651,3 +651,10 @@ run before).
 - Regression set on this commit (everything else touches targeting/movement now): grids (4 and 6
   zealots, both sides), open_army, open_army_free, wall_*, fight_winnable.
 - Squads that hit "partly seen" with no overlord at all get no time limit beyond 60 s; check real games.
+
+**Follow-up fix (same day):** with `Assignments`, a zergling's own reserved slot was counted as taken by
+the "all work full: hold outside their reach" check, which runs before it picks. Zerglings on the breach
+left it every other step and held. `fight()` now releases its own reservation first. After the fix:
+`efficiency_cramped_main` top 106 s / 23 lost (was 152 s / 28), bottom 87 s / 18 lost (was 134 s / 29);
+`efficiency_open_army` 13-14 s / 12 lost; `efficiency_open_army_free` 52-62 s / 30-31 lost (judged fine,
+differences are run-to-run noise).
