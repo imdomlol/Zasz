@@ -260,6 +260,11 @@ def test_breach_is_the_building_between_us_and_sealed_off_enemies():
     assert set(found) == {left.tag, right.tag}
     slots, opened = found[left.tag]
     assert opened == [stalker] and 1 <= slots <= 5
+    # The cells attackers hit it from are on our side of the wall (below it), one per attack slot:
+    # enemy range is measured to these, not to the building
+    cells = reach.attack_cells[left.tag]
+    assert len(cells) == slots
+    assert all(c.y < 9 for c in cells)
 
 
 def test_walk_to_a_group_and_the_gather_spot_outside_its_reach():

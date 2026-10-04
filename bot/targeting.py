@@ -344,6 +344,8 @@ class ReachMap:
         self._near_fields: dict[tuple[int, float], np.ndarray] = {}  # (target, limit) -> capped field
         self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
         self._plugs: set[int] | None = None  # see `plugs`
+        # breach structure tag -> the cells our attackers stand on to hit it (`breaches`)
+        self.attack_cells: dict[int, list[Point2]] = {}
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
         self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
@@ -543,6 +545,7 @@ class ReachMap:
             for region in {int(regions[c]) for c in ring if self.walkable[c]} - reached - {0}:
                 behind.setdefault(region, []).append(t)
         found: dict[int, tuple[int, list[Unit]]] = {}
+        self.attack_cells = {}
         if not behind:
             return found
         for s in structures:
@@ -552,8 +555,9 @@ class ReachMap:
             touching = {int(regions[c]) for c in border}
             opened = [t for region in touching & behind.keys() for t in behind[region]]
             if opened and touching & reached:
-                attackers = sum(1 for c in border if self.reached[c] and regions[c] in reached)
-                found[s.tag] = (max(1, attackers), opened)
+                cells = [c for c in border if self.reached[c] and regions[c] in reached]
+                self.attack_cells[s.tag] = [Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5)) for c in cells]
+                found[s.tag] = (max(1, len(cells)), opened)
         return found
 
     def reachable(self, target: Unit) -> bool:

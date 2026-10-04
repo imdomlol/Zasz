@@ -14,6 +14,8 @@ turning it on doesn't change a single decision.
   number) and zerglings assigned / how many fit
 - retreating: a circle around each enemy close by at the distance squads back off to (reach + margin)
 - scout requests: a purple box where the army asked an overlord for vision
+- choke fights: `choke: lose ~N, worth M (take/skip)` over a unit with only 1-2 open sides
+- unseen fire: a pink circle where recent hits came from nothing we could see, with their damage
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ AVOID_COLOR = (150, 150, 150)
 BACK_OFF_COLOR = (0, 200, 255)
 SCOUT_COLOR = (180, 90, 255)
 TARGET_COLOR = (255, 255, 255)
+UNSEEN_COLOR = (255, 60, 160)
 
 
 def lifted(ai: AresBot, p: Point2, lift: float = 0.3) -> Point3:
@@ -94,7 +97,14 @@ def draw(ai: AresBot, army: Army) -> None:
         if ai.time - when < 3:
             client.debug_sphere_out(lifted(ai, position), 2.2, BREACH_COLOR)
             client.debug_text_world(text, lifted(ai, position, 2.0), BREACH_COLOR, 12)
-    from bot.army import BACK_OFF_CIRCLES, TARGET_NOTES
+    from bot.army import BACK_OFF_CIRCLES, CHOKE_NOTES, TARGET_NOTES
+
+    # Choke fights judged this step: what killing it would cost against what it's worth
+    for tag, (lost, worth, taken) in CHOKE_NOTES.items():
+        if tag in enemies:
+            verdict = "take" if taken else "skip"
+            label = f"choke: lose ~{lost:.0f}, worth {worth:.0f} ({verdict})"
+            client.debug_text_world(label, lifted(ai, enemies[tag].position, 2.2), BREACH_COLOR, 12)
 
     # Targets with zerglings on them: priority (targeting tier, 1 = first) and attackers / capacity
     for tag, (priority, capacity) in TARGET_NOTES.items():
@@ -111,6 +121,11 @@ def draw(ai: AresBot, army: Army) -> None:
 
     for position, radius in set(BACK_OFF_CIRCLES):
         client.debug_sphere_out(lifted(ai, position), radius, BACK_OFF_COLOR)
+    for center, damage, hits in army.unseen_circles():
+        client.debug_sphere_out(lifted(ai, center), 6.0, UNSEEN_COLOR)
+        client.debug_text_world(
+            f"unseen fire: {damage:.0f} dmg, {hits} hits", lifted(ai, center, 1.5), UNSEEN_COLOR, 12
+        )
     for center, radius, until in army.turned_back_at:
         if until > ai.time:
             client.debug_sphere_out(lifted(ai, center), radius, AVOID_COLOR)

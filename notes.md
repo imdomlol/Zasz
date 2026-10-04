@@ -477,3 +477,77 @@ marine wasn't picked.
 
 Also still open: the choke case (3 zealots on a ramp with stalkers behind: don't take it even if the sim
 barely says win; see todo #21).
+
+### 28. Oct 3, afternoon: group decisions, unseen fire, chokes, breach (status at stop)
+
+Committed earlier today: `223817d` removed the 10-tile fighter rule (`FIGHTER_PRIORITY_RANGE`). Every
+fighter in a fight is a target candidate: whether to engage, and with whom, is decided for the group
+(squad verdict, strikes, raids), not by each zergling. `efficiency_open_army` had stood idle 120 s with
+"go for a winnable fight" logged and no orders; now 15 s, 10 lost.
+
+This commit:
+
+- **Unseen fire, rebuilt** (your design). A hit counts as unseen only if no enemy seen in the last second
+  could have dealt it (weapon reach to the damaged unit, no distance limit, enemies that just died
+  included). Visible shooters are refreshed when the damage event arrives, so a tank revealed by the shot
+  counts as seen. Unseen hits are kept 8 s, grouped into circles (pink on the overlay, damage and hit
+  count). A force retreats only on 2+ unseen hits around it adding up to 25% of the health of our
+  zerglings there. Meant for cloaked/burrowed attackers. The old one-hit rule is gone: a zealot's last
+  hit as it died had marked a 14-tile avoid area and idled the gateway-grid cleanup for 45 s.
+- **Threat lookup** (`THREAT_LOOKUP = 18`, was `ENGAGE_RANGE = 14`): a sieged tank hits from ~14.5, so
+  squads never saw one firing near max range. `can_reach_soon` still decides what can hit us. Fights
+  worth going for are noticed among visible armed units within `NOTICE_RANGE = 14`.
+- **Fight membership** (`Army.members`): a squad's fight is judged with its actual members (the squad it
+  helps and its helpers, squads gathering with it, squads raiding the same site, squads whose last fight
+  shared enemies, strike zerglings on these enemies, queens there), not everyone within 26 tiles.
+- **Choke fights** (your option b, `choke_worth`): a melee unit with at most 2 open sides is attacked
+  only if the zerglings we'd lose killing it (that few at a time, under the fire of everything covering
+  it) are worth no more than its cost in zerglings. Otherwise step out of its reach and work the
+  buildings around it. A zealot in a 1-tile lane is never taken, and is swarmed once it's opened up.
+  Shooters are never refused (refusing a stalker doesn't stop it shooting). Overlay:
+  `choke: lose ~N, worth M (take/skip)`.
+- **Nothing inside enemy range except the breach**: the "clear the way" and "break through" fallbacks
+  only take buildings we can hit from outside enemy range (`safe_structures`, was `by_safety`, which
+  only sorted safe ones first). Overflow with nothing safe to do holds just outside their reach
+  (`hold for the breach`). A squad whose zerglings all come up empty (bad chokes only, or no breach worth
+  it and nothing safe) leaves: avoid area, freed for other jobs (your choice: refuse the bad trade). Not
+  for committed fights or near home.
+- **Breach, committed and priced once**:
+  - The army keeps its breach while it's acceptable. Another must be >20% cheaper to replace it
+    (`BREACH_SWITCH_SAVING`). It lapses after 10 s unconfirmed.
+  - Priced once per fight for the whole army (`evaluate_breach`): a reach map from all our army units
+    within 30 of the enemy fighters, cached per REACH_SECONDS. Before, each squad priced breaches from
+    its own side, so squads on opposite sides flipped the shared breach right/left (what you saw).
+  - Enemy range is measured to the attack cells (`ReachMap.attack_cells`: the reached cells our
+    attackers stand on), not the gateway edge + 1.5. A stalker reaching only the far corner no longer
+    counts.
+  - Debug log: one `breach eval:` line per candidate (cells, who covers them, time, cost, acceptable).
+
+**Results** (watched, overlay, Windows, one at a time):
+
+| Scenario | Result |
+|---|---|
+| `efficiency_cramped_main` top | **PASS**, 152 s, 28 lost. Breach held on the right gateway 1000 -> 0, no switches; strikes then killed the stalkers |
+| `efficiency_cramped_main` bottom | PASS, 134 s, 29 lost |
+| `efficiency_open_army` top | PASS, 14 s, 10 lost |
+| `efficiency_open_army_free` bottom | PASS, 70 s, 33 lost (28 in the earlier run today) |
+| `tank_dive` top | PASS, 9 s, 4 lost |
+| `efficiency_cramped_more_zealots` top | **FAIL**, 36 lost, stalkers alive, 7 of the last 12 zerglings idle |
+
+Earlier runs today of the top-side grid, before the breach fixes: FAIL with 33-43 lost. The losses came
+from zerglings working gateways inside stalker range while no strike formed.
+
+**Open, next steps:**
+1. `efficiency_cramped_more_zealots` top regressed. It passed 10/10 before today; not yet run with
+   the debug log, so which of today's changes did it is unknown.
+2. Breach acceptability flickers: in the passing run, 115 of 143 evaluations said "not acceptable"
+   for the same gateways at the same cost. Probably the survivor/win check, as zerglings move in and out
+   of the 30-tile view. The breach still held, because the commitment only lapses after 10 s, but a
+   step with no acceptable breach gives the zerglings no breach.
+3. A patrol inside a raid: a squad freed by "leave" becomes a patrol in the middle of the site, is
+   judged alone (not a raid member), and marks "no help possible" avoid areas. Proposed: (a) a raid
+   squad that refuses a choke stays on its raid and works the rest of the site; (b) a patrol fighting
+   at a raid's site joins the raid.
+4. `tank_dive` bottom still overfills the tank while a marine has room (section 27).
+5. Cloaked units: we have no detection (no lair/overseers). Unseen fire now only retreats on sustained
+   damage, but detection is the real answer (todo).

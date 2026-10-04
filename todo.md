@@ -45,7 +45,7 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 
 ## `squads` (#20): Finish and merge squads
 
-**Status:** in progress on branch `squads` (latest `26301e0`). See notes.md sections 18-26.
+**Status:** in progress on branch `squads`. See notes.md sections 18-28 (28: the latest state and next steps).
 
 **Done:**
 - ~~Squads with jobs (patrol / raid / push / help / gather / engage / defend), replacing the single army
@@ -59,6 +59,12 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 - ~~Spread out into the unknown; unseen fire; partly seen positions with overlord scout requests~~
 - ~~Bunkers count as threats; structures count as near by their edge~~
 - ~~Debug overlay; `run_scenarios.py --seeds N`; no reinforcements in combat scenarios~~
+- ~~Group decisions over per-zergling limits: the 10-tile fighter rule removed; fights judged with their
+  actual members (`Army.members`); threat lookup out to a sieged tank's reach~~
+- ~~Unseen fire only on sustained unexplained damage (cloaked/burrowed); plugs only when blocking and
+  harmless; choke fights by cost (melee units with 1-2 open sides)~~
+- ~~Nothing inside enemy range except the breach; one committed breach per fight, priced once for the
+  army with enemy range measured to the attack cells~~
 
 **Before merging:**
 - **Benchmark the latest commit** headless on Linux (12+ games vs Hard, `--jobs 2`): it should match
@@ -67,6 +73,12 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
 - Rerun the seven-scenario comparison (`--seeds 4`) on the latest commit.
 
 **Still open:**
+- `efficiency_cramped_more_zealots` top regressed after the Oct 3 changes (36 lost, stalkers alive; it
+  was 10/10). Run it with `-v` and the `breach eval:` lines to find out why.
+- Breach acceptability flickers between evaluations at the same cost (notes 28, open item 2).
+- A squad freed by "leave" turns into a patrol inside the raid's site and marks "no help possible"
+  avoid areas. Proposed: raid squads stay on their raid; patrols fighting at a raid's site join it.
+- `tank_dive` bottom: overfills the tank while a marine has room.
 - **(partly done)** `efficiency_open_army_free`: chasing an army up a ramp held by zealots still costs
   ~30 zerglings. Needs #21's choke estimate, or a rule not to follow an army up its ramp.
 - `wall_bunker` fails: zerglings that don't fit around the full bunker hit the bays beside it, under its
@@ -101,7 +113,9 @@ estimates already do.
   (`tank_neutralized` already removes tanks we're inside of).
 - **Chokes:** only as many zerglings as fit around the reachable enemies fight at once (ramp held by
   zealots). A first try (notes section 20) broke the gateway grid by calling sealed fights hopeless;
-  it must leave free work and breaches alone, and only judge *entering* a choke.
+  it must leave free work and breaches alone, and only judge *entering* a choke. **(partly done)**
+  Per target: `choke_worth` refuses melee units with 1-2 open sides when killing them costs more than
+  they're worth. The squad's fight verdict itself still ignores chokes.
 - **Fog:** enemies revealed by firing are only part of a position (strikes saw the tanks, not the
   marines). The partly-seen rule holds back now; the estimate could also assume unseen support.
 - **Bunkers:** calibrate the two-step estimate (assumes 4 marines inside).

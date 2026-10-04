@@ -15,7 +15,11 @@ EXPAND_WHEN_DRONES_WITHIN = 4
 ATTACK_AT_ZERGLINGS = 16  # start attacking with this many zerglings...
 STOP_ATTACK_AT_ZERGLINGS = 8  # ...and keep attacking until we drop below this many
 DEFEND_RADIUS = 20  # squads this close to a hatchery always fight
-ENGAGE_RANGE = 14  # squads react to enemies this close to any of their units
+# Enemies a squad looks at: out to THREAT_LOOKUP (the longest weapon reach, a sieged tank's ~14.5, plus
+# the next-step and hold margins; `can_reach_soon` decides which of them can actually hit us). Fights
+# worth going for are noticed among visible armed units within NOTICE_RANGE
+THREAT_LOOKUP = 18
+NOTICE_RANGE = 14
 # After a squad is turned back by a fight the sim says we'd lose, attack targets inside that enemy
 # group's reach (its spread + weapon range + AVOID_MARGIN) are skipped for AVOID_SECONDS: try other
 # bases instead of walking back into it
@@ -71,8 +75,17 @@ RAID_TOGETHER = 10  # zerglings this close to their group's center are already t
 RALLY_SECONDS = 25.0  # squads gathering to take a fight together give up after this long
 BACK_OFF_MARGIN = 2.0  # backing off: this far past the enemy's actual weapon range
 BACK_OFF_HOLD_SECONDS = 4.0  # after backing off, hold outside that line this long (unless the fight turns)
-UNSEEN_FIRE_STEP = 8.0  # shot by something we can't see: step back this far...
-UNSEEN_FIRE_RADIUS = 14  # ...and avoid this far around there for AVOID_SECONDS (a sieged tank's range)
+# Unseen fire: damage no enemy seen in the last UNSEEN_EXPLAIN_SECONDS (within its weapon reach) could
+# have dealt: cloaked or burrowed attackers. Hits within UNSEEN_RADIUS of each other in the last
+# UNSEEN_WINDOW seconds form a circle. A force retreats (UNSEEN_FIRE_STEP back, and avoids the area)
+# only on at least UNSEEN_MIN_HITS hits adding up to UNSEEN_DAMAGE_SHARE of the health of our zerglings
+# around them: one stray hit (an enemy dying mid-attack) doesn't send everyone home
+UNSEEN_EXPLAIN_SECONDS = 1.0
+UNSEEN_RADIUS = 6.0
+UNSEEN_WINDOW = 8.0
+UNSEEN_MIN_HITS = 2
+UNSEEN_DAMAGE_SHARE = 0.25
+UNSEEN_FIRE_STEP = 8.0
 # An enemy we can see standing where we have no vision (revealed by firing at us from the fog, e.g. a
 # sieged tank): what's around it is unknown. Avoid its reach + PARTLY_SEEN_MARGIN until we see the
 # spot (an overlord is sent), and don't fight it meanwhile
@@ -113,6 +126,19 @@ REACH_WINDOW_MARGIN = 12  # the map covers our units and nearby enemies plus thi
 CLEAR_THE_WAY_RANGE = 10  # no reachable fighter: attack the closest structures within this range
 MIN_OPEN_SIDES = 3  # an enemy unit is worth engaging in melee only with this many reachable cells around it
 PLUG_HARM_RANGE = 2  # a unit blocking our way that can hit us from there (range >= this) is fought anyway
+# A melee unit (range < PLUG_HARM_RANGE) with at most CHOKE_SLOTS open sides is a choke fight: taken
+# only if the zerglings we'd lose killing it (that many at a time, under the fire of everything covering
+# it) are worth no more than it (its cost in zerglings). Otherwise step out of its reach and do other
+# work, or do something else
+CHOKE_SLOTS = 2
+# The breach target is kept while it's acceptable; another one has to be this much cheaper to switch.
+# A commitment not confirmed for BREACH_KEEP_SECONDS lapses (the fight moved on)
+BREACH_SWITCH_SAVING = 0.2
+BREACH_KEEP_SECONDS = 10
+# The breach is priced once per fight for the whole army: from all our army units within BREACH_VIEW_RANGE
+# of the enemy fighters, fights told apart by which BREACH_VIEW_CELL-sized cell their center falls in
+BREACH_VIEW_RANGE = 30
+BREACH_VIEW_CELL = 20
 LEVEL_TOLERANCE = 1.0  # terrain z within this counts as the same level (cliff levels differ by ~2)
 # How melee attackers spread over targets (structures and units): "back" = first ones in go deepest,
 # later ones fill toward the front (keeps ramps and chokes flowing); "nearest" = closest target with
