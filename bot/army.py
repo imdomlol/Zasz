@@ -19,6 +19,7 @@ Whether to attack at all is a decision (`Decision.attack`); this module only exe
 """
 
 import math
+import os
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -1794,6 +1795,17 @@ def fight(
         for e in tier:
             if e.tag not in TARGET_NOTES or TARGET_NOTES[e.tag][0] > rank:
                 TARGET_NOTES[e.tag] = (rank, slots.capacity(unit, e))
+    if not tiers and fighters and slots.reach is not None:
+        # Diagnostic: why every enemy unit here was left out (memory = only remembered, not seen now)
+        for e in fighters:
+            mem = " (remembered)" if e.is_memory else ""
+            if slots.reach.open_sides(e, unit.radius) == 0:
+                COUNTS[f"nothing to do: {e.type_id.name.lower()} unreachable{mem}"] += 1
+                dump_reach(ai, slots.reach, unit, fighters, enemies)
+            elif e.tag in plugs and weapon_range(e) < PLUG_HARM_RANGE:
+                COUNTS[f"nothing to do: {e.type_id.name.lower()} plug{mem}"] += 1
+            else:
+                COUNTS[f"nothing to do: {e.type_id.name.lower()} choke refused{mem}"] += 1
     if not tiers:
         # Nothing worth doing here: replace whatever order it still has (an attack picked earlier would
         # carry it on into their fire) with stepping out of their reach and waiting there
@@ -1986,6 +1998,30 @@ def choke_worth(
     CHOKE_NOTES[target.tag] = (lost, worth, taken)
     COUNTS["choke: taken" if taken else "choke: not worth it"] += 1
     return taken
+
+
+REACH_DUMPED: set[int] = set()
+
+
+def dump_reach(ai: AresBot, reach: ReachMap, unit: Unit, fighters: list[Unit], enemies: list[Unit]) -> None:
+    """Diagnostic (ZASZ_DUMP_REACH=path): save this reach map's view once per minute of game time, to see
+    why enemy units count as unreachable."""
+    path = os.environ.get("ZASZ_DUMP_REACH")
+    minute = int(ai.time // 60)
+    if not path or minute in REACH_DUMPED:
+        return
+    REACH_DUMPED.add(minute)
+    np.savez(
+        f"{path}-{int(ai.time)}s.npz",
+        walkable=reach.walkable,
+        reached=reach.reached,
+        origin=np.array([reach.x0, reach.y0]),
+        zergling=np.array([unit.position.x, unit.position.y]),
+        fighters=np.array([[e.position.x, e.position.y, e.radius] for e in fighters]),
+        structures=np.array([[e.position.x, e.position.y, e.radius] for e in enemies if e.is_structure]),
+        ground=np.isfinite(ai.mediator.get_ground_grid).astype(np.uint8),
+        pathing=np.array(ai.game_info.pathing_grid.data_numpy).astype(np.uint8),
+    )
 
 
 def hold(ai: AresBot, unit: Unit, threats: list[Unit]) -> None:

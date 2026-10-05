@@ -658,3 +658,26 @@ left it every other step and held. `fight()` now releases its own reservation fi
 `efficiency_cramped_main` top 106 s / 23 lost (was 152 s / 28), bottom 87 s / 18 lost (was 134 s / 29);
 `efficiency_open_army` 13-14 s / 12 lost; `efficiency_open_army_free` 52-62 s / 30-31 lost (judged fine,
 differences are run-to-run noise).
+
+### 31. Oct 4: corner gaps between buildings are walkable
+
+`wall_bays` failed (marines alive after 150 s, zerglings with "nothing to do" at the edge of marine range)
+although, as you'd watched on the tech lab map, zerglings can walk to the marines once the 4 corner bays
+are dead. A reach-map dump (`ZASZ_DUMP_REACH=path`, behind a flag) showed the pocket marked unreachable.
+With the corner bays gone it touches the outside only diagonally, and the reach map refused diagonal
+steps between two blocked cells. SC2 lets units through the corner gap between buildings that only touch
+diagonally (walls must touch edge to edge).
+
+Now a diagonal step is refused only next to an enemy unit (`ReachMap._squeezed`; a zealot in a gap still
+blocks). That covers the reach search, the walking-distance fields and the route graph. Test:
+`test_corner_gaps_between_buildings_are_walkable`.
+
+| Scenario | Before | After |
+|---|---|---|
+| wall_techlab top / bottom | 84 s / 50 s, 4 lost | 28 s / 28 s, 4 lost |
+| wall_bays top / bottom | FAIL (marines alive at 150 s) | 27 s / 27 s, 5 lost |
+| wall_bunker top / bottom | (not run since the morning) | FAIL, 19 / 20 lost: the bunker is taken head on through its one open face |
+
+Diagnostics kept: "nothing to do: <unit> unreachable / plug / choke refused" counts in the debug log, and
+the reach dump. Next: a breach that opens more sides of a target we can already reach (the bunker),
+time-boxed and dropped when the target moves.

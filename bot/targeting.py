@@ -380,11 +380,16 @@ class ReachMap:
         x1 = min(width, int(max(p.x for p in points)) + margin + 1)
         y1 = min(height, int(max(p.y for p in points)) + margin + 1)
         walkable = np.isfinite(grid[self.x0 : x1, self.y0 : y1])
+        static = walkable.copy()
         for e in enemies:
             if not e.is_structure and not e.is_flying:
                 for cell in self._cells_within(e.position, e.radius + 0.1, walkable.shape):
                     walkable[cell] = False
         self.walkable = walkable
+        # Cells blocked by an enemy unit (not terrain or a building). SC2 lets units through the corner gap
+        # between two buildings that only touch diagonally (walls must touch edge to edge); a diagonal
+        # step is only refused next to an enemy unit
+        self.unit_blocked = static & ~walkable
         self.reached = np.zeros_like(walkable, dtype=bool)
         queue: deque[tuple[int, int]] = deque()
         for u in own:
@@ -398,8 +403,8 @@ class ReachMap:
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 nx, ny = cx + dx, cy + dy
                 if 0 <= nx < w and 0 <= ny < h and walkable[nx, ny] and not self.reached[nx, ny]:
-                    if dx and dy and not (walkable[cx + dx, cy] or walkable[cx, cy + dy]):
-                        continue  # no squeezing diagonally between two blocked cells
+                    if dx and dy and self._squeezed(cx, cy, dx, dy):
+                        continue
                     self.reached[nx, ny] = True
                     queue.append((nx, ny))
         self._open: dict[int, int] = {}
@@ -452,9 +457,17 @@ class ReachMap:
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
             nx, ny = cx + dx, cy + dy
             if 0 <= nx < w and 0 <= ny < h and self.walkable[nx, ny]:
-                if dx and dy and not (self.walkable[cx + dx, cy] or self.walkable[cx, cy + dy]):
-                    continue  # no squeezing diagonally between two blocked cells
+                if dx and dy and self._squeezed(cx, cy, dx, dy):
+                    continue
                 yield nx, ny
+
+    def _squeezed(self, cx: int, cy: int, dx: int, dy: int) -> bool:
+        """A diagonal step between two blocked cells, one of them blocked by an enemy unit. Between two
+        buildings (or terrain) touching only at a corner it's allowed: SC2 units walk through that gap."""
+        a, b = (cx + dx, cy), (cx, cy + dy)
+        if self.walkable[a] or self.walkable[b]:
+            return False
+        return bool(self.unit_blocked[a] or self.unit_blocked[b])
 
     def cell(self, p: Point2) -> tuple[int, int] | None:
         """The map cell `p` is in (None outside the window)."""
@@ -535,13 +548,15 @@ class ReachMap:
         return self.point((cx, cy))
 
     def _cell_graph(self):
-        """Walkable cells (enemy units as walls) as a graph: 8 neighbors, no diagonal squeezing."""
+        """Walkable cells (enemy units as walls) as a graph: 8 neighbors (see `_squeezed`)."""
         if self._graph is None:
             self._graph = self._build_graph(self.walkable)
         return self._graph
 
     def _build_graph(self, walk: np.ndarray):
-        """Cells where `walk` is True as a graph: 8 neighbors, no diagonal squeezing."""
+        """Cells where `walk` is True as a graph: 8 neighbors; a diagonal step between two blocked cells
+        only if neither is blocked by an enemy unit (`_squeezed`)."""
+        ub = self.unit_blocked
         w, h = walk.shape
         index = np.arange(w * h).reshape(w, h)
         rows, cols, weights = [], [], []
@@ -553,8 +568,10 @@ class ReachMap:
             dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
             ok = walk[src] & walk[dst]
             if dx and dy:
-                # one of the two orthogonal cells in between must be open
-                ok &= walk[(slice(xs + dx, xe + dx), slice(ys, ye))] | walk[(slice(xs, xe), slice(ys + dy, ye + dy))]
+                # one of the two orthogonal cells in between open, or neither blocked by an enemy unit
+                a = (slice(xs + dx, xe + dx), slice(ys, ye))
+                b = (slice(xs, xe), slice(ys + dy, ye + dy))
+                ok &= walk[a] | walk[b] | ~(ub[a] | ub[b])
             rows.append(index[src][ok])
             cols.append(index[dst][ok])
             weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
@@ -811,7 +828,8 @@ class RouteMap:
 
 
 def _open_graph(walk: np.ndarray):
-    """Cells where `walk` is True as a graph: 8 neighbors, no diagonal squeezing."""
+    """Cells where `walk` is True as a graph: 8 neighbors (units fit through the corner gap between two
+    buildings touching diagonally, and danger zones aren't walls units squeeze past)."""
     w, h = walk.shape
     index = np.arange(w * h).reshape(w, h)
     rows, cols, weights = [], [], []
@@ -821,8 +839,6 @@ def _open_graph(walk: np.ndarray):
         src = (slice(xs, xe), slice(ys, ye))
         dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
         ok = walk[src] & walk[dst]
-        if dx and dy:
-            ok &= walk[(slice(xs + dx, xe + dx), slice(ys, ye))] | walk[(slice(xs, xe), slice(ys + dy, ye + dy))]
         rows.append(index[src][ok])
         cols.append(index[dst][ok])
         weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))

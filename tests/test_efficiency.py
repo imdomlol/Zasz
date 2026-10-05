@@ -352,3 +352,17 @@ def test_routes_go_around_danger_and_skip_cut_off_destinations():
     walled[50:52, 14:28] = np.inf
     pocket = RouteMap(walled, [(Point2((36.5, 20.5)), 7.0)])
     assert not pocket.reaches(start, Point2((45.5, 20.5)))
+
+
+def test_corner_gaps_between_buildings_are_walkable():
+    # Four walls around a 6x6 pocket (x 10..15, y 10..15), touching only at the corners, like a wall of
+    # bays with the corner bays dead (wall_bays): SC2 units walk through those corner gaps
+    grid = np.ones((30, 30), dtype=np.float32)
+    grid[7:10, 10:16] = np.inf  # left
+    grid[16:19, 10:16] = np.inf  # right
+    grid[10:16, 7:10] = np.inf  # bottom
+    grid[10:16, 16:19] = np.inf  # top
+    marine = unit(12.5, 12.5, ground_range=5.0, is_memory=False)
+    ling = zergling(3.5, 3.5)
+    reach = ReachMap(grid, [ling], [marine], margin=20)
+    assert reach.open_sides(marine) > 0
