@@ -25,7 +25,7 @@ from sc2.position import Point2
 from sc2.unit import Unit
 from scipy.ndimage import label
 from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import connected_components, dijkstra
+from scipy.sparse.csgraph import dijkstra
 
 from bot.settings import (
     APPROACH_DETOUR_SLACK,
@@ -679,11 +679,11 @@ class ReachMap:
         for center, radius in zones:
             danger |= (gx - center.x) ** 2 + (gy - center.y) ** 2 <= radius * radius
         self.danger = danger
-        # Safe areas: connected the way units walk (`_build_graph`'s corner rule), the same graph `safe_step`
-        # walks on, so "same safe area" means a safe way exists
-        safe = self.walkable & ~danger
-        self._safe_graph = self._build_graph(safe)
-        self.safe_labels = components(self._safe_graph, safe)
+        # 8-connected: units can't squeeze past an enemy unit's corner (`_squeezed`), so a "same" area can
+        # occasionally have no safe way in (`safe_step` returns None and the zergling holds). Labelling with
+        # the walking graph (review 06) cost ~2 s of army time in 3 scenarios for that rare case.
+        self.safe_labels, _ = label(self.walkable & ~danger, structure=np.ones((3, 3), dtype=bool))
+        self._safe_graph = None
         self._safe_fields = {}
         self._breach_fields = {}
 
@@ -777,9 +777,9 @@ class ReachMap:
     def regions(self) -> np.ndarray:
         """Walkable cells labelled by connected area (0: not walkable), for what's sealed off behind
         something (`breaches`, plugs, `Army.widen_plan`). Deliberately looser than the walking rule: any
-        diagonal joins, including past an enemy unit's corner. With the strict rule (as `set_danger`'s
-        safe areas use) zealots holding a ramp read as plugs sealing off the rest, and the army left
-        fights it wins (efficiency_open_army_free failed 3 runs of 3)."""
+        diagonal joins, including past an enemy unit's corner. With the strict rule (review 06, reverted)
+        zealots holding a ramp read as plugs sealing off the rest, and the army left fights it wins
+        (efficiency_open_army_free failed 3 runs of 3)."""
         if self._regions is None:
             self._regions, _ = label(self.walkable, structure=np.ones((3, 3), dtype=bool))
         return self._regions
@@ -1022,15 +1022,6 @@ class RouteMap:
             cx, cy = min(options, key=lambda n: field[n])
             here = field[cx, cy]
         return Point2((cx + 0.5, cy + 0.5))
-
-
-def components(graph, mask: np.ndarray) -> np.ndarray:
-    """Cells of `mask` labelled by connected component of `graph` (a `build_graph` of it), 1 and up; 0
-    outside `mask`."""
-    _, labels = connected_components(graph, directed=False)
-    labels = labels.reshape(mask.shape).astype(np.int32) + 1
-    labels[~mask] = 0
-    return labels
 
 
 def build_graph(walk: np.ndarray, unit_blocked: np.ndarray | None = None, cost: np.ndarray | None = None):
