@@ -99,15 +99,20 @@ SPREAD_LOOKAHEAD = 10
 SPREAD_ROW = 6
 SPREAD_SPACING = 2.0
 # Melee attackers per structure (`bot.targeting`): they fill this fraction of the ring around it,
-# MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in
+# MELEE_SPACING attacker-widths apart; the rest pick the next structure, deeper in. 1.0: shoulder to
+# shoulder (the wall_bunker debug count saw 5 zerglings hitting a bunker's open face at once; 1.25 gave 4)
 MELEE_SURROUND_FRACTION = 0.75
-MELEE_SPACING = 1.25
+MELEE_SPACING = 1.0
 MELEE_UNIT_SURROUND_FRACTION = 1.0  # melee attackers per enemy *unit*: about a full ring around it
 # A melee attacker that doesn't get PROGRESS_STEP closer to its target within BLOCKED_SECONDS while out
 # of range is blocked: it skips that target for BLOCKED_MEMORY_SECONDS (another target, or around)
 BLOCKED_SECONDS = 1.5
 PROGRESS_STEP = 0.5
 TARGET_MOVED = 1.0  # ...unless the target itself moved this far meanwhile: chasing isn't being blocked
+# A slot held by an attacker more than SLOT_HOLD_GAP from its target (edge to edge: walking up, or stuck
+# behind others) goes to an attacker that wants it and is SLOT_TAKE_OVER_MARGIN closer (`Assignments`)
+SLOT_HOLD_GAP = 1.0
+SLOT_TAKE_OVER_MARGIN = 1.0
 # Walk around enemy units to a target only if that's this much longer than walking straight there
 # (a zealot plugging the direct lane); otherwise a plain attack order is as good and follows the target
 APPROACH_DETOUR_SLACK = 2.0
@@ -139,12 +144,20 @@ BREACH_KEEP_SECONDS = 10
 # The breach is priced once per fight for the whole army: from all our army units within BREACH_VIEW_RANGE
 # of the enemy fighters, fights told apart by which BREACH_VIEW_CELL-sized cell their center falls in
 BREACH_VIEW_RANGE = 30
+# Widening: breaking a building to open more sides of a target we can already reach (a bunker in a
+# wall). Only for targets that stood still WIDEN_STILL_SECONDS (buildings always), only if the whole
+# plan (break it, then kill the target) is estimated at WIDEN_MAX_SECONDS or less and at least
+# BREACH_SWITCH_SAVING cheaper than head on. A plan older than WIDEN_MAX_SECONDS is given up, and that
+# target gets none for WIDEN_GIVE_UP_SECONDS
+WIDEN_STILL_SECONDS = 5.0
+WIDEN_MAX_SECONDS = 30.0
+WIDEN_GIVE_UP_SECONDS = 60.0
 BREACH_VIEW_CELL = 20
 # Safe work: a cell is in danger if an armed enemy's reach (weapon range + both radii) plus
-# SAFE_WORK_MARGIN covers it. Structures outside the breach are worked only from safe cells next to
-# them (within ATTACK_CELL_SLACK of hitting it), one zergling per cell, walked to around danger
+# SAFE_WORK_MARGIN covers it. Structures outside the breach are worked only from safe spots next to
+# them (`ReachMap.attack_spots`), one zergling per spot, walked to around danger
 SAFE_WORK_MARGIN = 1.0
-ATTACK_CELL_SLACK = 0.6
+BREACH_DANGER_COST = 10.0  # walking to the breach: a step in enemy reach costs this many normal steps
 # An enemy unit counts as active (it'll join a fight) once it has moved ACTIVE_MOVE, turned ACTIVE_TURN
 # radians (units on hold turn to shoot) or dealt a hit we can match to it; idle again after
 # ENEMY_IDLE_SECONDS. Idle supporters (like a forgotten group) don't count against a breach
@@ -170,6 +183,8 @@ UNDER_FIRE_SECONDS = 1.5  # a unit damaged this recently counts as under fire
 BUNKER_MARINES = 4
 MARINE_DPS = 9.8  # 6 damage every 0.61 s (no upgrades)
 MARINE_RANGE = 5
+MARINE_HP = 45
+ZERGLING_DPS_VS_MARINE = 10.0  # 5 damage every 0.497 s (no upgrades, marines have no armor)
 
 # --- Queens and defense ---
 CREEP_QUEENS = 2  # queens beyond one per hatchery, used to spread creep

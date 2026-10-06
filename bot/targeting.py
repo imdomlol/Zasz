@@ -29,9 +29,9 @@ from scipy.sparse.csgraph import dijkstra
 
 from bot.settings import (
     APPROACH_DETOUR_SLACK,
-    ATTACK_CELL_SLACK,
     BLOCKED_MEMORY_SECONDS,
     BLOCKED_SECONDS,
+    BREACH_DANGER_COST,
     DETOUR_CROWD_COST,
     DETOUR_JAM_COST,
     DETOUR_MAX_EXTRA,
@@ -43,15 +43,41 @@ from bot.settings import (
     MELEE_UNIT_SURROUND_FRACTION,
     PROGRESS_STEP,
     REACH_WINDOW_MARGIN,
+    SLOT_HOLD_GAP,
+    SLOT_TAKE_OVER_MARGIN,
     TARGET_MOVED,
 )
 
 MELEE_RANGE = 1.0  # weapon range at or below this counts as melee
+SPOT_STEP = 0.025  # attack spots: how finely a target's edge is sampled (tiles of arc)
 
 
 def is_melee_against(attacker: Unit, target: Unit) -> bool:
     weapon_range = attacker.air_range if target.is_flying else attacker.ground_range
     return weapon_range <= MELEE_RANGE
+
+
+def melee_width(attacker_radius: float) -> float:
+    """Room along a target's edge one melee attacker takes: its width, MELEE_SPACING apart (they never pack
+    perfectly)."""
+    return 2 * attacker_radius * MELEE_SPACING
+
+
+def hit_ring(target: Unit, attacker_radius: float, attacker_range: float) -> float:
+    """How far from `target`'s center a melee attacker stands to hit it: SC2 measures range edge to edge
+    (both radii), and it stands about half its range in."""
+    return target.radius + attacker_radius + min(attacker_range, MELEE_RANGE) / 2
+
+
+def melee_share(attacker: Unit, target: Unit) -> float:
+    """The angle (radians) of the way round `target` one melee attacker like this takes. Attackers of
+    different sizes share a target by angle: a big one stands further out and takes more of it."""
+    return melee_width(attacker.radius) / hit_ring(target, attacker.radius, attacker.ground_range)
+
+
+def spot_key(p: Point2) -> tuple[float, float]:
+    """An attack spot as a key (`TargetSlots.cells_taken`): spots taken this step aren't handed out again."""
+    return round(p.x, 2), round(p.y, 2)
 
 
 def attack_capacity(attacker: Unit, target: Unit) -> int | None:
@@ -62,7 +88,7 @@ def attack_capacity(attacker: Unit, target: Unit) -> int | None:
     # move and get surrounded) from all sides
     fraction = MELEE_SURROUND_FRACTION if target.is_structure else MELEE_UNIT_SURROUND_FRACTION
     ring = 2 * math.pi * (target.radius + attacker.radius) * fraction
-    return max(1, int(ring // (2 * attacker.radius * MELEE_SPACING)))
+    return max(1, int(ring // melee_width(attacker.radius)))
 
 
 class Assignments:
@@ -70,22 +96,40 @@ class Assignments:
     fresh every step, so without this an attacker walking around others (a move order, no target to
     read back) re-picked from scratch, found its slot taken and switched, back and forth. Each step
     (`start`), every attacker that picked a target last step has its slot reserved until it's handled;
-    newcomers only get slots that are actually free."""
+    newcomers only get slots that are actually free.
+
+    Room is kept as angle round each target (`melee_share`), so attackers of different sizes share it:
+    a target with room for 7 zerglings has room for fewer big ones.
+
+    A slot held by an attacker still far from its target (more than SLOT_HOLD_GAP, stuck behind others)
+    goes to a closer one that wants it (`TargetSlots.take`): a zergling stuck 5 tiles behind the bays
+    held a bunker slot for seconds while the ones next to it worked the bays."""
 
     def __init__(self) -> None:
         self.target: dict[int, int] = {}  # attacker tag -> target tag
         self.picked_at: dict[int, float] = {}  # attacker tag -> when it last picked
-        self.reserved: dict[int, int] = {}  # target tag -> reservations not yet handled this step
+        self.share: dict[int, float] = {}  # attacker tag -> its share of its target (`melee_share`)
+        self.reserved: dict[int, float] = {}  # target tag -> shares reserved, not yet handled this step
+        self.used: dict[int, float] = {}  # target tag -> shares taken this step (`TargetSlots.take`)
         self.handled: set[int] = set()  # attackers handled this step (their reservation released)
+        self.gap: dict[int, float] = {}  # attacker tag -> how far from its target (edge to edge) when it picked
+        self.taken_over = 0  # slots given to a closer attacker (`TargetSlots.take`), for the debug log
+        self.now = 0.0
+        self.recent = 0.5
+        self.deferred: set[int] = set()  # targets not attacked head on for now (a widening plan, `Army`)
 
     def start(self, now: float, alive: set[int], recent: float = 0.5) -> None:
         """New step: forget dead attackers; reserve the targets of those that picked one recently."""
         self.target = {a: t for a, t in self.target.items() if a in alive}
         self.picked_at = {a: w for a, w in self.picked_at.items() if a in self.target}
+        self.share = {a: s for a, s in self.share.items() if a in self.target}
+        self.gap = {a: g for a, g in self.gap.items() if a in self.target}
+        self.now, self.recent = now, recent
         self.reserved = {}
+        self.used = {}
         for attacker, target in self.target.items():
             if now - self.picked_at.get(attacker, -99) <= recent:
-                self.reserved[target] = self.reserved.get(target, 0) + 1
+                self.reserved[target] = self.reserved.get(target, 0.0) + self.share.get(attacker, 0.0)
         self.handled = set()
 
     def release(self, attacker: Unit) -> None:
@@ -94,12 +138,48 @@ class Assignments:
             return
         self.handled.add(attacker.tag)
         target = self.target.get(attacker.tag)
-        if target is not None and self.reserved.get(target, 0) > 0 and target in self.reserved:
-            self.reserved[target] -= 1
+        if target is not None and target in self.reserved:
+            self.reserved[target] = max(0.0, self.reserved[target] - self.share.get(attacker.tag, 0.0))
 
     def assign(self, attacker: Unit, target: Unit, now: float) -> None:
         self.target[attacker.tag] = target.tag
         self.picked_at[attacker.tag] = now
+        self.share[attacker.tag] = melee_share(attacker, target)
+        self.gap[attacker.tag] = edge_gap(attacker, target)
+
+    def holds(self, attacker: int, target: int) -> bool:
+        """Whether `attacker` counts against `target`'s room this step (took it, or holds it from last step)."""
+        if self.target.get(attacker) != target:
+            return False
+        picked = self.picked_at.get(attacker, -99)
+        return picked == self.now if attacker in self.handled else self.now - picked <= self.recent
+
+    def far_holder(self, attacker: Unit, target: Unit) -> int | None:
+        """The attacker holding a slot on `target` from furthest away, if it's further than SLOT_HOLD_GAP
+        and SLOT_TAKE_OVER_MARGIN further than `attacker`: that slot is better used by `attacker`."""
+        own = edge_gap(attacker, target)
+        far = [
+            (g, a)
+            for a, g in self.gap.items()
+            if a != attacker.tag and g > SLOT_HOLD_GAP and g > own + SLOT_TAKE_OVER_MARGIN and self.holds(a, target.tag)
+        ]
+        return max(far)[1] if far else None
+
+    def drop(self, attacker: int, target: int) -> None:
+        """Take `attacker`'s slot on `target` away (a closer attacker gets it); it picks again when handled."""
+        share = self.share.get(attacker, 0.0)
+        if attacker in self.handled:
+            self.used[target] = max(0.0, self.used.get(target, 0.0) - share)
+        else:
+            self.reserved[target] = max(0.0, self.reserved.get(target, 0.0) - share)
+        del self.target[attacker]
+        self.picked_at.pop(attacker, None)
+        self.taken_over += 1
+
+
+def edge_gap(attacker: Unit, target: Unit) -> float:
+    """How far `attacker` is from `target`, edge to edge."""
+    return attacker.position.distance_to(target.position) - attacker.radius - target.radius
 
 
 class TargetSlots:
@@ -110,8 +190,8 @@ class TargetSlots:
         reach: ReachMap | None = None,
         caps: dict[int, int] | None = None,
         taken: dict[int, int] | None = None,
-        settled: dict[int, int | None] | None = None,
-        cells: set[tuple[int, int]] | None = None,
+        settled: dict[tuple[int, float], int | None] | None = None,
+        cells: set[tuple[float, float]] | None = None,
         assignments: Assignments | None = None,
     ) -> None:
         # Attackers per target tag. Pass one dict to every squad in a step, so squads fighting
@@ -119,44 +199,71 @@ class TargetSlots:
         self.taken: dict[int, int] = {} if taken is None else taken
         self.reach = reach
         self.caps = caps or {}  # target tag -> attackers, overriding the space rule (breaches)
-        # Target tag -> its capacity this step, shared like `taken`: the first squad to work it out
-        # settles it (squads' reach maps cover different areas and can disagree by a cell or two)
-        self.settled: dict[int, int | None] = {} if settled is None else settled
+        # (target tag, attacker radius) -> its capacity this step, shared like `taken`: the first squad to
+        # work it out settles it (squads' reach maps cover different areas and can disagree by a spot or two)
+        self.settled: dict[tuple[int, float], int | None] = {} if settled is None else settled
         self.strike: set[int] = set()  # enemy tags this attacker's strike goes for (no distance limit)
-        # Structure tag -> the safe cells (outside every enemy's reach) to hit it from (`Army` fills it per
-        # zergling); its capacity is that many. Cells taken this step are shared like `taken`
-        self.safe_cells: dict[int, list[tuple[int, int]]] = {}
-        self.cells_taken: set[tuple[int, int]] = set() if cells is None else cells
+        # Structure tag -> the safe spots (outside every enemy's reach) to hit it from (`Army` fills it per
+        # zergling); its capacity is that many. Spots taken this step (`spot_key`) are shared like `taken`
+        self.safe_cells: dict[int, list[Point2]] = {}
+        self.cells_taken: set[tuple[float, float]] = set() if cells is None else cells
+        # Structure tag -> its "conditionally free" spots: in reach only of enemies already busy with our
+        # attackers (`army.covered_work`); its capacity is that many
+        self.covered: dict[int, list[Point2]] = {}
         self.assignments = assignments if assignments is not None else Assignments()
 
     def capacity(self, attacker: Unit, target: Unit) -> int | None:
         """How many attackers like `attacker` `target` takes at once (None: no limit)."""
         if target.tag in self.caps:
             return self.caps[target.tag]
-        if target.tag in self.safe_cells:
-            capacity = attack_capacity(attacker, target)
-            cells = len(self.safe_cells[target.tag])
-            return cells if capacity is None else min(capacity, cells)
-        if target.tag in self.settled:
-            return self.settled[target.tag]
+        for spots in (self.safe_cells, self.covered):
+            if target.tag in spots:
+                capacity = attack_capacity(attacker, target)
+                return len(spots[target.tag]) if capacity is None else min(capacity, len(spots[target.tag]))
+        key = (target.tag, round(attacker.radius, 3))
+        if key in self.settled:
+            return self.settled[key]
         capacity = attack_capacity(attacker, target)
-        if capacity is not None and self.reach is not None and not target.is_structure and not target.is_memory:
-            # A unit plugging a gap only has room for as many attackers as open cells touch it
-            capacity = min(capacity, max(1, self.reach.open_sides(target, attacker.radius)))
-        self.settled[target.tag] = capacity
+        if capacity is not None and self.reach is not None and not target.is_memory:
+            # Only as many attackers as fit next to it on ground we reach: a unit plugging a gap gets one
+            # or two; a building in a wall only its open faces (a bunker with one face open had 10 slots,
+            # the rest crowded behind the front row in its fire)
+            capacity = self.reach.attack_slots(target, attacker.radius, capacity, attacker.ground_range)
+        self.settled[key] = capacity
         return capacity
 
     def has_room(self, attacker: Unit, target: Unit) -> bool:
         """Room for one more, counting attackers that kept this target from last step and haven't been
-        handled yet (their slot is held for them)."""
+        handled yet (their slot is held for them). By angle round the target (`melee_share`): with one
+        attacker size that's just "fewer than capacity"; mixed sizes share the same room."""
         capacity = self.capacity(attacker, target)
         if capacity is None:
             return True
-        held = self.assignments.reserved.get(target.tag, 0)
-        return self.taken.get(target.tag, 0) + held < capacity
+        return self._fits(attacker, target, capacity) or self.assignments.far_holder(attacker, target) is not None
 
-    def take(self, target: Unit) -> None:
+    def _fits(self, attacker: Unit, target: Unit, capacity: int) -> bool:
+        share = melee_share(attacker, target)
+        held = self.assignments.reserved.get(target.tag, 0.0)
+        used = self.assignments.used.get(target.tag, 0.0)
+        return used + held + share <= capacity * share + 1e-6
+
+    def busy(self, tag: int) -> bool:
+        """Some of our attackers are on this enemy this step (or kept it from last step): it's shooting them."""
+        return self.taken.get(tag, 0) > 0 or self.assignments.reserved.get(tag, 0.0) > 0
+
+    def take(self, target: Unit, attacker: Unit) -> None:
+        capacity = self.capacity(attacker, target)
+        # Full: the slot of an attacker still far away is this closer one's (`Assignments.far_holder`)
+        if (
+            capacity is not None
+            and not self._fits(attacker, target, capacity)
+            and (far := self.assignments.far_holder(attacker, target)) is not None
+        ):
+            self.assignments.drop(far, target.tag)
+            self.taken[target.tag] = max(0, self.taken.get(target.tag, 0) - 1)
         self.taken[target.tag] = self.taken.get(target.tag, 0) + 1
+        used = self.assignments.used
+        used[target.tag] = used.get(target.tag, 0.0) + melee_share(attacker, target)
 
     def pick(self, attacker: Unit, candidates: list[Unit], depth_from: Point2 | None = None) -> Unit:
         """Which candidate this attacker should go for.
@@ -182,7 +289,7 @@ class TargetSlots:
             choice = next((e for e in deepest if self.has_room(attacker, e)), by_distance[0])
         else:
             choice = next((e for e in by_distance if self.has_room(attacker, e)), by_distance[0])
-        self.take(choice)
+        self.take(choice, attacker)
         return choice
 
 
@@ -274,7 +381,7 @@ def pick_tiered(
     ):
         # Stick with it, but only while it's in the best tier we can reach: a zergling breaking
         # through a gateway switches back to the units as soon as one is reachable
-        slots.take(current)
+        slots.take(current, attacker)
         slots.assignments.assign(attacker, current, now)
         return current, False
     for tier, back in tiers:
@@ -286,14 +393,14 @@ def pick_tiered(
         else:
             ordered = reachable  # already in the caller's preferred order
         if choice := next((e for e in ordered if slots.has_room(attacker, e)), None):
-            slots.take(choice)
+            slots.take(choice, attacker)
             slots.assignments.assign(attacker, choice, now)
             return choice, False
     # Everything reachable is full: the closest reachable one in the best tier that has any
     for tier, _ in tiers:
         if reachable := blocks.reachable(attacker, tier, now):
             choice = min(reachable, key=lambda e: e.position.distance_to(attacker.position))
-            slots.take(choice)
+            slots.take(choice, attacker)
             slots.assignments.assign(attacker, choice, now)
             return choice, False
     # Blocked from everything: go around the closest
@@ -418,9 +525,15 @@ class ReachMap:
         # Danger (cells some armed enemy can hit), set per step by `set_danger`; safe cells as areas
         self.danger = np.zeros_like(walkable, dtype=bool)
         self.danger_stamp: float | None = None
+        self.danger_zones: list[tuple[Point2, float]] = []  # as given to `set_danger`
+        # Work derived from this step's enemy positions (e.g. `army.covered_work`'s covering enemies per
+        # spot), cleared with each new danger stamp: computed once per step, not once per zergling
+        self.step_cache: dict[tuple, object] = {}
         self.safe_labels = np.zeros(walkable.shape, dtype=np.int32)
         self._safe_graph = None
         self._safe_fields: dict[tuple[int, int], np.ndarray] = {}
+        self._breach_fields: dict[tuple[int, int], np.ndarray] = {}
+        self._spots: dict[tuple, list[Point2]] = {}  # see `attack_spots`
         self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
@@ -444,6 +557,62 @@ class ReachMap:
             return abs(self.height(Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5))) - level) < LEVEL_TOLERANCE
 
         return [c for c in ring if self.walkable[c] and self.reached[c] and same_level(c)]
+
+    def attack_spots(
+        self, target: Unit, attacker_radius: float, attacker_range: float = 0.1, reached: bool = True
+    ) -> list[Point2]:
+        """Where melee attackers this size stand to hit `target`, packed along its edge: points on the
+        circle they hit it from (`hit_ring`) on walkable ground on its level (and reached by us, unless
+        `reached` is False), `melee_width` apart along it. Not whole tiles: zerglings are 0.75 wide, so a
+        3-tile face fits more than 3; a building in a wall gets only its open faces; big attackers get
+        fewer, wider spots."""
+        key = (target.tag, round(attacker_radius, 3), round(min(attacker_range, MELEE_RANGE), 3), reached)
+        if key in self._spots:
+            return self._spots[key]
+        ring = hit_ring(target, attacker_radius, attacker_range)
+        n = max(16, int(2 * math.pi * ring / SPOT_STEP))
+        arc = 2 * math.pi * ring / n  # between samples
+        # All samples at once (hundreds per target, and maps are rebuilt often)
+        angles = 2 * np.pi * np.arange(n) / n
+        xs = target.position.x + ring * np.cos(angles)
+        ys = target.position.y + ring * np.sin(angles)
+        cx = np.floor(xs).astype(int) - self.x0
+        cy = np.floor(ys).astype(int) - self.y0
+        w, h = self.walkable.shape
+        valid = (cx >= 0) & (cx < w) & (cy >= 0) & (cy < h)
+        inside = np.nonzero(valid)[0]
+        open_ground = self.walkable if not reached else self.walkable & self.reached
+        valid[inside] = open_ground[cx[inside], cy[inside]]
+        if self.height:
+            # On the target's level, by tile (terrain height is per tile)
+            level = self.height(target.position)
+            for c in {(int(cx[i]), int(cy[i])) for i in np.nonzero(valid)[0]}:
+                if abs(self.height(self.point(c)) - level) >= LEVEL_TOLERANCE:
+                    valid[(cx == c[0]) & (cy == c[1])] = False
+
+        def at(i: int) -> Point2:
+            return Point2((float(xs[i]), float(ys[i])))
+
+        spots: list[Point2] = []
+        if valid.all():
+            # Open all round: as many as fit, evenly spaced
+            k = max(1, int(2 * math.pi * ring // melee_width(attacker_radius)))
+            spots = [at(int(i * n / k)) for i in range(k)]
+        elif valid.any():
+            # Greedy, one spot every `melee_width` of arc, starting where an open stretch begins, so each
+            # stretch is packed from its end
+            start = int(np.nonzero(valid & ~np.roll(valid, 1))[0][0])
+            gap = math.ceil(melee_width(attacker_radius) / arc - 1e-9)
+            first = last = None
+            for k in np.sort((np.nonzero(valid)[0] - start) % n).tolist():
+                if last is None or k - last >= gap:
+                    spots.append(at((start + k) % n))
+                    first = k if first is None else first
+                    last = k
+            if len(spots) > 1 and n - last + first < gap:
+                spots.pop()  # the last one would crowd the first, round the back
+        self._spots[key] = spots
+        return spots
 
     def plugs(self, units: list[Unit], targets: list[Unit]) -> set[int]:
         """Of `units`, the ones blocking our way to some of `targets` (killing it would connect us to
@@ -487,6 +656,8 @@ class ReachMap:
         if self.danger_stamp == stamp:
             return
         self.danger_stamp = stamp
+        self.danger_zones = zones
+        self.step_cache = {}
         w, h = self.walkable.shape
         xs = np.arange(w) + self.x0 + 0.5
         ys = np.arange(h) + self.y0 + 0.5
@@ -498,31 +669,70 @@ class ReachMap:
         self.safe_labels, _ = label(self.walkable & ~danger, structure=np.ones((3, 3), dtype=bool))
         self._safe_graph = None
         self._safe_fields = {}
+        self._breach_fields = {}
 
     def safe_area(self, p: Point2) -> int:
         """Which connected patch of safe ground `p` is on (0: in danger, blocked or off the map)."""
         c = self.cell(p)
         return 0 if c is None else int(self.safe_labels[c])
 
-    def safe_attack_cells(self, target: Unit, attacker_radius: float, area: int) -> list[tuple[int, int]]:
-        """Cells next to `target` (close enough to hit it) outside every enemy's reach, in safe `area`."""
+    def safe_attack_spots(
+        self, target: Unit, attacker_radius: float, area: int, attacker_range: float = 0.1
+    ) -> list[Point2]:
+        """`attack_spots` outside every enemy's reach, in safe `area`."""
         if not area:
             return []
         return [
-            c
-            for c in self._ring(target, attacker_radius)
-            if self.safe_labels[c] == area
-            and self.point(c).distance_to(target.position) - target.radius - attacker_radius <= ATTACK_CELL_SLACK
+            p
+            for p in self.attack_spots(target, attacker_radius, attacker_range)
+            if self.safe_labels[self.cell(p)] == area and not self.in_danger(p)
         ]
 
-    def safe_cell_count(self, target: Unit, attacker_radius: float) -> int:
-        """How many cells next to `target` (close enough to hit it) are outside every enemy's reach."""
-        return sum(
-            1
-            for c in self._ring(target, attacker_radius)
-            if not self.danger[c]
-            and self.point(c).distance_to(target.position) - target.radius - attacker_radius <= ATTACK_CELL_SLACK
-        )
+    def in_danger(self, p: Point2) -> bool:
+        """`p` itself inside a danger zone (`set_danger`): a spot can sit in a safe tile's corner and still
+        be in reach."""
+        return any(p.distance_to(center) <= radius for center, radius in self.danger_zones)
+
+    def attack_slots(self, target: Unit, attacker_radius: float, ring: int, attacker_range: float = 0.1) -> int:
+        """How many attackers fit next to `target` from the ground we reach: a unit by its open sides, a
+        building by its `attack_spots` (up to a full ring around it, not `ring`'s one-sided guess). At
+        least 1."""
+        if target.is_structure:
+            full = max(1, int(2 * math.pi * (target.radius + attacker_radius) // melee_width(attacker_radius)))
+            return max(1, min(full, len(self.attack_spots(target, attacker_radius, attacker_range))))
+        return max(1, min(ring, self.open_sides(target, attacker_radius)))
+
+    def breach_step(self, goal: tuple[int, int], position: Point2, lookahead: int = 4) -> Point2 | None:
+        """Where to move next to reach cell `goal` (next to a breach target) with the least time in danger:
+        danger cells cost BREACH_DANGER_COST times a normal step (except the last couple of tiles, the
+        breach's own cost), so the way goes around their reach where it can, gets out of it the quickest
+        way from inside, and crosses it the shortest way when it must. None if `goal` can't be walked to."""
+        if goal not in self._breach_fields:
+            w, h = self.walkable.shape
+            gx, gy = np.meshgrid(np.arange(w), np.arange(h), indexing="ij")
+            near_goal = (gx - goal[0]) ** 2 + (gy - goal[1]) ** 2 <= 2.5**2
+            cost = np.where(self.danger & ~near_goal, BREACH_DANGER_COST, 1.0)
+            dist = dijkstra(self._build_graph(self.walkable, cost), directed=False, indices=goal[0] * h + goal[1])
+            self._breach_fields[goal] = dist.reshape(self.walkable.shape)
+        field = self._breach_fields[goal]
+        here_cell = self.cell(position)
+        if here_cell is None or not np.isfinite(field[here_cell]):
+            return None
+        cx, cy = here_cell
+        here = field[cx, cy]
+        for _ in range(lookahead):
+            if here == 0:
+                break
+            options = [n for n in self._neighbors(cx, cy) if field[n] < here]
+            if not options:
+                break
+            cx, cy = min(options, key=lambda n: field[n])
+            here = field[cx, cy]
+        return self.point((cx, cy))
+
+    def safe_spot_count(self, target: Unit, attacker_radius: float, attacker_range: float = 0.1) -> int:
+        """How many of `target`'s `attack_spots` are outside every enemy's reach."""
+        return sum(1 for p in self.attack_spots(target, attacker_radius, attacker_range) if not self.in_danger(p))
 
     def safe_step(self, goal: tuple[int, int], position: Point2, lookahead: int = 4) -> Point2 | None:
         """Where to move next to reach cell `goal` without entering danger. None if there's no such way."""
@@ -553,7 +763,7 @@ class ReachMap:
             self._graph = self._build_graph(self.walkable)
         return self._graph
 
-    def _build_graph(self, walk: np.ndarray):
+    def _build_graph(self, walk: np.ndarray, cost: np.ndarray | None = None):
         """Cells where `walk` is True as a graph: 8 neighbors; a diagonal step between two blocked cells
         only if neither is blocked by an enemy unit (`_squeezed`)."""
         ub = self.unit_blocked
@@ -574,7 +784,10 @@ class ReachMap:
                 ok &= walk[a] | walk[b] | ~(ub[a] | ub[b])
             rows.append(index[src][ok])
             cols.append(index[dst][ok])
-            weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
+            step = np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0)
+            if cost is not None:
+                step = step * (cost[src][ok] + cost[dst][ok]) / 2  # per-cell cost (danger) on both ends
+            weights.append(step)
         return coo_matrix(
             (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
         ).tocsr()
@@ -695,11 +908,13 @@ class ReachMap:
             self._open[target.tag] = len(self._ring(target, attacker_radius))
         return self._open[target.tag]
 
-    def breaches(self, structures: list[Unit], targets: list[Unit]) -> dict[int, tuple[int, list[Unit]]]:
+    def breaches(
+        self, structures: list[Unit], targets: list[Unit], attacker_radius: float = 0.375, attacker_range: float = 0.1
+    ) -> dict[int, tuple[int, list[Unit]]]:
         """Structures whose death opens a way to enemy units we can't get to now: the ones bordering
         both the ground our attackers reach and a sealed-off patch with some of `targets` in it (e.g.
-        the back row of a gateway block with stalkers behind it). Per structure: how many reached
-        cells border it (attackers that can hit it at once) and the targets it opens up."""
+        the back row of a gateway block with stalkers behind it). Per structure: how many attackers this
+        size can hit it at once (its `attack_spots`) and the targets it opens up."""
         regions, _ = label(self.walkable, structure=np.ones((3, 3), dtype=bool))
         reached = set(np.unique(regions[self.reached & self.walkable]).tolist()) - {0}
         behind: dict[int, list[Unit]] = {}  # sealed-off region -> targets in it
@@ -720,9 +935,9 @@ class ReachMap:
             touching = {int(regions[c]) for c in border}
             opened = [t for region in touching & behind.keys() for t in behind[region]]
             if opened and touching & reached:
-                cells = [c for c in border if self.reached[c] and regions[c] in reached]
-                self.attack_cells[s.tag] = [Point2((c[0] + self.x0 + 0.5, c[1] + self.y0 + 0.5)) for c in cells]
-                found[s.tag] = (max(1, len(cells)), opened)
+                spots = self.attack_spots(s, attacker_radius, attacker_range)
+                self.attack_cells[s.tag] = spots
+                found[s.tag] = (max(1, len(spots)), opened)
         return found
 
     def reachable(self, target: Unit) -> bool:

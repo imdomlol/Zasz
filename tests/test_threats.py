@@ -34,3 +34,13 @@ def test_other_units_and_structures_are_read_as_they_are():
     marine = enemy(UnitTypeId.MARINE, can_attack_ground=True, ground_range=5.0, radius=0.375, dps=9.8)
     assert not armed(bay) and weapon_range(bay) == 0
     assert armed(marine) and weapon_range(marine) == 5.0 and dps_vs(marine, None) == 9.8
+
+
+def test_duel_zerglings_against_the_marines_out_of_a_bunker():
+    from bot.army import duel
+
+    # 4 marines (45 hp, ~9.8 dps) out of a dead bunker: 8 zerglings win with some left, 2 lose
+    left, marines = duel(8, 35, 10.0, 4)
+    assert marines == 0 and 1 <= left < 8
+    left, marines = duel(2, 35, 10.0, 4)
+    assert left == 0 and marines > 0

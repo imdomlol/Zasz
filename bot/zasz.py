@@ -99,6 +99,7 @@ class ZaszBot(AresBot):
     async def on_unit_destroyed(self, unit_tag: int) -> None:
         await super().on_unit_destroyed(unit_tag)
         self.damage.on_unit_destroyed(unit_tag)
+        self.army.on_death(self, unit_tag)
 
     async def on_building_construction_started(self, unit: Unit) -> None:
         await super().on_building_construction_started(unit)
