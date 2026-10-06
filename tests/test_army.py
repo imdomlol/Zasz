@@ -128,3 +128,30 @@ def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
     del army.book.squads[dead.id]  # all its zerglings died (or it was merged into another squad)
     army.send_squad_scout(ai, other)
     assert other.job == "scout"
+
+
+# --- diagnostics (CODE_REVIEW.md 01, 23) ---
+
+
+def test_normal_games_dont_keep_debug_counts_or_timings():
+    from bot.army import COUNTS
+
+    army = Army()
+    army._control = lambda ai, attacking: COUNTS.update({"a decision": 1})
+    try:
+        army.control(None, False)
+        assert army.step_ms == [] and not COUNTS
+        army.debug = True
+        army.control(None, False)
+        assert len(army.step_ms) == 1 and COUNTS["a decision"] == 1
+    finally:
+        COUNTS.clear()
+
+
+def test_a_new_game_starts_with_no_counts_left():
+    from bot.army import COUNTS, REACH_DUMPED
+
+    COUNTS["from an earlier game"] += 1
+    REACH_DUMPED.add(3)
+    Army()
+    assert not COUNTS and not REACH_DUMPED

@@ -244,6 +244,11 @@ class Army:
         self.step_ms: list[float] = []  # army time per step (ms), logged and reset with the debug counts
         self.route_ms: list[float] = []  # time spent on route checks (ms), same
         self.counts = COUNTS
+        # A new game starts with no counts or reach dumps left from an earlier one in this process
+        # (`benchmark.py --jobs 1` plays its games in one process)
+        COUNTS.clear()
+        REACH_DUMPED.clear()
+        self.diagnostics = False  # debug or the overlay is on this step: build what only they read
         self.counts_logged_at = 0.0
         self.helps: list[tuple[float, int, int]] = []  # (time, helper squad, helped squad), for scenarios
         # Committed: attack and keep fighting whatever the combat sim says (no avoid areas, no
@@ -373,14 +378,18 @@ class Army:
         try:
             self._control(ai, attacking)
         finally:
-            spent = time.perf_counter() - started
-            self.step_ms.append(spent * 1000)
+            if self.debug:
+                self.step_ms.append((time.perf_counter() - started) * 1000)
+            else:
+                # Nothing reads the counts without debug (`log_debug`): don't let them pile up all game
+                self.counts.clear()
 
     def _control(self, ai: AresBot, attacking: bool) -> None:
         """Every squad does its job (`bot.squads`): defend if enemies are at our bases; otherwise
         raid enemy sites while attacking, help squads in fights they'd lose, and patrol (scout)
         the rest of the time."""
         alive = {u.tag for u in ai.units}
+        self.diagnostics = self.debug or overlay.enabled()
         self.clear_empty_avoid_areas(ai)
         self.breach_kept = {t: when for t, when in self.breach_kept.items() if ai.time - when < BREACH_KEEP_SECONDS}
         self.remember_shooters(ai)
@@ -845,7 +854,8 @@ class Army:
                 ]
             self.routes = RouteMap(ai.mediator.get_ground_grid, zones)
             self.routes_at = ai.time
-            self.route_ms.append((time.perf_counter() - started) * 1000)
+            if self.debug:
+                self.route_ms.append((time.perf_counter() - started) * 1000)
         return self.routes
 
     def route_ok(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:
@@ -855,7 +865,8 @@ class Army:
         routes = self.route_map(ai, units)
         started = time.perf_counter()
         ok = routes.reaches(center_of(units), spot)
-        self.route_ms.append((time.perf_counter() - started) * 1000)
+        if self.debug:
+            self.route_ms.append((time.perf_counter() - started) * 1000)
         return ok
 
     def dangerous_for(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:
@@ -1201,7 +1212,7 @@ class Army:
             )
             slots.strike = strike.targets
             for unit in front_first(units, group):
-                fight(ai, unit, group, group + nearby, slots, center, self.blocks, self.detours)
+                fight(ai, unit, group, group + nearby, slots, center, self.blocks, self.detours, self.diagnostics)
                 note([unit], f"strike | {UNIT_NOTES.get(unit.tag, '')}")
 
     def avoid_armies_we_cannot_beat(self, ai: AresBot, lings: list[Unit]) -> None:
@@ -1417,7 +1428,17 @@ class Army:
                 )
                 busy = 0
                 for unit in front_first(units, enemies):
-                    busy += fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
+                    busy += fight(
+                        ai,
+                        unit,
+                        threats,
+                        enemies,
+                        slots,
+                        squad.squad_position,
+                        self.blocks,
+                        self.detours,
+                        self.diagnostics,
+                    )
                 refused = [t for t in threats if t.tag in CHOKE_NOTES and not CHOKE_NOTES[t.tag][2]]
                 if not busy and not (near_home or self.committed):
                     # Every zergling came up empty: the targets are choke fights not worth their cost,
@@ -1440,7 +1461,17 @@ class Army:
                     reach, taken=self.taken, settled=self.settled, cells=self.cells_taken, assignments=self.assignments
                 )
                 for unit in front_first(units, enemies):
-                    fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
+                    fight(
+                        ai,
+                        unit,
+                        threats,
+                        enemies,
+                        slots,
+                        squad.squad_position,
+                        self.blocks,
+                        self.detours,
+                        self.diagnostics,
+                    )
             else:
                 # Just out of their reach, not home: from there it waits for help or patrols on
                 # (and isn't an avoid area: one squad losing isn't the army losing)
@@ -1458,7 +1489,8 @@ class Army:
             routes = self.route_map(ai, units)
             started = time.perf_counter()
             step = routes.waypoint(squad.squad_position, target)
-            self.route_ms.append((time.perf_counter() - started) * 1000)
+            if self.debug:
+                self.route_ms.append((time.perf_counter() - started) * 1000)
             if step is not None and step.distance_to(target) > 3:
                 target = step
 
@@ -1486,7 +1518,17 @@ class Army:
         for unit in front_first(units, enemies):
             if advancing:
                 if threats or any(e.is_structure for e in enemies):
-                    fight(ai, unit, threats, enemies, slots, squad.squad_position, self.blocks, self.detours)
+                    fight(
+                        ai,
+                        unit,
+                        threats,
+                        enemies,
+                        slots,
+                        squad.squad_position,
+                        self.blocks,
+                        self.detours,
+                        self.diagnostics,
+                    )
                 else:
                     # Follow ares' path around known enemy fire all the way in (an attack-move for the last
                     # stretch walked straight through it). Enemies on the way are handled as fights: one
@@ -1977,6 +2019,7 @@ def fight(
     squad_position: Point2,
     blocks: BlockTracker,
     detours: Detours,
+    diagnostics: bool = False,
 ) -> bool:
     """Target choice for one zergling, in priority tiers; it takes the best-tier target that still
     has room (`TargetSlots`: melee attackers per target are capped by the space around it):
@@ -2184,7 +2227,7 @@ def fight(
         crowd = [u for u in ai.units if u.tag != unit.tag and u.type_id in ARMY_TYPES and u.distance_to(unit) < 8]
         if not goal.is_structure and not goal.is_memory and detours.plan(ai, unit, goal, crowd, now):
             COUNTS["detour planned"] += 1
-            return fight(ai, unit, threats, enemies, slots, squad_position, blocks, detours)
+            return fight(ai, unit, threats, enemies, slots, squad_position, blocks, detours, diagnostics)
         COUNTS["blocked, repick"] += 1
         goal, flank = pick_tiered(slots, blocks, unit, tiers, None, now)
     if flank:
@@ -2198,7 +2241,8 @@ def fight(
         if unit.target_in_range(goal, 0.25):
             COUNTS["unit in range"] += 1
     COUNTS[category] += 1
-    unsafe = not ai.mediator.is_position_safe(grid=ai.mediator.get_ground_grid, position=position)
+    # Only for the debug counts and the overlay's note: nothing decides on it
+    unsafe = diagnostics and not ai.mediator.is_position_safe(grid=ai.mediator.get_ground_grid, position=position)
     if unsafe:
         COUNTS[f"UNSAFE {category}"] += 1
     if goal in dive:
