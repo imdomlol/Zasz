@@ -78,3 +78,17 @@ def test_back_off_stops_cleanly_when_no_armed_threats_remain():
     back_off(SimpleNamespace(), [ling], [], None)
 
     assert stopped == [True]
+
+
+def test_a_unit_type_the_game_puts_no_price_on_costs_nothing_instead_of_crashing():
+    from bot.army import production_cost
+
+    def calculate_cost(type_id):
+        if type_id == UnitTypeId.ZERGLINGBURROWED:  # no creation ability: python-sc2 raises
+            raise AttributeError("'NoneType' object has no attribute 'exact_id'")
+        return SimpleNamespace(minerals=50, vespene=25)
+
+    ai = SimpleNamespace(calculate_cost=calculate_cost)
+    assert production_cost(ai, UnitTypeId.ZERGLINGBURROWED) is None
+    assert production_cost(ai, UnitTypeId.BROODLING) is None  # in ares' list: not even asked
+    assert production_cost(ai, UnitTypeId.ROACH) == 75

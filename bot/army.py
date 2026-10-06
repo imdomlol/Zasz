@@ -2375,10 +2375,9 @@ def choke_worth(
         # Only a unit that can't hit us from where it stands (a zealot) can be left alone: refusing a
         # stalker in a gap doesn't stop it shooting us
         return True
-    # Spawned/free units (notably broodlings) intentionally have no creation ability or entry in ares'
-    # cost table. They are not worth losing zerglings to in a choke, and asking python-sc2 for their
-    # production cost raises instead of returning zero.
-    if target.type_id in IGNORE_IN_COST_DICT:
+    # Units the game puts no price on (spawned ones like broodlings, burrowed forms, ...) aren't worth losing
+    # zerglings to in a choke
+    if (value := production_cost(ai, target.type_id)) is None:
         return False
     if target.tag in CHOKE_NOTES:
         return CHOKE_NOTES[target.tag][2]
@@ -2430,12 +2429,25 @@ def choke_worth(
     if target not in covering and armed(target):
         covering.append(target)
     lost = sum(dps_vs(f, unit) for f in covering) * seconds / max(unit.health_max, 1)
-    cost = ai.calculate_cost(target.type_id)
-    worth = (cost.minerals + cost.vespene) / 25  # a zergling costs 25
+    worth = value / 25  # a zergling costs 25
     taken = lost <= worth
     CHOKE_NOTES[target.tag] = (lost, worth, taken)
     COUNTS["choke: taken" if taken else "choke: not worth it"] += 1
     return taken
+
+
+def production_cost(ai: AresBot, type_id: UnitTypeId) -> int | None:
+    """Minerals + gas to make a unit of this type; None for types the game gives no production cost.
+    ares lists spawned/free units (broodlings, locusts, ...), but other types (e.g. burrowed forms) have no
+    creation ability either, and python-sc2's `calculate_cost` raises for them instead of returning zero:
+    a benchmark game against Zerg crashed on it."""
+    if type_id in IGNORE_IN_COST_DICT:
+        return None
+    try:
+        cost = ai.calculate_cost(type_id)
+    except (AttributeError, KeyError):
+        return None
+    return cost.minerals + cost.vespene
 
 
 REACH_DUMPED: set[int] = set()

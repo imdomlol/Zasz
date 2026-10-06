@@ -29,9 +29,10 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
    11, 17. Batch them; judge them by the regression rule below (same on average, not number for number). Done
    in `61c9ec6`..`9bf51ae` (13 step 1 only; 10 without the shared breach-graph structure; 18 without moving
    expiry to one pass per step).
-4. **Behavior-changing fixes, one per benchmark run** ← next — 03, 04 (needs 03), 02, 07, 20, 05, 06, 21 (after 20),
-   24, 25, then 19 (changes the efficiency metric; compare efficiency only between runs that both have it).
-5. **Structure/recordings/packaging/docs** — 22 (army.py split, last; orders must stay identical), 37–40, 41,
+4. **Behavior-changing fixes, one per benchmark run** — 03, 04 (needs 03), 02, 07, 20, 05, 06, 21 (after 20),
+   24, 25, then 19 (changes the efficiency metric; compare efficiency only between runs that both have it). Done
+   on `review-phase4-behavior` (see Phase 4 below): all kept except 20 (reverted); 06 reworked; 21 step 2 only.
+5. **Structure/recordings/packaging/docs** ← next (waits for the user) — 22 (army.py split, last; orders must stay identical), 37–40, 41,
    42, 35, 36, 27, 30, 31, 43 (docs last).
 
 ### Phase 1 (done): how runs are labelled now
