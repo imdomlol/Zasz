@@ -161,17 +161,23 @@ def wins(ai: AresBot, own: list[Unit], enemies: list[Unit], at: EngagementResult
 
 
 def needed(
-    ai: AresBot, lings: list[Unit], enemies: list[Unit], near: Point2, at: EngagementResult = FIGHT_AT
+    ai: AresBot,
+    lings: list[Unit],
+    enemies: list[Unit],
+    near: Point2,
+    at: EngagementResult = FIGHT_AT,
+    judge: Callable[[AresBot, list[Unit], list[Unit], EngagementResult], bool] = wins,
 ) -> int | None:
     """Fewest zerglings (closest to `near` first, in steps of RAID_MIN) the sim says beat
-    `enemies` (at least `at`); None if even all of them don't."""
+    `enemies` (at least `at`, by `judge`: the army passes its own, which knows tanks and bunkers); None if
+    even all of them don't."""
     ordered = sorted(lings, key=lambda u: u.position.distance_to(near))
     n = RAID_MIN
     while n < len(ordered):
-        if wins(ai, ordered[:n], enemies, at):
+        if judge(ai, ordered[:n], enemies, at):
             return n
         n += RAID_MIN
-    return len(ordered) if wins(ai, ordered, enemies, at) else None
+    return len(ordered) if judge(ai, ordered, enemies, at) else None
 
 
 @dataclass

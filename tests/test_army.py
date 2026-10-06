@@ -16,7 +16,7 @@ from sc2.position import Point2
 import bot.army
 from bot.army import Army
 from bot.settings import PLAN_SECONDS
-from fakes import marine, zergling
+from fakes import marine, unit, zergling
 
 STRONG = 10  # zerglings the stand-in combat sim needs to beat the enemy group
 
@@ -40,7 +40,7 @@ def lings(n, x=5.5, y=5.5):
 @pytest.fixture
 def enemy_group(monkeypatch):
     """One enemy marine at (20.5, 20.5), the only enemy group."""
-    enemy = marine(20.5, 20.5, type_id=UnitTypeId.MARINE, can_attack_ground=True)
+    enemy = marine(20.5, 20.5, can_attack_ground=True)
     group = SimpleNamespace(units=[enemy], center=enemy.position, spread=0.0, reach=6.0)
     monkeypatch.setattr(bot.army, "enemy_groups", lambda ai: [group])
     return enemy
@@ -224,7 +224,7 @@ def test_a_new_game_starts_with_no_counts_left():
 
 def test_avoid_areas_expire_and_take_their_reasons_with_them():
     army, ai = Army(), fake_ai(time=10.0)
-    army.turned_back(ai, [marine(20.5, 20.5, type_id=UnitTypeId.MARINE)], "army can't beat")
+    army.turned_back(ai, [marine(20.5, 20.5)], "army can't beat")
     army.mark_avoid(ai, Point2((5, 30)), 4.0, "scout needed", seconds=100)
     assert army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
     assert set(army.avoid_reasons.values()) == {"army can't beat", "scout needed"}
@@ -239,3 +239,18 @@ def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
     army.mark_avoid(ai, Point2((21, 20)), 6.0, "unseen fire")
     assert [(p, r) for p, r, _ in army.turned_back_at] == [(Point2((21, 20)), 6.0)]
     assert army.avoid_reasons == {Point2((21, 20)): "unseen fire"}
+
+
+# --- one combat estimate (CODE_REVIEW.md 21) ---
+
+
+def test_raid_sizing_knows_a_sieged_tank_we_are_on_top_of_cant_shoot():
+    from bot.army import wins
+    from bot.squads import needed
+
+    ai = fake_ai()  # the stand-in sim: 10 zerglings beat anything, fewer lose
+    tank = unit(10.5, 10.5, type_id=UnitTypeId.SIEGETANKSIEGED, radius=0.875, ground_range=13.0)
+    on_top = lings(4, 10.5, 11.0)
+    assert wins(ai, on_top, [tank])  # left out of the sim: nothing left that shoots
+    assert not wins(ai, lings(4, 30.5, 30.5), [tank])  # far away: it's in the sim
+    assert needed(ai, on_top, [tank], tank.position, judge=wins) is not None

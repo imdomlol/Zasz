@@ -5,6 +5,7 @@ Specialised fakes (a unit with a weapon cooldown, a bot with a combat sim) stay 
 
 from types import SimpleNamespace
 
+from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 _tags = iter(range(1, 1_000_000))
@@ -25,6 +26,7 @@ def unit(x=0.0, y=0.0, *, radius=0.375, ground_range=0.1, air_range=0.0, flying=
 
 
 def zergling(x=0.0, y=0.0, **extra):
+    extra.setdefault("type_id", UnitTypeId.ZERGLING)
     return unit(x, y, radius=0.375, ground_range=0.1, **extra)
 
 
@@ -37,6 +39,7 @@ def bay(x=0.0, y=0.0, **extra):
 
 
 def marine(x=0.0, y=0.0, **extra):
+    extra.setdefault("type_id", UnitTypeId.MARINE)
     return unit(x, y, radius=0.375, ground_range=5.0, **extra)
 
 

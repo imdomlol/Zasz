@@ -129,7 +129,6 @@ from bot.squads import (
     enemy_sites,
     fight_verdict,
     needed,
-    wins,
 )
 from bot.targeting import (
     Assignments,
@@ -670,8 +669,8 @@ class Army:
             if site.defenders:
                 # Enough to win comfortably (fewer just-win zerglings means more of them lost), or at
                 # least to win
-                demand = needed(ai, pool, site.defenders, site.center, HELP_WIN_AT) or needed(
-                    ai, pool, site.defenders, site.center
+                demand = needed(ai, pool, site.defenders, site.center, HELP_WIN_AT, wins) or needed(
+                    ai, pool, site.defenders, site.center, FIGHT_AT, wins
                 )
                 if demand is None:
                     # Can't staff it now: skip it this round (not an avoid area: only the whole army
@@ -1944,14 +1943,30 @@ def fight_result(
     the same enemies, strikes on them, queens there), not whoever happens to be nearby."""
     mine = {u.tag for u in units}
     own = [u for u in (others or []) if u.tag not in mine] + list(units)
+    return combat_estimate(ai, own, threats), own
+
+
+def combat_estimate(
+    ai: AresBot, own: list[Unit], threats: list[Unit], reach: ReachMap | None = None
+) -> EngagementResult:
+    """The combat sim's verdict for `own` against `threats`, corrected where it's wrong: a sieged tank we're
+    already on top of can't shoot us (`tank_neutralized`), and a bunker shoots (`through_bunkers`, its spots
+    counted on `reach` if given). Every fight, strike, raid and help judgement goes through this."""
+    if not own:
+        return EngagementResult.LOSS_EMPHATIC
     threats = [t for t in threats if not tank_neutralized(t, own)]
     if not threats:
-        return EngagementResult.VICTORY_EMPHATIC, own
+        return EngagementResult.VICTORY_EMPHATIC
     bunkers = [t for t in threats if t.type_id == UnitTypeId.BUNKER]
     melee = [u for u in own if u.type_id in ARMY_TYPES]
     if bunkers and melee:
-        return through_bunkers(ai, own, melee, bunkers, [t for t in threats if t not in bunkers]), own
-    return fight_verdict(ai, own, threats), own
+        return through_bunkers(ai, own, melee, bunkers, [t for t in threats if t not in bunkers], reach)
+    return fight_verdict(ai, own, threats)
+
+
+def wins(ai: AresBot, own: list[Unit], enemies: list[Unit], at: EngagementResult = FIGHT_AT) -> bool:
+    """Do `own` beat `enemies` (at least `at`), by `combat_estimate`."""
+    return combat_estimate(ai, own, enemies) >= at
 
 
 def through_bunkers(
@@ -2022,13 +2037,8 @@ def duel(zerglings: int, zergling_hp: float, zergling_dps: float, marines: int) 
 
 
 def strike_result(ai: AresBot, own: list[Unit], group: list[Unit], reach: ReachMap | None = None) -> EngagementResult:
-    """The sim's verdict for `own` against `group`, knowing that bunkers shoot."""
-    if not own:
-        return EngagementResult.LOSS_EMPHATIC
-    bunkers = [e for e in group if e.type_id == UnitTypeId.BUNKER]
-    if bunkers:
-        return through_bunkers(ai, own, own, bunkers, [e for e in group if e not in bunkers], reach)
-    return fight_verdict(ai, own, group)
+    """The verdict for `own` against `group` (`combat_estimate`)."""
+    return combat_estimate(ai, own, group, reach)
 
 
 def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:
