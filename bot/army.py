@@ -641,6 +641,13 @@ class Army:
         self.gathered = {
             site.center for g in self.gathered if (site := same_site(g)) is not None and site.center in raiding
         }
+        # A raid's gather clock follows its site too: an army in the field is a site whose center moves every
+        # time it shifts, and a clock keyed by the old center restarted, so the raid gathered forever
+        staging: dict[Point2, float] = {}
+        for c, since in self.staging_since.items():
+            if (site := same_site(c)) is not None:
+                staging[site.center] = min(since, staging.get(site.center, since))
+        self.staging_since = staging
         for s in squads:
             if s.job == "push":
                 s.free()  # re-planned below: joins a raid if there's one now, else pushes on
