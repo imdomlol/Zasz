@@ -141,7 +141,6 @@ def test_a_spot_being_scouted_isnt_given_to_a_second_squad(monkeypatch):
     assert second.id not in army.squad_scouts and second.job != "scout"
 
 
-@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 02: a dead or merged squad's scout plan claims its spot forever")
 def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
     army, ai = scouting_army(monkeypatch), fake_ai(expansions=[SPOT])
     dead, other = squad(army), squad(army)

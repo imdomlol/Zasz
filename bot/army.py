@@ -80,6 +80,7 @@ from bot.settings import (
     RAID_MIN,
     RAID_TOGETHER,
     RALLY_SECONDS,
+    REACH_KEEP_SECONDS,
     REACH_SECONDS,
     REGIONS_SECONDS,
     SAFE_WORK_MARGIN,
@@ -416,6 +417,10 @@ class Army:
         lings = [u for u in ai.mediator.get_units_from_role(role=UnitRole.ATTACKING) if u.type_id in ARMY_TYPES]
         busy = set(self.battles) | {s.id for s in self.book.squads.values() if s.job == "help"}
         squads = self.book.update(lings, busy)
+        # Scouting plans of squads that died or were merged away: their spot is free to scout again
+        self.squad_scouts = {i: plan for i, plan in self.squad_scouts.items() if i in self.book.squads}
+        # Area maps not used for a while: rebuilt on next use anyway (`reach_map`), so don't keep them
+        self.reach_cache = {k: v for k, v in self.reach_cache.items() if ai.time - v[0] < REACH_KEEP_SECONDS}
         self.log_debug(ai, squads)
 
         home_threats = [
@@ -808,7 +813,7 @@ class Army:
             return
         units = squad.units
         routes = self.route_map(ai, units)
-        busy = [plan[0] for plan in self.squad_scouts.values()]
+        busy = [plan[0] for i, plan in self.squad_scouts.items() if i in self.book.squads]
         speed = max(min(u.real_speed for u in units), 0.1)
         sight = min(u.sight_range for u in units)
         position = squad.squad_position

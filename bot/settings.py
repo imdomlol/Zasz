@@ -128,6 +128,7 @@ DETOUR_MAX_FACTOR = 3.0
 DETOUR_MAX_EXTRA = 20.0
 DETOUR_SECONDS = 6.0  # follow a detour at most this long
 REACH_SECONDS = 1.0  # rebuild the reachability map (which enemy units melee can get to) this often
+REACH_KEEP_SECONDS = 5.0  # an area's reach map unused this long is dropped (it would be rebuilt anyway)
 REACH_WINDOW_MARGIN = 12  # the map covers our units and nearby enemies plus this many tiles
 CLEAR_THE_WAY_RANGE = 10  # no reachable fighter: attack the closest structures within this range
 PLUG_HARM_RANGE = 2  # a unit blocking our way that can hit us from there (range >= this) is fought anyway
