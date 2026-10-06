@@ -391,3 +391,57 @@ def test_a_slot_held_from_far_away_goes_to_a_closer_attacker():
         slots.take(target, c)
         assignments.assign(c, target, 2.0)
     assert not slots.has_room(zergling(9, 0.5), target)
+
+
+def test_walking_to_an_assigned_target_keeps_the_engagement_and_counts_nothing():
+    from types import SimpleNamespace
+
+    from sc2.ids.unit_typeid import UnitTypeId
+
+    from bot.targeting import Assignments
+
+    target = bay(0.375 + 1.75 + 0.05, 0, is_memory=False, health=1000.0, shield=0.0)
+    attacker = fighter(0, cooldown=5)
+    attacker.type_id = UnitTypeId.ZERGLING
+    assignments = Assignments()
+    ai = SimpleNamespace(
+        time=0.0, all_enemy_units=[target], units=[attacker], army=SimpleNamespace(assignments=assignments)
+    )
+    tracker = DamageTracker({UnitTypeId.ZERGLING})
+
+    def step(t, order):
+        ai.time = t
+        attacker.order_target = order
+        if order is not target.tag:  # a move: the army still has it on the target
+            assignments.target[attacker.tag], assignments.picked_at[attacker.tag] = target.tag, t
+        tracker.update(ai)
+        return tracker.total.potential
+
+    for t in (0.0, 0.5, 1.0, 1.5):
+        step(t, target.tag)
+    committed = tracker.total.potential
+    assert committed > 0
+    assert step(2.0, Point2((3, 3))) == committed and step(2.5, Point2((3, 3))) == committed  # walking: nothing
+    assert step(3.0, target.tag) > committed  # back on it: counts at once, the clock didn't restart
+
+
+def test_a_move_without_an_assignment_ends_the_engagement():
+    from types import SimpleNamespace
+
+    from sc2.ids.unit_typeid import UnitTypeId
+
+    from bot.targeting import Assignments
+
+    target = bay(0.375 + 1.75 + 0.05, 0, is_memory=False, health=1000.0, shield=0.0)
+    attacker = fighter(0, cooldown=5)
+    attacker.type_id = UnitTypeId.ZERGLING
+    ai = SimpleNamespace(
+        time=0.0, all_enemy_units=[target], units=[attacker], army=SimpleNamespace(assignments=Assignments())
+    )
+    tracker = DamageTracker({UnitTypeId.ZERGLING})
+    for t in (0.0, 0.5, 1.0, 1.5):
+        ai.time, attacker.order_target = t, target.tag
+        tracker.update(ai)
+    ai.time, attacker.order_target = 2.0, Point2((3, 3))
+    tracker.update(ai)
+    assert attacker.tag not in tracker.engagements

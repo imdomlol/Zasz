@@ -13,6 +13,10 @@ Efficiency = delivered / potential. Nothing here is melee-specific: ranges come 
 own ground/air weapon, so it works the same for zerglings and for ranged or air units (mutalisks).
 Mutalisk bounce damage isn't part of `calculate_dps_vs_target`, so it isn't counted as potential.
 
+A unit walking to a spot near its target (a detour, a safe cell, around others: a move order, not an
+attack) stays engaged while the army still has it assigned to that target (`Army.assignments`, picked
+within ASSIGNED_SECONDS): those steps count for nothing, and its commitment clock keeps running.
+
 "Committed" means: the same attack target for at least COMMIT_SECONDS, the unit isn't chasing a
 moving target it can't reach yet (away or sideways), and it isn't freely walking up to it (getting
 closer at a decent fraction of its speed). So chasing a scouting worker, switching targets or
@@ -40,6 +44,7 @@ APPROACH_FRACTION = 0.3  # closing in at >= this fraction of its speed = travell
 RANGE_SLACK = 0.25  # extra range allowed when deciding "in range" (positions are approximate)
 MOVING_TARGET_SPEED = 0.5  # a target moving faster than this (per second) is being chased
 WINDOW_SECONDS = 10.0  # rolling window for `recent_efficiency`
+ASSIGNED_SECONDS = 1.0  # a unit the army picked a target for this recently is still on it while it walks
 
 
 @dataclass
@@ -98,9 +103,12 @@ class DamageTracker:
         self.last_time: float | None = None
 
     def reset(self, now: float = 0.0) -> None:
-        """Start measuring from now (e.g. when a scenario's units appear)."""
+        """Start measuring from now (e.g. when a scenario's units appear): totals, the window and every
+        engagement start afresh (enemy health is kept, to see damage dealt from here on)."""
         self.total = EfficiencyTotals(started=now)
         self.window.clear()
+        self.engagements.clear()
+        self.last_time = None
 
     @property
     def recent_efficiency(self) -> float:
@@ -128,13 +136,18 @@ class DamageTracker:
 
         potential = delivered = 0.0
         alive = set()
+        army = getattr(ai, "army", None)
+        assignments = army.assignments if army is not None else None
         for unit in ai.units:
             if unit.type_id not in self.army_types:
                 continue
             alive.add(unit.tag)
             target = visible.get(unit.order_target) if isinstance(unit.order_target, int) else None
             if target is None:
-                self.engagements.pop(unit.tag, None)
+                if (walking_to := self._assigned(assignments, unit, visible, now)) is not None:
+                    self._walking(unit, walking_to)
+                else:
+                    self.engagements.pop(unit.tag, None)
                 continue
             p, d = self._measure(unit, target, now, dt)
             potential += p
@@ -145,6 +158,24 @@ class DamageTracker:
             self.window.append((now, potential, delivered))
             while self.window and self.window[0][0] < now - WINDOW_SECONDS:
                 self.window.popleft()
+
+    @staticmethod
+    def _assigned(assignments, unit: Unit, visible: dict[int, Unit], now: float) -> Unit | None:
+        """The visible enemy the army has this unit on (picked within ASSIGNED_SECONDS), if any."""
+        if assignments is None or (tag := assignments.target.get(unit.tag)) is None:
+            return None
+        if now - assignments.picked_at.get(unit.tag, -99) > ASSIGNED_SECONDS:
+            return None
+        return visible.get(tag)
+
+    def _walking(self, unit: Unit, target: Unit) -> None:
+        """A move order on the way to its assigned target: keep its engagement (and clock), count nothing."""
+        engagement = self.engagements.get(unit.tag)
+        if engagement is None or engagement.target != target.tag:
+            self.engagements.pop(unit.tag, None)  # walking isn't committing: no clock starts here
+            return
+        engagement.distance = unit.position.distance_to(target.position)
+        engagement.target_position = target.position
 
     def _measure(self, unit: Unit, target: Unit, now: float, dt: float) -> tuple[float, float]:
         distance = unit.position.distance_to(target.position)
