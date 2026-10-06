@@ -116,10 +116,6 @@ def walled_ai():
     left, right = lings(4, 15.5, 15.5), lings(4, 24.5, 15.5)
     left_marine = marine(17.5, 15.5, is_memory=False)
     right_marine = marine(26.5, 15.5, is_memory=False)
-    ai.units = left + right
-    ai.mediator.get_units_in_range = lambda start_points, distances, query_tree: [
-        [e for e in (left_marine, right_marine) if e.position.distance_to(p) < distances] for p in start_points
-    ]
     return ai, (left, left_marine), (right, right_marine)
 
 
@@ -132,13 +128,6 @@ def test_squads_on_either_side_of_a_wall_each_reach_their_own_enemy(left_first):
     for units, own_enemy, other in order if left_first else order[::-1]:
         reach = army.reach_map(ai, units, enemies)
         assert reach.open_sides(own_enemy) > 0 and reach.open_sides(other) == 0
-
-
-def test_squads_on_the_same_side_share_an_area_map():
-    ai, (left, left_marine), _ = walled_ai()
-    army = Army()
-    first = army.reach_map(ai, left[:2], [left_marine])
-    assert army.reach_map(ai, left[2:], [left_marine]) is first
 
 
 def test_an_area_map_is_kept_while_it_covers_the_squads_enemies():

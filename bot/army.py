@@ -82,7 +82,6 @@ from bot.settings import (
     RALLY_SECONDS,
     REACH_KEEP_SECONDS,
     REACH_SECONDS,
-    REACH_SHARE_RADIUS,
     REGIONS_SECONDS,
     SAFE_WORK_MARGIN,
     SCOUTED_SECONDS,
@@ -242,8 +241,8 @@ class Army:
         self.raids_ok = True  # every raid staffed, gathered and not short of the bar (patrols allowed)
         self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
         self.detours = Detours()  # routes around our own crowd for blocked zerglings
-        # (area, walled-off region) -> (built at, map, the enemy tags it covers)
-        self.reach_cache: dict[tuple[int, int, int], tuple[float, ReachMap, frozenset[int]]] = {}
+        # (area, the squad's unit tags) -> (built at, map, the enemy tags it was built with)
+        self.reach_cache: dict[tuple, tuple[float, ReachMap, frozenset[int]]] = {}
         # Debug: count what zerglings decide, logged every few seconds (scenarios switch this on)
         self.debug = False
         self.last_note: dict[int, tuple[float, str]] = {}  # our unit -> (when, its last decision), kept
@@ -931,27 +930,16 @@ class Army:
             return any(self.can_walk_to(ai, s.position, int(s.radius) + 2) for s in site.structures)
         return self.can_walk_to(ai, site.center)
 
-    def walk_regions(self, ai: AresBot) -> tuple[np.ndarray, set[int]]:
-        """The ground grid's walkable cells labelled by connected region (minerals, rocks and buildings are
-        walls), and the regions our ground units are in; refreshed every REGIONS_SECONDS."""
+    def can_walk_to(self, ai: AresBot, spot: Point2, near: int = 3) -> bool:
+        """Is `spot` (or ground within `near` of it) in a walkable region our units are in? Minerals,
+        rocks and buildings are walls: a base behind a mineral wall isn't, until it's mined out."""
         if ai.time - self.regions_at >= REGIONS_SECONDS or self.regions is None:
             self.regions_at = ai.time
             walkable = np.isfinite(ai.mediator.get_ground_grid)
             labels, _ = label(walkable, structure=np.ones((3, 3), dtype=bool))
             ours = {int(labels[int(u.position.x), int(u.position.y)]) for u in ai.units if not u.is_flying} - {0}
             self.regions = (labels, ours)
-        return self.regions
-
-    def region_at(self, ai: AresBot, p: Point2) -> int:
-        """`walk_regions` label at `p` (0: not walkable or off the map)."""
-        labels, _ = self.walk_regions(ai)
-        x, y = int(p.x), int(p.y)
-        return int(labels[x, y]) if 0 <= x < labels.shape[0] and 0 <= y < labels.shape[1] else 0
-
-    def can_walk_to(self, ai: AresBot, spot: Point2, near: int = 3) -> bool:
-        """Is `spot` (or ground within `near` of it) in a walkable region our units are in? Minerals,
-        rocks and buildings are walls: a base behind a mineral wall isn't, until it's mined out."""
-        labels, ours = self.walk_regions(ai)
+        labels, ours = self.regions
         w, h = labels.shape
         for dx in range(-near, near + 1):
             for dy in range(-near, near + 1):
@@ -1280,33 +1268,20 @@ class Army:
                 self.turned_back(ai, group.units, "army can't beat")
 
     def reach_map(self, ai: AresBot, units: list[Unit], enemies: list[Unit]) -> ReachMap | None:
-        """Which enemy units our zerglings here can actually get to; one map per area and walled-off region
-        (`walk_regions`: squads on either side of a wall get their own, each reached from its own side),
-        rebuilt every REACH_SECONDS, or sooner if this squad's enemies aren't all in it. It's reached from
-        every zergling of ours in that region nearby and covers the enemies near all of them, so the squads
-        there share it (one map per squad doubled the builds)."""
+        """Which enemy units this squad can actually get to; rebuilt every REACH_SECONDS per area and squad
+        (the map is reached from these units: another squad in the area may be on the other side of a
+        wall), or sooner if an enemy it doesn't cover turns up. Enemies that died since stay in it (as
+        obstacles) until then."""
         ground = [e for e in enemies if not e.is_flying]
         if not ground:
             return None
         center = center_of(units)
-        region = self.region_at(ai, center)
-        key = (round(center.x / 10), round(center.y / 10), region)
+        key = (round(center.x / 10), round(center.y / 10), frozenset(u.tag for u in units))
         tags = frozenset(e.tag for e in ground)
         cached = self.reach_cache.get(key)
         if cached is None or ai.time - cached[0] >= REACH_SECONDS or not tags <= cached[2]:
-            mine = {u.tag for u in units}
-            own = list(units) + [
-                u
-                for u in ai.units
-                if u.type_id in ARMY_TYPES
-                and u.tag not in mine
-                and u.position.distance_to(center) < REACH_SHARE_RADIUS
-                and self.region_at(ai, u.position) == region
-            ]
-            near = {e.tag: e for e in enemies_near(ai, own) if not e.is_flying}
-            near.update({e.tag: e for e in ground})
-            built = ReachMap(ai.mediator.get_ground_grid, own, list(near.values()), ai.get_terrain_z_height)
-            cached = (ai.time, built, frozenset(near))
+            built = ReachMap(ai.mediator.get_ground_grid, units, ground, ai.get_terrain_z_height)
+            cached = (ai.time, built, tags)
             self.reach_cache[key] = cached
         return cached[1]
 

@@ -523,7 +523,7 @@ class ReachMap:
         self._open: dict[tuple[int, float], int] = {}  # (target, attacker radius) -> `open_sides`
         self._fields: dict[int, np.ndarray] = {}
         self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
-        self._plugs: dict[tuple[frozenset[int], frozenset[int]], set[int]] = {}  # see `plugs`
+        self._plugs: set[int] | None = None  # see `plugs`
         # breach structure tag -> the cells our attackers stand on to hit it (`breaches`)
         self.attack_cells: dict[int, list[Point2]] = {}
         self._graph = None  # walkable cells as a graph, for the approach fields (built when needed)
@@ -622,12 +622,10 @@ class ReachMap:
 
     def plugs(self, units: list[Unit], targets: list[Unit]) -> set[int]:
         """Of `units`, the ones blocking our way to some of `targets` (killing it would connect us to
-        enemies we can't reach now: `breaches` with units as the blockers). Cached with the map, per set of
-        units and targets asked about (squads sharing a map see different enemies)."""
-        key = (frozenset(u.tag for u in units), frozenset(t.tag for t in targets))
-        if key not in self._plugs:
-            self._plugs[key] = set(self.breaches(units, targets))
-        return self._plugs[key]
+        enemies we can't reach now: `breaches` with units as the blockers). Cached with the map."""
+        if self._plugs is None:
+            self._plugs = set(self.breaches(units, targets))
+        return self._plugs
 
     def _neighbors(self, cx: int, cy: int):
         w, h = self.walkable.shape
