@@ -554,7 +554,11 @@ class Army:
                 or not self.route_ok(ai, units, squad.target)
             ):
                 squad.target = self.push_target(ai, units)
-            return squad.target, True
+            if squad.target is not None:
+                return squad.target, True
+            # Nowhere left to push safely: patrol (below) until the next plan finds somewhere
+            COUNTS["push: nowhere safe"] += len(units)
+            squad.free()
         if squad.job == "help":
             battle = self.battles.get(squad.helping) or self.battles.get(squad.id)
             if battle is None:
@@ -576,12 +580,16 @@ class Army:
             # Stay out of reach of enemy groups this squad can't beat (ones it beats are fair game), and
             # don't try for spots we can't walk to (e.g. behind a mineral wall)
             groups = [g for g in enemy_groups(ai) if not wins(ai, squad.units, g.units)]
+            # ... and the way there doesn't cross their reach either (one field from here covers every spot)
+            routes = self.route_map(ai, squad.units) if squad.units else None
+            here = squad.squad_position if squad.units else None
 
             def dangerous(p: Point2) -> bool:
                 return (
                     self.blocked(ai, p)
                     or not self.can_walk_to(ai, p)
                     or any(p.distance_to(g.center) < g.spread + g.reach + STAGING_MARGIN for g in groups)
+                    or (routes is not None and not routes.reaches_from(here, p))
                 )
 
             spot = self.patrol.pick(ai.time, squad.squad_position, claimed, dangerous)
@@ -754,14 +762,18 @@ class Army:
                 COUNTS["joined a raid"] += 1
             return
         target = self.push_target(ai, [u for s in spare for u in s.units])
+        if target is None:
+            COUNTS["push: nowhere safe"] += len(spare)
+            return  # they keep patrolling
         for s in spare:
             s.job, s.site, s.helping, s.target = "push", None, None, target
         COUNTS["pushing"] += len(spare)
 
-    def push_target(self, ai: AresBot, units: list[Unit] | None = None) -> Point2:
+    def push_target(self, ai: AresBot, units: list[Unit] | None = None) -> Point2 | None:
         """Where spare squads push when nothing is known to raid: their natural, then their main, then
         the other bases, skipping places we've seen lately, avoid areas, places in reach of a group
-        `units` can't beat, and places we can't walk to."""
+        `units` can't beat, and places we can't walk to (or not without crossing such reach). None if
+        every one is skipped: walking into their main anyway is what the checks are there to stop."""
         spots = [ai.mediator.get_enemy_nat, ai.enemy_start_locations[0]]
         spots += [spot for spot, _ in ai.mediator.get_enemy_expansions]
         for spot in spots:
@@ -773,7 +785,7 @@ class Army:
             ):
                 continue
             return spot
-        return ai.enemy_start_locations[0]
+        return None
 
     def send_squad_scout(self, ai: AresBot, squad: Squad) -> None:
         """A squad held back waiting for an overlord to look at a partly seen position doesn't just wait:

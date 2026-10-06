@@ -937,6 +937,14 @@ class RouteMap:
             self._fields[c] = dist.reshape(self.shape)
         return self._fields[c]
 
+    def reaches_from(self, start: Point2, goal: Point2) -> bool:
+        """`reaches`, with the distance field built from `start` (routes go both ways): checking many
+        destinations from one place costs one field, not one per destination."""
+        field = self.field(start)
+        c = self._cell(goal)
+        c = self._nearest_open(c, 8) if c is not None else None
+        return field is not None and c is not None and bool(np.isfinite(field[c]))
+
     def distance(self, start: Point2, goal: Point2) -> float:
         """Walking distance from `start` to `goal` around the danger (inf: no route)."""
         field = self.field(goal)

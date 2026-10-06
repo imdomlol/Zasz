@@ -87,6 +87,22 @@ def test_squads_that_lose_to_the_same_groups_share_a_route_map(enemy_group):
     assert army.route_map(ai, lings(STRONG)) is not weak
 
 
+# --- pushes with nowhere safe to go (CODE_REVIEW.md 04) ---
+
+
+def test_a_push_with_nowhere_safe_to_go_has_no_target(monkeypatch):
+    army, ai = Army(), fake_ai()
+    ai.mediator.get_enemy_nat = Point2((30, 30))
+    ai.mediator.get_enemy_expansions = [(Point2((35, 5)), 0.0)]
+    ai.enemy_start_locations = [Point2((35, 35))]
+    monkeypatch.setattr(army, "can_walk_to", lambda ai, p: True)
+    monkeypatch.setattr(army, "route_ok", lambda ai, units, p: True)
+    monkeypatch.setattr(army, "dangerous_for", lambda ai, units, p: True)
+    assert army.push_target(ai, lings(4)) is None
+    monkeypatch.setattr(army, "dangerous_for", lambda ai, units, p: p == Point2((30, 30)))
+    assert army.push_target(ai, lings(4)) == Point2((35, 35))  # the main, once it's safe
+
+
 # --- squad scouts (CODE_REVIEW.md 02) ---
 
 SPOT = (30.5, 5.5)  # the one enemy expansion to look at

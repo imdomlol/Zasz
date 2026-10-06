@@ -329,3 +329,18 @@ def test_both_graph_flavours_agree_without_enemy_units_in_the_way():
     reach = ReachMap(grid, [zergling(2.5, 2.5)], [bay(15.5, 15.5, is_memory=False)], margin=20)
     assert not reach.unit_blocked.any()  # buildings only: the diagonal rule has nothing to forbid
     assert (reach._build_graph(reach.walkable) != build_graph(reach.walkable)).nnz == 0
+
+
+def test_reaches_from_one_place_agrees_with_reaches():
+    import numpy as np
+
+    from bot.targeting import RouteMap
+
+    grid = np.ones((40, 40), dtype=np.float32)
+    grid[20, :] = np.inf  # a wall across the map with one gap
+    grid[20, 35] = 1.0
+    routes = RouteMap(grid, [(Point2((20.5, 35.5)), 3.0)])  # danger sitting in the gap
+    start = Point2((5.5, 5.5))
+    for goal in [Point2((10.5, 30.5)), Point2((30.5, 5.5)), Point2((30.5, 38.5)), Point2((19.5, 20.5))]:
+        assert routes.reaches_from(start, goal) == routes.reaches(start, goal)
+    assert not routes.reaches_from(start, Point2((30.5, 5.5)))  # behind the wall, the gap in danger
