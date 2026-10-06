@@ -23,6 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 from sc2.position import Point2
 from sc2.unit import Unit
+from scipy.ndimage import label
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
 
@@ -774,10 +775,13 @@ class ReachMap:
         return cx, cy
 
     def regions(self) -> np.ndarray:
-        """Walkable cells labelled by connected area (0: not walkable), connected the way units walk:
-        past an enemy unit's corner only where `_squeezed` allows (so same area = reachable)."""
+        """Walkable cells labelled by connected area (0: not walkable), for what's sealed off behind
+        something (`breaches`, plugs, `Army.widen_plan`). Deliberately looser than the walking rule: any
+        diagonal joins, including past an enemy unit's corner. With the strict rule (as `set_danger`'s
+        safe areas use) zealots holding a ramp read as plugs sealing off the rest, and the army left
+        fights it wins (efficiency_open_army_free failed 3 runs of 3)."""
         if self._regions is None:
-            self._regions = components(self._cell_graph(), self.walkable)
+            self._regions, _ = label(self.walkable, structure=np.ones((3, 3), dtype=bool))
         return self._regions
 
     def _cell_graph(self):

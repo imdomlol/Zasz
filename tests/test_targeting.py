@@ -359,9 +359,10 @@ def test_areas_past_an_enemy_units_corner_are_separate():
     reach = ReachMap(grid, [zergling(1.5, 4.5)], [blocker, target], margin=20)
     a, b = (4, 4), (5, 5)
     assert reach.reached[a] and not reach.reached[b]
-    assert reach.regions()[a] != reach.regions()[b] and reach.regions()[b] != 0
     reach.set_danger([], 1.0)
     assert reach.safe_labels[a] != reach.safe_labels[b]
+    # What counts as sealed off (plugs, breaches) stays lenient on purpose (`ReachMap.regions`)
+    assert reach.regions()[a] == reach.regions()[b] != 0
 
 
 def test_buildings_touching_at_a_corner_still_leave_a_gap():
