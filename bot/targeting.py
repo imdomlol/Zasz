@@ -518,6 +518,7 @@ class ReachMap:
         self._safe_graph = None
         self._safe_fields: dict[tuple[int, int], np.ndarray] = {}
         self._breach_fields: dict[tuple[int, int], np.ndarray] = {}
+        self._cell_centers: list[np.ndarray] | None = None  # map x, y of every cell's center (`set_danger`)
         self._spots: dict[tuple, list[Point2]] = {}  # see `attack_spots`
         self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
@@ -640,14 +641,21 @@ class ReachMap:
         """Mark the cells within each (center, radius) zone as danger (once per `stamp`, e.g. per step)."""
         if self.danger_stamp == stamp:
             return
+        same = self.danger_stamp is not None and list(zones) == list(self.danger_zones)
         self.danger_stamp = stamp
         self.danger_zones = zones
         self.step_cache = {}
-        w, h = self.walkable.shape
-        xs = np.arange(w) + self.x0 + 0.5
-        ys = np.arange(h) + self.y0 + 0.5
-        gx, gy = np.meshgrid(xs, ys, indexing="ij")
-        danger = np.zeros((w, h), dtype=bool)
+        if same:
+            # Nobody moved (a held wall, a sieged tank): the danger, safe areas and the fields built on them
+            # are still right
+            return
+        if self._cell_centers is None:
+            w, h = self.walkable.shape
+            xs = np.arange(w) + self.x0 + 0.5
+            ys = np.arange(h) + self.y0 + 0.5
+            self._cell_centers = np.meshgrid(xs, ys, indexing="ij")
+        gx, gy = self._cell_centers
+        danger = np.zeros(self.walkable.shape, dtype=bool)
         for center, radius in zones:
             danger |= (gx - center.x) ** 2 + (gy - center.y) ** 2 <= radius * radius
         self.danger = danger

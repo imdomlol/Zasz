@@ -282,3 +282,37 @@ def test_safe_attack_spots_are_the_same_from_the_cache():
         assert reach.safe_attack_spots(building, ling.radius, area, ling.ground_range) == expected
     reach.set_danger([], 2.0)  # a new stamp: worked out again
     assert len(reach.safe_attack_spots(building, ling.radius, area, ling.ground_range)) > len(expected)
+
+
+def test_unchanged_danger_keeps_its_fields_and_changed_danger_rebuilds_them():
+    import numpy as np
+
+    from bot.targeting import ReachMap
+
+    grid = np.ones((30, 30), dtype=np.float32)
+    ling = zergling(5.5, 5.5)
+    reach = ReachMap(grid, [ling], [bay(20.5, 20.5, is_memory=False)], margin=20)
+    zones = [(Point2((15.5, 15.5)), 4.0)]
+    reach.set_danger(list(zones), 1.0)
+    goal = reach.cell(Point2((25.5, 5.5)))
+    step = reach.safe_step(goal, ling.position)
+    labels, field = reach.safe_labels, reach._safe_fields[goal]
+    reach.set_danger(list(zones), 2.0)  # the same zones a step later
+    assert reach.safe_labels is labels and reach._safe_fields[goal] is field
+    assert reach.safe_step(goal, ling.position) == step
+    reach.set_danger([(Point2((8.5, 8.5)), 4.0)], 3.0)  # someone moved
+    fresh = ReachMap(grid, [ling], [bay(20.5, 20.5, is_memory=False)], margin=20)
+    fresh.set_danger([(Point2((8.5, 8.5)), 4.0)], 3.0)
+    assert goal not in reach._safe_fields
+    assert (reach.danger == fresh.danger).all() and (reach.safe_labels == fresh.safe_labels).all()
+
+
+def test_no_danger_on_the_first_stamp_still_labels_the_safe_ground():
+    import numpy as np
+
+    from bot.targeting import ReachMap
+
+    ling = zergling(5.5, 5.5)
+    reach = ReachMap(np.ones((30, 30), dtype=np.float32), [ling], [bay(20.5, 20.5, is_memory=False)], margin=20)
+    reach.set_danger([], 1.0)
+    assert reach.safe_area(ling.position) > 0
