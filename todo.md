@@ -108,6 +108,22 @@ shows up in losses (check kept replays, summarised by `replay-summary`).
   edge, waiting up to ~45 s for the area to expire, then dives the same units it was avoiding. Instead,
   reassign its scout target to one it can reach without crossing an avoid area (`route_ok`, see
   CODE_REVIEW.md 03 for the shared route map).
+- **Unseen fire triggers far too often in fights** (CheatInsane game, 2026-10-05). `Army.on_damage` counts a
+  hit as unseen unless an armed enemy seen in the last `UNSEEN_EXPLAIN_SECONDS` (1 s) has the zergling's
+  position *when the damage lands* within its weapon reach + 1 tile; 2 such hits worth 25% of nearby health
+  in 8 s make the squad back off and mark a 12-tile avoid area. Likely false positives (from the code, not
+  yet measured):
+  - **Splash** (tanks, banelings, hellbats, colossi...) lands beyond the shooter's reach + 1.
+  - **Projectiles in flight**: a retreating zergling hit by a shot fired earlier is already out of reach.
+  - **Spells/effects** (storm, fungal, ...) have no armed shooter; `ai.state.effects` isn't consulted.
+  - **Big fights** clear the 2-hit / 25% bar in a second, turning a winning fight into a retreat.
+  Real cases (cloaked/burrowed units, shots from high ground or the fog) must still count. Ideas: allow
+  each weapon's splash radius and the distance a zergling covers while a shot flies (or check its position
+  ~0.5 s earlier); explain damage with active effects; don't count unseen hits while the force is in a
+  fight with visible armed enemies around it, or require the unseen damage to persist after they're gone.
+  **First measure:** log each unseen hit (amount, nearest seen enemy and its distance vs its reach, our
+  unit's movement) in a real game with army debug on, to see which cause dominates. Related: the tank
+  scout-request item above.
 - **(low priority) Enemy memory in their base:** a unit last seen in the enemy's base is probably still
   there. Keep (or refresh) the memory of units last seen in the main/natural longer instead of letting it
   fade like units seen in the field. Small cost today.
