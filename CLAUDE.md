@@ -69,7 +69,8 @@ rule below. Worse: one reworked attempt, else revert and note why here. Push aft
 - **Result, 21 games vs Hard (`--games 21 --seed 1 --jobs 6`, run alone):** phase 3 `9bf51ae` 20 wins + 1 tie, 128k
   lost, 8.8 ms per game loop (max step 210 ms); phase 4 `d6e38de` 19 wins + 2 ties, 101k lost (-22%), 10.8 ms per
   loop (+23%, 27% of the ladder's 40 ms), max step 949 ms. Three phase-4 runs: 18-21 wins, 94-101k lost.
-  Scenarios: the same on average (2717 vs 2719 summed resources lost); efficiency_open_army_free 15 of 15 passes.
+  Scenarios: the same on average (2717 vs 2719 summed resources lost); efficiency_open_army_free passed 3 of 3 at
+  `d6e38de` and 12 of 12 at `8c17099` (the same but for 06's strict safe areas).
 - Known: Ultralove vs Protoss ties in about half of all runs on every version (the recurring non-win); a 20-minute tie
   can crash the benchmark's replay save (5.3 MB replay > python-sc2's 4 MB websocket limit: tooling, logged as
   "Crash"). Efficiency % numbers changed meaning with 19: compare them only between runs that both have it.
