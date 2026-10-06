@@ -44,6 +44,14 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
   game seed N + i; the plan is printed first. Same `--seed`, `--games` and maps = same matchups. Exits 1 on any
   crash. With the 7 Linux maps, `--games 21` plays every pair once.
 
+### Phase 4 plan (agreed 2026-10-05, running overnight on branch `review-phase4-behavior`)
+
+Order: 03, 04 (needs 03), 02, 07, 20, 05, 06, 21, 24, 25 (measure role switches first), 19. One commit per fix;
+remove the matching strict xfail marks as tests start passing. Check per fix: scenarios `--repeat 3` + `benchmark.py
+--games 6 --seed 1 --jobs 6` (`--games 21` for 20 and 21), compared with the previous fix's run, by the regression
+rule below. Worse: one reworked attempt, else revert and note why here. Push after each group: (03, 04, 02),
+(07, 20, 05), (06, 21, 24), (25, 19). Stop after phase 4 (phase 5 waits for the user).
+
 ## Baseline to compare against (Linux, SC2 build 75689, code `cfbdb7e`, 2026-10-05)
 
 Bot code is identical to `b8a4d22` (the earlier baseline, rows labelled `fb600ec-dirty`).
