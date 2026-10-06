@@ -8,6 +8,7 @@ from ares import AresBot
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, QueenSpreadCreep, ShootTargetInRange, TumorSpreadCreep
 from ares.consts import UnitTreeQueryType
+from loguru import logger
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.buff_id import BuffId
 from sc2.ids.unit_typeid import UnitTypeId
@@ -30,6 +31,7 @@ def build_queens(ai: AresBot, wanted: int) -> None:
 def control_queens(ai: AresBot) -> None:
     queens = list(ai.units(UnitTypeId.QUEEN))
     injectors = pair_injectors(ai, queens)
+    note_injector_switches(ai, queens, injectors)
     for queen in queens:
         if defend(ai, queen):
             continue
@@ -51,6 +53,19 @@ def pair_injectors(ai: AresBot, queens: list[Unit]) -> dict[int, Unit]:
         free.remove(queen)
         pairs[queen.tag] = hatch
     return pairs
+
+
+def note_injector_switches(ai: AresBot, queens: list[Unit], injectors: dict[int, Unit]) -> None:
+    """Log a hatchery's injector changing while its old one is still alive (CODE_REVIEW.md 25: does the
+    step-by-step pairing churn?)."""
+    previous: dict[int, int] = ai.__dict__.setdefault("injector_of", {})  # hatchery tag -> queen tag
+    alive = {q.tag for q in queens}
+    for queen, hatch in injectors.items():
+        old = previous.get(hatch.tag)
+        if old is not None and old != queen and old in alive:
+            logger.info(f"{ai.time_formatted} injector switch at hatchery {hatch.tag}: queen {old} -> {queen}")
+    previous.clear()
+    previous.update({hatch.tag: queen for queen, hatch in injectors.items()})
 
 
 def inject(queen: Unit, hatch: Unit) -> None:
