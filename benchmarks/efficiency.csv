@@ -932,3 +932,10 @@ timestamp,commit,scenario,kill_time,dps,efficiency,blocked,idle,dealt,taken
 2026-10-05T20:12:52,810a6e6,efficiency_open_army_free,56.3,22.0,0.412,0.414,0.174,1240,765
 2026-10-05T20:13:10,810a6e6,efficiency_cramped_main,101.1,159.1,0.648,0.082,0.27,16080,577
 2026-10-05T20:13:29,810a6e6,efficiency_cramped_more_zealots,146.2,112.5,0.645,0.081,0.275,16438,678
+2026-10-05T20:24:16,fb600ec,efficiency_open_field,32.7,156.1,0.665,0.078,0.257,5100,0
+2026-10-05T20:24:26,fb600ec,efficiency_ramp,35.0,145.7,0.626,0.121,0.253,5100,0
+2026-10-05T20:24:26,fb600ec,efficiency_deep_base,62.9,162.0,0.619,0.113,0.268,10200,0
+2026-10-05T20:24:42,fb600ec,efficiency_open_army,14.4,86.3,0.55,0.202,0.248,1240,461
+2026-10-05T20:25:01,fb600ec,efficiency_open_army_free,57.5,21.6,0.498,0.303,0.199,1240,796
+2026-10-05T20:25:24,fb600ec,efficiency_cramped_main,111.4,144.5,0.609,0.137,0.254,16101,572
+2026-10-05T20:25:35,fb600ec,efficiency_cramped_more_zealots,139.4,118.1,0.651,0.094,0.255,16458,683

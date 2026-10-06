@@ -2554,6 +2554,11 @@ def back_off(
     """Get out of the threats' actual weapon range (not ares' danger map, which pads every range by
     4 and sent zerglings all the way home), then stop: at `hold_at` if given (a rally), else right
     there. Units already out of reach wait."""
+    if not threats:
+        for unit in units:
+            if unit.orders:
+                unit.stop()
+        return
     shooters = [t for t in threats if armed(t)]
     center = center_of(threats)
     probe = units[0]

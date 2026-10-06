@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
-from bot.army import armed, choke_worth, dps_vs, reach_of, weapon_range
+from bot.army import armed, back_off, choke_worth, dps_vs, reach_of, weapon_range
 from bot.settings import BUNKER_MARINES, MARINE_DPS, MARINE_RANGE
 
 
@@ -68,3 +68,13 @@ def test_choke_worth_skips_free_broodlings_without_looking_up_a_cost():
     ai = SimpleNamespace(calculate_cost=lambda unit_type: (_ for _ in ()).throw(AssertionError("cost lookup")))
 
     assert not choke_worth(ai, ling, broodling, slots, [broodling], [])
+
+
+def test_back_off_stops_cleanly_when_no_armed_threats_remain():
+    """A full target can leave no shooter to back away from; that must not calculate an empty center."""
+    stopped = []
+    ling = SimpleNamespace(orders=[object()], stop=lambda: stopped.append(True))
+
+    back_off(SimpleNamespace(), [ling], [], None)
+
+    assert stopped == [True]
