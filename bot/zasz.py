@@ -14,7 +14,7 @@ from bot.actions.macro import macro_plan
 from bot.actions.pathing import ExpansionAccess
 from bot.actions.queens import build_queens, control_queens
 from bot.actions.scouting import Scouting
-from bot.actions.upgrades import upgrade_plan, workers_per_gas
+from bot.actions.upgrades import remaining_gas, upgrade_plan, workers_per_gas
 from bot.decisions import Decision, Decisions, ScriptedDecisions
 from bot.efficiency import DamageTracker
 from bot.observation import Observation, observe
@@ -70,7 +70,8 @@ class ZaszBot(AresBot):
             self.recorder.record(self.state.game_loop, self.observation, decision)
 
         upgrades = list(decision.upgrades)
-        self.workers_per_gas = workers_per_gas(self, upgrades)
+        gas = remaining_gas(self, upgrades)
+        self.workers_per_gas = workers_per_gas(self, gas)
 
         # Speed mining, worker distribution, gas and fleeing from danger
         self.register_behavior(Mining(workers_per_gas=self.workers_per_gas))
@@ -78,7 +79,7 @@ class ZaszBot(AresBot):
         build_queens(self, decision.queens)
         await build_spores(self, decision.spores_per_base)
         # Behaviors run in registration order, so upgrades get resources before the macro plan
-        self.register_behavior(upgrade_plan(self, upgrades))
+        self.register_behavior(upgrade_plan(self, upgrades, gas))
         self.register_behavior(macro_plan(self, decision, self.expansions))
 
         control_queens(self)

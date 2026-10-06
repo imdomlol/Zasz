@@ -35,8 +35,17 @@ def next_expansion_location(ai: AresBot, access: ExpansionAccess) -> Point2 | No
     """The base to take next: the closest (by path) free, safe expansion we can walk to.
 
     Same checks as ares' `ExpansionController`, plus reachability: a base whose way is blocked
-    (by enemy structures, or rocks) is skipped for now, and `access.blocked` says why.
+    (by enemy structures, or rocks) is skipped for now, and `access.blocked` says why. Worked out once
+    per step (the observation asks, then the macro plan when it expands).
     """
+    loop = ai.state.game_loop
+    if access.next_location_loop != loop:
+        access.next_location_loop = loop
+        access.next_location = _next_expansion_location(ai, access)
+    return access.next_location
+
+
+def _next_expansion_location(ai: AresBot, access: ExpansionAccess) -> Point2 | None:
     grid = ai.mediator.get_ground_grid
     for location, _distance in ai.mediator.get_own_expansions:
         if (

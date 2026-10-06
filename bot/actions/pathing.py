@@ -47,6 +47,8 @@ class ExpansionAccess:
         self._blockers_loop = -1
         self._grids: dict[str, np.ndarray] = {}  # this step's pathing grids (`_grid`), shared by every base
         self._grids_loop = -1
+        self.next_location: Point2 | None = None  # `building.next_expansion_location`, this step's
+        self.next_location_loop = -1
 
     def is_reachable(self, ai: AresBot, location: Point2) -> bool:
         self._forget_if_blockers_changed(ai)
