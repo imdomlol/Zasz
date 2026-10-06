@@ -103,6 +103,48 @@ def test_a_push_with_nowhere_safe_to_go_has_no_target(monkeypatch):
     assert army.push_target(ai, lings(4)) == Point2((35, 35))  # the main, once it's safe
 
 
+# --- area reach maps (CODE_REVIEW.md 05) ---
+
+
+def walled_ai():
+    """A wall down x = 20 with no gap; one squad and one marine on each side, all in one 10-tile area."""
+    ai = fake_ai()
+    grid = np.ones((40, 40), dtype=np.float32)
+    grid[20, :] = np.inf
+    ai.mediator.get_ground_grid = grid
+    ai.get_terrain_z_height = lambda p: 0.0
+    left, right = lings(4, 15.5, 15.5), lings(4, 24.5, 15.5)
+    left_marine = marine(17.5, 15.5, is_memory=False)
+    right_marine = marine(26.5, 15.5, is_memory=False)
+    return ai, (left, left_marine), (right, right_marine)
+
+
+@pytest.mark.parametrize("left_first", [True, False])
+def test_squads_on_either_side_of_a_wall_each_reach_their_own_enemy(left_first):
+    ai, (left, left_marine), (right, right_marine) = walled_ai()
+    army = Army()
+    enemies = [left_marine, right_marine]
+    order = [(left, left_marine, right_marine), (right, right_marine, left_marine)]
+    for units, own_enemy, other in order if left_first else order[::-1]:
+        reach = army.reach_map(ai, units, enemies)
+        assert reach.open_sides(own_enemy) > 0 and reach.open_sides(other) == 0
+
+
+def test_an_area_map_is_kept_while_it_covers_the_squads_enemies():
+    ai, (left, left_marine), (_, right_marine) = walled_ai()
+    army = Army()
+    first = army.reach_map(ai, left, [left_marine, right_marine])
+    assert army.reach_map(ai, left, [left_marine]) is first  # one died: still covered
+    assert army.reach_map(ai, left, [left_marine, marine(12.5, 15.5)]) is not first  # a new one turned up
+
+
+def test_open_sides_depend_on_the_attackers_size():
+    ai, (left, left_marine), _ = walled_ai()
+    reach = Army().reach_map(ai, left, [left_marine])
+    small = reach.open_sides(left_marine, 0.375)
+    assert reach.open_sides(left_marine, 1.0) != small and reach.open_sides(left_marine, 0.375) == small
+
+
 # --- squad scouts (CODE_REVIEW.md 02) ---
 
 SPOT = (30.5, 5.5)  # the one enemy expansion to look at

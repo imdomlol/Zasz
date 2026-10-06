@@ -520,7 +520,7 @@ class ReachMap:
                         continue
                     self.reached[nx, ny] = True
                     queue.append((nx, ny))
-        self._open: dict[int, int] = {}
+        self._open: dict[tuple[int, float], int] = {}  # (target, attacker radius) -> `open_sides`
         self._fields: dict[int, np.ndarray] = {}
         self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
         self._plugs: set[int] | None = None  # see `plugs`
@@ -863,9 +863,10 @@ class ReachMap:
 
     def open_sides(self, target: Unit, attacker_radius: float = 0.375) -> int:
         """Reached cells on the target's level an attacker could stand on to hit it (0 = unreachable)."""
-        if target.tag not in self._open:
-            self._open[target.tag] = len(self._ring(target, attacker_radius))
-        return self._open[target.tag]
+        key = (target.tag, round(attacker_radius, 3))
+        if key not in self._open:
+            self._open[key] = len(self._ring(target, attacker_radius))
+        return self._open[key]
 
     def breaches(
         self, structures: list[Unit], targets: list[Unit], attacker_radius: float = 0.375, attacker_range: float = 0.1
