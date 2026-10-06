@@ -23,9 +23,10 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
 1. **Measurement first (tooling only; the bot doesn't change)** — 26, 29 + 28, 33; optional 34, 32. Done in
    `cfbdb7e` (26, 28, 29, 33, 34; 32 not done).
 2. **Tests guarding the risky code** — 16 + 44 (selector tests on `pick_tiered`; slot accounting, route cache,
-   scout cleanup, benchmark helpers). ← next
+   scout cleanup, benchmark helpers). Done in `e9c7c75`. Known bugs are pinned as strict xfails (07 x3, 03 x2,
+   02 x1): a phase 4 fix makes its xfail "XPASS(strict)" fail — then remove the mark.
 3. **Perf/cleanup; scenario numbers must stay identical** — 01 + 23, 08 + 09, 12, 10, 15, 14, 13 (step 1), 18,
-   11, 17. Batch them; if any scenario number moves, that change has a bug.
+   11, 17. Batch them; if any scenario number moves, that change has a bug. ← next
 4. **Behavior-changing fixes, one per benchmark run** — 03, 04 (needs 03), 02, 07, 20, 05, 06, 21 (after 20),
    24, 25, then 19 (changes the efficiency metric; compare efficiency only between runs that both have it).
 5. **Structure/recordings/packaging/docs** — 22 (army.py split, last; orders must stay identical), 37–40, 41,
