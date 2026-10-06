@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
-from bot.army import armed, dps_vs, reach_of, weapon_range
+from bot.army import armed, choke_worth, dps_vs, reach_of, weapon_range
 from bot.settings import BUNKER_MARINES, MARINE_DPS, MARINE_RANGE
 
 
@@ -44,3 +44,27 @@ def test_duel_zerglings_against_the_marines_out_of_a_bunker():
     assert marines == 0 and 1 <= left < 8
     left, marines = duel(2, 35, 10.0, 4)
     assert left == 0 and marines > 0
+
+
+def test_choke_worth_skips_free_broodlings_without_looking_up_a_cost():
+    """Broodlings have no creation ability, so python-sc2 cannot calculate their cost."""
+    ling = SimpleNamespace(
+        radius=0.375,
+        health_max=35,
+        calculate_dps_vs_target=lambda target: 5.0,
+    )
+    broodling = SimpleNamespace(
+        type_id=UnitTypeId.BROODLING,
+        is_structure=False,
+        health=30,
+        shield=0,
+        can_attack_ground=False,
+        ground_range=0.1,
+        radius=0.375,
+        position=Point2((0, 0)),
+        calculate_dps_vs_target=lambda target: 0.0,
+    )
+    slots = SimpleNamespace(capacity=lambda unit, target: 1, reach=None)
+    ai = SimpleNamespace(calculate_cost=lambda unit_type: (_ for _ in ()).throw(AssertionError("cost lookup")))
+
+    assert not choke_worth(ai, ling, broodling, slots, [broodling], [])
