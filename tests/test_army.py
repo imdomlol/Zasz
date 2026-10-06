@@ -130,12 +130,15 @@ def test_squads_on_either_side_of_a_wall_each_reach_their_own_enemy(left_first):
         assert reach.open_sides(own_enemy) > 0 and reach.open_sides(other) == 0
 
 
-def test_an_area_map_is_kept_while_it_covers_the_squads_enemies():
+def test_an_area_map_is_kept_for_reach_seconds_per_squad():
+    from bot.settings import REACH_SECONDS
+
     ai, (left, left_marine), (_, right_marine) = walled_ai()
     army = Army()
     first = army.reach_map(ai, left, [left_marine, right_marine])
-    assert army.reach_map(ai, left, [left_marine]) is first  # one died: still covered
-    assert army.reach_map(ai, left, [left_marine, marine(12.5, 15.5)]) is not first  # a new one turned up
+    assert army.reach_map(ai, left, [left_marine, marine(12.5, 15.5)]) is first  # new ones wait for the rebuild
+    ai.time += REACH_SECONDS
+    assert army.reach_map(ai, left, [left_marine]) is not first
 
 
 def test_open_sides_depend_on_the_attackers_size():
