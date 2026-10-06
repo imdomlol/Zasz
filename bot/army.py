@@ -1431,6 +1431,7 @@ class Army:
                     self.assignments,
                 )
                 busy = 0
+                position = squad.squad_position  # once, not per zergling (a sum over the squad)
                 for unit in front_first(units, enemies):
                     busy += fight(
                         ai,
@@ -1438,7 +1439,7 @@ class Army:
                         threats,
                         enemies,
                         slots,
-                        squad.squad_position,
+                        position,
                         self.blocks,
                         self.detours,
                         self.diagnostics,
@@ -1464,6 +1465,7 @@ class Army:
                 slots = TargetSlots(
                     reach, taken=self.taken, settled=self.settled, cells=self.cells_taken, assignments=self.assignments
                 )
+                position = squad.squad_position
                 for unit in front_first(units, enemies):
                     fight(
                         ai,
@@ -1471,7 +1473,7 @@ class Army:
                         threats,
                         enemies,
                         slots,
-                        squad.squad_position,
+                        position,
                         self.blocks,
                         self.detours,
                         self.diagnostics,
@@ -1528,7 +1530,7 @@ class Army:
                         threats,
                         enemies,
                         slots,
-                        squad.squad_position,
+                        center,
                         self.blocks,
                         self.detours,
                         self.diagnostics,
