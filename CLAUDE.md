@@ -20,9 +20,10 @@ Match the surrounding code's style: plain-language comments and docstrings, sett
 CODE_REVIEW.md has 44 findings, each with a **Verification** section (real severity, evidence, proposed fix,
 whether the fix **changes behavior**, a test) and a summary table near the top. Fix in this order:
 
-1. **Measurement first (tooling only; the bot doesn't change)** — 26, 29 + 28, 33; optional 34, 32. ← next
+1. **Measurement first (tooling only; the bot doesn't change)** — 26, 29 + 28, 33; optional 34, 32. Done in
+   `cfbdb7e` (26, 28, 29, 33, 34; 32 not done).
 2. **Tests guarding the risky code** — 16 + 44 (selector tests on `pick_tiered`; slot accounting, route cache,
-   scout cleanup, benchmark helpers).
+   scout cleanup, benchmark helpers). ← next
 3. **Perf/cleanup; scenario numbers must stay identical** — 01 + 23, 08 + 09, 12, 10, 15, 14, 13 (step 1), 18,
    11, 17. Batch them; if any scenario number moves, that change has a bug.
 4. **Behavior-changing fixes, one per benchmark run** — 03, 04 (needs 03), 02, 07, 20, 05, 06, 21 (after 20),
@@ -30,31 +31,32 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
 5. **Structure/recordings/packaging/docs** — 22 (army.py split, last; orders must stay identical), 37–40, 41,
    42, 35, 36, 27, 30, 31, 43 (docs last).
 
-### Phase 1 details
+### Phase 1 (done): how runs are labelled now
 
-- **26** — one shared helper (e.g. `scripts/run_meta.py`) used by `scripts/benchmark.py`,
-  `scripts/run_scenarios.py` and `scenarios/efficiency.py` (which reads `.git` by hand and never marks
-  `-dirty`): commit via `git rev-parse --short HEAD`, dirty via `git status --porcelain -- . ':!benchmarks'`
-  (ignore the CSVs the runs themselves append to). Add `sc2_build` and `run_id` columns to `results.csv` and
-  `efficiency.csv` (append at the end so old rows parse; `open_results` rewrites the header — do it via a temp
-  file + `os.replace`, see 30), `run_id` to `scenarios.csv`; `compare()` skips rows from the current run.
-- **29 + 28** — `benchmark.py --seed` (default random, printed): seeded shuffle of the full map × race product
-  (not two zipped cycles), `random_seed=seed + i` passed to `run_game`, `seed` recorded per row; print the
-  planned matchups first.
-- **33** — validate `--games/--jobs/--repeat >= 1`, `--races` against `Race`, `--maps` against
-  `installed_maps()` before launching; exit 1 if any game is a `Crash`; no division by zero on an empty run.
-- Add offline tests for the helper and the matchup planner (no SC2). Then rerun the baseline (below) with the
-  new tooling to get properly labelled baseline rows.
+- `scripts/run_meta.py`: commit (`-dirty` for any change outside `benchmarks/`, untracked files included),
+  `sc2_build` and a unique `run_id` per invocation, on every row of all three CSVs. Run directories are named
+  by run id. `run_scenarios` compares each result with the last *earlier run* (any commit) of the same
+  scenario/side/seed/build.
+- `benchmark.py --seed N` (random if omitted, printed): a race-balanced cycle through every map x race pair,
+  game seed N + i; the plan is printed first. Same `--seed`, `--games` and maps = same matchups. Exits 1 on any
+  crash. With the 7 Linux maps, `--games 21` plays every pair once.
 
-## Baseline to compare against (Linux, SC2 build 75689, code `b8a4d22`, 2026-10-05)
+## Baseline to compare against (Linux, SC2 build 75689, code `cfbdb7e`, 2026-10-05)
 
-Rows are labelled `fb600ec` / `fb600ec-dirty` (finding 26). Until 26 is fixed, **commit before benchmarking**.
+Bot code is identical to `b8a4d22` (the earlier baseline, rows labelled `fb600ec-dirty`).
 
-- Full games vs Hard: 6/6 wins, 0 crashes, 457–612 s, 8.9–11.2 ms per game loop, max step 126–156 ms.
-- Scenarios (top side; status / game s / zerglings lost): all PASS except **wall_bunker FAIL 150 s / 21 —
-  expected, leave it alone** (a tight race even played optimally). tank_dive 6.8/6, alternate_target 85.5/2,
-  efficiency_cramped_main 112.7/15, efficiency_cramped_more_zealots 140.6/17, efficiency_open_army 15.6/10,
-  efficiency_open_army_free 58.8/26, wall_techlab 35.0/3, wall_bays 29.2/4; the rest pass with 0 lost.
+- Full games vs Hard, `benchmark.py --games 6 --seed 1 --jobs 6` (run `20261005-220447-62fd`): 5 wins, 1 tie,
+  0 crashes. **Protoss on UltraloveAIE_v2 (game seed 3) ties at the 20 min limit** (lost 34k resources;
+  replay kept) — a matchup the old baseline didn't play, so not a regression, but worth a look. The wins:
+  447–723 s, 8.6–15.9 ms per game loop, max step 111–184 ms. Rerun with the same `--seed 1` to compare.
+- Scenarios (top side; status / game s / zerglings lost; run `20261005-220234-9d7a`): all PASS except
+  **wall_bunker FAIL 150 s / 21 — expected, leave it alone** (a tight race even played optimally).
+  Exactly repeatable: tank_dive 6.8/6, alternate_target 85.5/2, wall_techlab 35.0/3, wall_bays 29.2/4; the rest
+  pass with 0 lost.
+- **Not exactly repeatable, even on identical code with a fixed seed** (4 runs at `cfbdb7e`): 
+  efficiency_cramped_main 106.9–111.5 / 16–17, efficiency_cramped_more_zealots 132.1–140.2 / 19–24,
+  efficiency_open_army 15.5–16.1 / 9–11, efficiency_open_army_free 57.8–66.3 / 26–34. For these, "identical"
+  means inside that spread over a few repeats (`--repeat 3`), not number for number.
 - A regression: any new FAIL or crash, or a big jump in losses/time. Pure perf/cleanup must reproduce the
-  scenario numbers exactly (fixed seeds); behavior-changing fixes may move them. Full-game win rates over a few
-  games are noisy: compare per matchup with the same maps/races. Windows runs (build 97563) aren't comparable.
+  exactly-repeatable scenario numbers exactly; behavior-changing fixes may move them. Full-game win rates over a
+  few games are noisy: compare per matchup with the same `--seed`. Windows runs (build 97563) aren't comparable.
