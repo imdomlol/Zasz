@@ -219,3 +219,66 @@ def test_taking_the_same_target_again_is_one_claim():
     slots.take(target, attacker)  # `fight()` recursing after planning a detour ("detour follow")
     assert slots.taken[target.tag] == 1
     assert slots.assignments.used[target.tag] == pytest.approx(melee_share(attacker, target))
+
+
+def brute_far_holder(assignments: Assignments, attacker, target):
+    """`Assignments.far_holder` as a scan over every assigned attacker (what the per-target index replaces)."""
+    from bot.settings import SLOT_HOLD_GAP, SLOT_TAKE_OVER_MARGIN
+    from bot.targeting import edge_gap
+
+    own = edge_gap(attacker, target)
+    far = [
+        (g, a)
+        for a, g in assignments.gap.items()
+        if a != attacker.tag
+        and g > SLOT_HOLD_GAP
+        and g > own + SLOT_TAKE_OVER_MARGIN
+        and assignments.holds(a, target.tag)
+    ]
+    return max(far)[1] if far else None
+
+
+def test_far_holder_finds_what_a_full_scan_finds():
+    import random
+
+    rng = random.Random(7)
+    targets = [zergling(rng.uniform(0, 20), rng.uniform(0, 20)) for _ in range(4)]
+    attackers = [zergling(rng.uniform(0, 20), rng.uniform(0, 20)) for _ in range(40)]
+    assignments = Assignments()
+    for step in range(6):
+        now = 1.0 + 0.3 * step
+        alive = [a for a in attackers if rng.random() > 0.05]
+        slots = new_step(now, assignments, alive)
+        for a in rng.sample(alive, len(alive) // 2):
+            target = rng.choice(targets)
+            slots.assignments.release(a)
+            if rng.random() < 0.2 and (far := assignments.far_holder(a, target)) is not None:
+                assignments.drop(far, target.tag)
+            assignments.assign(a, target, now)
+        for a in alive:
+            for t in targets:
+                assert assignments.far_holder(a, t) == brute_far_holder(assignments, a, t)
+
+
+def test_safe_attack_spots_are_the_same_from_the_cache():
+    import numpy as np
+
+    from bot.targeting import ReachMap
+
+    grid = np.ones((30, 30), dtype=np.float32)
+    building = bay(15.5, 15.5, is_memory=False)
+    grid[14:17, 14:17] = np.inf
+    ling = zergling(5.5, 5.5)
+    reach = ReachMap(grid, [ling], [building], margin=20)
+    reach.set_danger([(Point2((19, 15.5)), 3.0)], 1.0)
+    area = reach.safe_area(ling.position)
+    expected = [
+        p
+        for p in reach.attack_spots(building, ling.radius, ling.ground_range)
+        if reach.safe_labels[reach.cell(p)] == area and not reach.in_danger(p)
+    ]
+    assert 0 < len(expected) < len(reach.attack_spots(building, ling.radius, ling.ground_range))
+    for _ in range(2):  # built, then from the cache
+        assert reach.safe_attack_spots(building, ling.radius, area, ling.ground_range) == expected
+    reach.set_danger([], 2.0)  # a new stamp: worked out again
+    assert len(reach.safe_attack_spots(building, ling.radius, area, ling.ground_range)) > len(expected)

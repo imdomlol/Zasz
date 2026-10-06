@@ -117,6 +117,7 @@ class Assignments:
         self.now = 0.0
         self.recent = 0.5
         self.deferred: set[int] = set()  # targets not attacked head on for now (a widening plan, `Army`)
+        self.holders: dict[int, set[int]] = {}  # target tag -> attackers whose target it is (`far_holder`)
 
     def start(self, now: float, alive: set[int], recent: float = 0.5) -> None:
         """New step: forget dead attackers; reserve the targets of those that picked one recently."""
@@ -124,6 +125,9 @@ class Assignments:
         self.picked_at = {a: w for a, w in self.picked_at.items() if a in self.target}
         self.share = {a: s for a, s in self.share.items() if a in self.target}
         self.gap = {a: g for a, g in self.gap.items() if a in self.target}
+        self.holders = {}
+        for attacker, target in self.target.items():
+            self.holders.setdefault(target, set()).add(attacker)
         self.now, self.recent = now, recent
         self.reserved = {}
         self.used = {}
@@ -142,6 +146,9 @@ class Assignments:
             self.reserved[target] = max(0.0, self.reserved[target] - self.share.get(attacker.tag, 0.0))
 
     def assign(self, attacker: Unit, target: Unit, now: float) -> None:
+        if (old := self.target.get(attacker.tag)) is not None:
+            self.holders[old].discard(attacker.tag)
+        self.holders.setdefault(target.tag, set()).add(attacker.tag)
         self.target[attacker.tag] = target.tag
         self.picked_at[attacker.tag] = now
         self.share[attacker.tag] = melee_share(attacker, target)
@@ -160,8 +167,12 @@ class Assignments:
         own = edge_gap(attacker, target)
         far = [
             (g, a)
-            for a, g in self.gap.items()
-            if a != attacker.tag and g > SLOT_HOLD_GAP and g > own + SLOT_TAKE_OVER_MARGIN and self.holds(a, target.tag)
+            for a in self.holders.get(target.tag, ())
+            if a in self.gap
+            and a != attacker.tag
+            and (g := self.gap[a]) > SLOT_HOLD_GAP
+            and g > own + SLOT_TAKE_OVER_MARGIN
+            and self.holds(a, target.tag)
         ]
         return max(far)[1] if far else None
 
@@ -173,6 +184,7 @@ class Assignments:
         else:
             self.reserved[target] = max(0.0, self.reserved.get(target, 0.0) - share)
         del self.target[attacker]
+        self.holders[target].discard(attacker)
         self.picked_at.pop(attacker, None)
         self.taken_over += 1
 
@@ -652,14 +664,20 @@ class ReachMap:
     def safe_attack_spots(
         self, target: Unit, attacker_radius: float, area: int, attacker_range: float = 0.1
     ) -> list[Point2]:
-        """`attack_spots` outside every enemy's reach, in safe `area`."""
+        """`attack_spots` outside every enemy's reach, in safe `area`. Which spots are out of reach is
+        worked out once per danger stamp (`step_cache`); per attacker only its safe area is checked."""
         if not area:
             return []
-        return [
-            p
-            for p in self.attack_spots(target, attacker_radius, attacker_range)
-            if self.safe_labels[self.cell(p)] == area and not self.in_danger(p)
-        ]
+        key = ("safe spots", target.tag, attacker_radius, attacker_range)
+        spots = self.step_cache.get(key)
+        if spots is None:
+            spots = [
+                (p, int(self.safe_labels[self.cell(p)]))
+                for p in self.attack_spots(target, attacker_radius, attacker_range)
+                if not self.in_danger(p)
+            ]
+            self.step_cache[key] = spots
+        return [p for p, spot_area in spots if spot_area == area]
 
     def in_danger(self, p: Point2) -> bool:
         """`p` itself inside a danger zone (`set_danger`): a spot can sit in a safe tile's corner and still
