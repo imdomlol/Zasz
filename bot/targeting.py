@@ -717,17 +717,7 @@ class ReachMap:
         here_cell = self.cell(position)
         if here_cell is None or not np.isfinite(field[here_cell]):
             return None
-        cx, cy = here_cell
-        here = field[cx, cy]
-        for _ in range(lookahead):
-            if here == 0:
-                break
-            options = [n for n in self._neighbors(cx, cy) if field[n] < here]
-            if not options:
-                break
-            cx, cy = min(options, key=lambda n: field[n])
-            here = field[cx, cy]
-        return self.point((cx, cy))
+        return self.point(self._descend(field, here_cell, lookahead))
 
     def safe_spot_count(self, target: Unit, attacker_radius: float, attacker_range: float = 0.1) -> int:
         """How many of `target`'s `attack_spots` are outside every enemy's reach."""
@@ -744,7 +734,12 @@ class ReachMap:
         here_cell = self.cell(position)
         if here_cell is None or not np.isfinite(field[here_cell]):
             return None
-        cx, cy = here_cell
+        return self.point(self._descend(field, here_cell, lookahead))
+
+    def _descend(self, field: np.ndarray, cell: tuple[int, int], lookahead: int) -> tuple[int, int]:
+        """Walk downhill on a distance `field` from `cell` (always to the lowest neighbor, `_neighbors`), up
+        to `lookahead` cells or until it can't go lower: where to head next."""
+        cx, cy = cell
         here = field[cx, cy]
         for _ in range(lookahead):
             if here == 0:
@@ -754,7 +749,7 @@ class ReachMap:
                 break
             cx, cy = min(options, key=lambda n: field[n])
             here = field[cx, cy]
-        return self.point((cx, cy))
+        return cx, cy
 
     def _cell_graph(self):
         """Walkable cells (enemy units as walls) as a graph: 8 neighbors (see `_squeezed`)."""
@@ -763,33 +758,9 @@ class ReachMap:
         return self._graph
 
     def _build_graph(self, walk: np.ndarray, cost: np.ndarray | None = None):
-        """Cells where `walk` is True as a graph: 8 neighbors; a diagonal step between two blocked cells
-        only if neither is blocked by an enemy unit (`_squeezed`)."""
-        ub = self.unit_blocked
-        w, h = walk.shape
-        index = np.arange(w * h).reshape(w, h)
-        rows, cols, weights = [], [], []
-        for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
-            # pairs (x, y) -> (x + dx, y + dy), both inside the window
-            xs, xe = 0, w - dx
-            ys, ye = max(0, -dy), h - max(0, dy)
-            src = (slice(xs, xe), slice(ys, ye))
-            dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
-            ok = walk[src] & walk[dst]
-            if dx and dy:
-                # one of the two orthogonal cells in between open, or neither blocked by an enemy unit
-                a = (slice(xs + dx, xe + dx), slice(ys, ye))
-                b = (slice(xs, xe), slice(ys + dy, ye + dy))
-                ok &= walk[a] | walk[b] | ~(ub[a] | ub[b])
-            rows.append(index[src][ok])
-            cols.append(index[dst][ok])
-            step = np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0)
-            if cost is not None:
-                step = step * (cost[src][ok] + cost[dst][ok]) / 2  # per-cell cost (danger) on both ends
-            weights.append(step)
-        return coo_matrix(
-            (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
-        ).tocsr()
+        """Cells where `walk` is True as a graph (`build_graph`), with this map's enemy units for the
+        diagonal rule (`_squeezed`)."""
+        return build_graph(walk, self.unit_blocked, cost)
 
     def approach_step(self, target: Unit, position: Point2, lookahead: int = 4) -> Point2 | None:
         """Where to move next to get next to `target` walking around enemy units (pathing ignores
@@ -822,15 +793,7 @@ class ReachMap:
         ring = target.radius + 2 * 0.375 + 0.6  # where the field's zero cells are (see `_ring`)
         if here <= position.distance_to(target.position) - ring + APPROACH_DETOUR_SLACK:
             return None  # nothing in the way
-        for _ in range(lookahead):
-            if here == 0:
-                break
-            options = [n for n in self._neighbors(cx, cy) if field[n] < here]
-            if not options:
-                break
-            cx, cy = min(options, key=lambda n: field[n])
-            here = field[cx, cy]
-        return Point2((cx + self.x0 + 0.5, cy + self.y0 + 0.5))
+        return self.point(self._descend(field, (cx, cy), lookahead))
 
     def group_field(self, targets: list[Unit]) -> np.ndarray:
         """Walking distance from every cell to a spot next to the nearest of `targets` (around enemy
@@ -993,7 +956,7 @@ class RouteMap:
             return None
         if c not in self._fields:
             if self._graph is None:
-                self._graph = _open_graph(self.open)
+                self._graph = build_graph(self.open)
             dist = dijkstra(self._graph, directed=False, indices=c[0] * self.shape[1] + c[1])
             self._fields[c] = dist.reshape(self.shape)
         return self._fields[c]
@@ -1041,21 +1004,32 @@ class RouteMap:
         return Point2((cx + 0.5, cy + 0.5))
 
 
-def _open_graph(walk: np.ndarray):
-    """Cells where `walk` is True as a graph: 8 neighbors (units fit through the corner gap between two
-    buildings touching diagonally, and danger zones aren't walls units squeeze past)."""
+def build_graph(walk: np.ndarray, unit_blocked: np.ndarray | None = None, cost: np.ndarray | None = None):
+    """Cells where `walk` is True as a graph: 8 neighbors, a diagonal 1.4142 long. Units fit through the
+    corner gap between two buildings touching diagonally; with `unit_blocked` (cells enemy units block),
+    not past an enemy unit: a diagonal step between two blocked cells only if neither is blocked by one
+    (`ReachMap._squeezed`). `cost`: a per-cell cost (danger), averaged over each step's two ends."""
     w, h = walk.shape
     index = np.arange(w * h).reshape(w, h)
     rows, cols, weights = [], [], []
     for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
+        # pairs (x, y) -> (x + dx, y + dy), both inside the window
         xs, xe = 0, w - dx
         ys, ye = max(0, -dy), h - max(0, dy)
         src = (slice(xs, xe), slice(ys, ye))
         dst = (slice(xs + dx, xe + dx), slice(ys + dy, ye + dy))
         ok = walk[src] & walk[dst]
+        if dx and dy and unit_blocked is not None:
+            # one of the two orthogonal cells in between open, or neither blocked by an enemy unit
+            a = (slice(xs + dx, xe + dx), slice(ys, ye))
+            b = (slice(xs, xe), slice(ys + dy, ye + dy))
+            ok &= walk[a] | walk[b] | ~(unit_blocked[a] | unit_blocked[b])
         rows.append(index[src][ok])
         cols.append(index[dst][ok])
-        weights.append(np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0))
+        step = np.full(int(ok.sum()), 1.4142 if dx and dy else 1.0)
+        if cost is not None:
+            step = step * (cost[src][ok] + cost[dst][ok]) / 2
+        weights.append(step)
     return coo_matrix(
         (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))), shape=(w * h, w * h)
     ).tocsr()

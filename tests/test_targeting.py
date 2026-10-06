@@ -316,3 +316,16 @@ def test_no_danger_on_the_first_stamp_still_labels_the_safe_ground():
     reach = ReachMap(np.ones((30, 30), dtype=np.float32), [ling], [bay(20.5, 20.5, is_memory=False)], margin=20)
     reach.set_danger([], 1.0)
     assert reach.safe_area(ling.position) > 0
+
+
+def test_both_graph_flavours_agree_without_enemy_units_in_the_way():
+    import numpy as np
+
+    from bot.targeting import ReachMap, build_graph
+
+    grid = np.ones((20, 20), dtype=np.float32)
+    grid[5:8, 5:8] = np.inf  # a building, and one touching it at a corner
+    grid[8:11, 8:11] = np.inf
+    reach = ReachMap(grid, [zergling(2.5, 2.5)], [bay(15.5, 15.5, is_memory=False)], margin=20)
+    assert not reach.unit_blocked.any()  # buildings only: the diagonal rule has nothing to forbid
+    assert (reach._build_graph(reach.walkable) != build_graph(reach.walkable)).nnz == 0
