@@ -241,7 +241,8 @@ class Army:
         self.raids_ok = True  # every raid staffed, gathered and not short of the bar (patrols allowed)
         self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
         self.detours = Detours()  # routes around our own crowd for blocked zerglings
-        self.reach_cache: dict[tuple, tuple[float, ReachMap]] = {}  # (area, the squad's unit tags) -> (built at, map)
+        # (area, the squad's unit tags) -> (built at, map, the enemy tags it was built with)
+        self.reach_cache: dict[tuple, tuple[float, ReachMap, frozenset[int]]] = {}
         # Debug: count what zerglings decide, logged every few seconds (scenarios switch this on)
         self.debug = False
         self.last_note: dict[int, tuple[float, str]] = {}  # our unit -> (when, its last decision), kept
@@ -1269,16 +1270,18 @@ class Army:
     def reach_map(self, ai: AresBot, units: list[Unit], enemies: list[Unit]) -> ReachMap | None:
         """Which enemy units this squad can actually get to; rebuilt every REACH_SECONDS per area and squad
         (the map is reached from these units: another squad in the area may be on the other side of a
-        wall). Enemies that turned up or died since wait for the rebuild (rebuilding whenever a new one
-        turned up meant almost every step in a fight, and cost ~25% more army time)."""
+        wall), or sooner if an enemy it doesn't cover turns up. Enemies that died since stay in it (as
+        obstacles) until then."""
         ground = [e for e in enemies if not e.is_flying]
         if not ground:
             return None
         center = center_of(units)
         key = (round(center.x / 10), round(center.y / 10), frozenset(u.tag for u in units))
+        tags = frozenset(e.tag for e in ground)
         cached = self.reach_cache.get(key)
-        if cached is None or ai.time - cached[0] >= REACH_SECONDS:
-            cached = (ai.time, ReachMap(ai.mediator.get_ground_grid, units, ground, ai.get_terrain_z_height))
+        if cached is None or ai.time - cached[0] >= REACH_SECONDS or not tags <= cached[2]:
+            built = ReachMap(ai.mediator.get_ground_grid, units, ground, ai.get_terrain_z_height)
+            cached = (ai.time, built, tags)
             self.reach_cache[key] = cached
         return cached[1]
 
