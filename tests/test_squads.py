@@ -250,3 +250,41 @@ def test_enemy_groups_are_built_once_a_step():
     assert enemy_groups(bot) is first
     bot.state.game_loop += 2
     assert enemy_groups(bot) is not first
+
+
+def test_a_unit_between_two_clumps_joins_them_in_any_order():
+    import itertools
+
+    from bot.squads import cluster
+
+    a, b, bridge = unit(0, 0), unit(4, 0), unit(2, 0)
+    for order in itertools.permutations([a, b, bridge]):
+        groups = cluster(list(order), 3)
+        assert len(groups) == 1 and sorted(u.tag for u in groups[0]) == sorted(u.tag for u in (a, b, bridge))
+
+
+def test_groups_match_connected_components_on_random_scatters():
+    import random
+
+    from bot.squads import connected
+
+    rng = random.Random(3)
+    for _ in range(200):
+        points = [Point2((rng.uniform(0, 60), rng.uniform(0, 60))) for _ in range(rng.randint(1, 30))]
+        groups = connected(points, 10)
+        assert sorted(i for g in groups for i in g) == list(range(len(points)))
+        label = {i: n for n, g in enumerate(groups) for i in g}
+        for i, p in enumerate(points):  # close points share a group...
+            for j, q in enumerate(points):
+                if p.distance_to(q) < 10:
+                    assert label[i] == label[j]
+        for g in groups:  # ...and every group is linked up (no two halves with nothing between)
+            reached, frontier = {g[0]}, [g[0]]
+            while frontier:
+                i = frontier.pop()
+                for j in g:
+                    if j not in reached and points[i].distance_to(points[j]) < 10:
+                        reached.add(j)
+                        frontier.append(j)
+            assert reached == set(g)
+        assert [g[0] for g in groups] == sorted(g[0] for g in groups)  # in order of first point

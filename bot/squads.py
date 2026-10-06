@@ -31,10 +31,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import numpy as np
 from ares.consts import WORKER_TYPES, EngagementResult
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
+from scipy.sparse.csgraph import connected_components
 
 from bot.settings import (
     ENEMY_GROUP_RADIUS,
@@ -79,16 +81,24 @@ class EnemyGroup:
         return self.center.towards(toward, self.spread + self.reach + margin)
 
 
+def connected(points: list[Point2], radius: float) -> list[list[int]]:
+    """Indices of `points` grouped into chains: two points closer than `radius` are in the same group,
+    and so is anything linked to them through others (a unit bridging two clumps joins them, whatever
+    order they come in). Groups in order of their first point, each in input order."""
+    if not points:
+        return []
+    xy = np.array([(p.x, p.y) for p in points])
+    near = ((xy[:, None, :] - xy[None, :, :]) ** 2).sum(axis=2) < radius * radius
+    _, labels = connected_components(near, directed=False)
+    groups: dict[int, list[int]] = {}
+    for i, group in enumerate(labels):
+        groups.setdefault(int(group), []).append(i)
+    return list(groups.values())
+
+
 def cluster(units: list[Unit], radius: float) -> list[list[Unit]]:
-    clusters: list[list[Unit]] = []
-    for u in units:
-        for c in clusters:
-            if any(u.position.distance_to(o.position) < radius for o in c):
-                c.append(u)
-                break
-        else:
-            clusters.append([u])
-    return clusters
+    """`units` grouped by `connected` positions."""
+    return [[units[i] for i in group] for group in connected([u.position for u in units], radius)]
 
 
 def enemy_groups(ai: AresBot) -> list[EnemyGroup]:
