@@ -1,5 +1,7 @@
 import argparse
+import os
 import sys
+import time
 from pathlib import Path
 
 # ares-sc2 is cloned next to this file: `ares` lives in `ares-sc2/src`,
@@ -18,6 +20,24 @@ from bot import ZaszBot
 bot = Bot(Race.Zerg, ZaszBot(), name="Zasz")
 
 
+class PacedZasz(ZaszBot):
+    """`--slow X`: ZaszBot playing X times slower than Faster (the ladder's speed) in real time, to watch.
+    The game still waits for the bot every step (not realtime), so pacing changes nothing it decides."""
+
+    def __init__(self, factor: float):
+        super().__init__()
+        self.factor = factor
+        self._last_step: float | None = None
+
+    async def on_step(self, iteration: int) -> None:
+        await super().on_step(iteration)
+        step_seconds = self.client.game_step / 22.4  # game loops per step, at Faster speed
+        now = time.perf_counter()
+        if self._last_step is not None and (wait := step_seconds * self.factor - (now - self._last_step)) > 0:
+            time.sleep(wait)
+        self._last_step = time.perf_counter()
+
+
 def main():
     if "--LadderServer" in sys.argv:
         from ladder import run_ladder_game
@@ -32,13 +52,21 @@ def main():
     parser.add_argument("--race", default="Random", choices=["Terran", "Zerg", "Protoss", "Random"])
     parser.add_argument("--difficulty", default="Easy", choices=[d.name for d in Difficulty])
     parser.add_argument("--realtime", action="store_true", help="Play at normal game speed")
+    parser.add_argument(
+        "--slow", type=float, default=0, help="Watch at Faster speed (1) or this many times slower (e.g. 3)"
+    )
+    parser.add_argument("--overlay", action="store_true", help="Draw what the army is doing (bot/overlay.py)")
     parser.add_argument("--replay", default="replays/last_game.SC2Replay", help="Where to save the replay")
     args = parser.parse_args()
+
+    if args.overlay:
+        os.environ["ZASZ_OVERLAY"] = "1"  # read when drawing (bot/overlay.py)
+    player = Bot(Race.Zerg, PacedZasz(args.slow), name="Zasz") if args.slow > 0 else bot
 
     Path(args.replay).parent.mkdir(parents=True, exist_ok=True)
     run_game(
         maps.get(args.map),
-        [bot, Computer(Race[args.race], Difficulty[args.difficulty])],
+        [player, Computer(Race[args.race], Difficulty[args.difficulty])],
         realtime=args.realtime,
         save_replay_as=args.replay,
     )
