@@ -501,7 +501,6 @@ class ReachMap:
                     queue.append((nx, ny))
         self._open: dict[int, int] = {}
         self._fields: dict[int, np.ndarray] = {}
-        self._near_fields: dict[tuple[int, float], np.ndarray] = {}  # (target, limit) -> capped field
         self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
         self._plugs: set[int] | None = None  # see `plugs`
         # breach structure tag -> the cells our attackers stand on to hit it (`breaches`)
@@ -520,7 +519,6 @@ class ReachMap:
         self._breach_fields: dict[tuple[int, int], np.ndarray] = {}
         self._cell_centers: list[np.ndarray] | None = None  # map x, y of every cell's center (`set_danger`)
         self._spots: dict[tuple, list[Point2]] = {}  # see `attack_spots`
-        self.breach_caps: dict[int, int] | None = None  # see `Army.breach_caps` (cached with the map)
 
     def _cells_within(self, center: Point2, radius: float, shape) -> list[tuple[int, int]]:
         cells = []
@@ -841,28 +839,6 @@ class ReachMap:
         for spot, reach in shooters:
             safe &= (xs - spot.x) ** 2 + (ys - spot.y) ** 2 > reach**2
         return bool(safe.any())
-
-    def walk_distance(self, target: Unit, position: Point2, limit: float) -> float:
-        """How far `position` has to walk to stand next to `target`, going around enemy units
-        (inf if there's no way, or it's more than `limit`). Only searches out to `limit`, so it's
-        cheap to ask about every enemy nearby."""
-        key = (target.tag, limit)
-        if key not in self._near_fields:
-            seeds = [c[0] * self.walkable.shape[1] + c[1] for c in self._ring(target, 0.375)]
-            if seeds:
-                dist = dijkstra(self._cell_graph(), directed=False, indices=seeds, min_only=True, limit=limit)
-                self._near_fields[key] = dist.reshape(self.walkable.shape)
-            else:
-                self._near_fields[key] = np.full(self.walkable.shape, np.inf)
-        field = self._near_fields[key]
-        cx, cy = int(position.x) - self.x0, int(position.y) - self.y0
-        if not (0 <= cx < field.shape[0] and 0 <= cy < field.shape[1]):
-            return np.inf
-        if np.isfinite(field[cx, cy]):
-            return float(field[cx, cy])
-        # Standing on a cell the grid calls blocked (next to a building, or on top of a unit): one
-        # step from the best open neighbor
-        return float(min((field[n] + 1 for n in self._neighbors(cx, cy)), default=np.inf))
 
     def open_sides(self, target: Unit, attacker_radius: float = 0.375) -> int:
         """Reached cells on the target's level an attacker could stand on to hit it (0 = unreachable)."""

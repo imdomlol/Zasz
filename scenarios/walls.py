@@ -102,7 +102,7 @@ class WalledMarines(Scenario):
             for type_id, u, v, size in self.pieces():
                 if type_id != TECHLAB:  # the tech lab a step later (retried until it's there)
                     await bot.spawn(type_id, self.world(u, v, size), enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, [self.world(6, 6)]), enemy=True)
+            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
             await bot.spawn(UnitTypeId.MARINE, self.world(POCKET.x, POCKET.y), amount=4, enemy=True)
             self.spawned_at = bot.time
             self.phase = "clear"

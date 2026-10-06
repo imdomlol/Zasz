@@ -75,7 +75,7 @@ class StructureAssault(Scenario):
             self.expected = len(positions)
             for position in positions:
                 await bot.spawn(STRUCTURE, position, enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, positions), enemy=True)
+            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
             self.spawned_at = bot.time
             self.phase = "clear"
         elif self.phase == "clear" and bot.time - self.spawned_at > 1:
@@ -154,7 +154,7 @@ def fits(bot: ScenarioBot, center: Point2, size: int = 3) -> bool:
     )
 
 
-def keep_alive_spot(bot: ScenarioBot, layout: list[Point2]) -> Point2:
+def keep_alive_spot(bot: ScenarioBot) -> Point2:
     """The map corner farthest from our base, so the bot (which attacks the known structure
     closest to its rally point) never heads for it before the layout is dead."""
     area = bot.game_info.playable_area
@@ -291,7 +291,7 @@ class CrampedMain(StructureAssault):
                 await bot.spawn(UnitTypeId.ZEALOT, spot, enemy=True)
             for spot in stalkers:
                 await bot.spawn(UnitTypeId.STALKER, spot, enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, positions), enemy=True)
+            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
             self.expected = len(positions)
             self.spawned_at = bot.time
             self.phase = "clear"
@@ -445,7 +445,7 @@ class OpenArmy(StructureAssault):
                 await bot.spawn(UnitTypeId.ZEALOT, spot, enemy=True)
             for spot in stalkers:
                 await bot.spawn(UnitTypeId.STALKER, spot, enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot, [*zealots, *stalkers]), enemy=True)
+            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
             self.spawned_at = bot.time
             self.phase = "clear"
         elif self.phase == "clear" and bot.time - self.spawned_at > 1:

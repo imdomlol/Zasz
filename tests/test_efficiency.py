@@ -104,25 +104,6 @@ def test_no_detour_in_the_open():
     assert reach.approach_step(marine, ling.position) is None
 
 
-def test_walk_distance_open_vs_plugged_lane():
-    # Open field: about the straight-line distance to a spot next to the marine
-    grid = np.ones((30, 30), dtype=np.float32)
-    marine = unit(20.5, 15.5, ground_range=5.0)
-    ling = zergling(12.5, 15.5)
-    reach = ReachMap(grid, [ling], [marine], margin=20)
-    assert 5 <= reach.walk_distance(marine, ling.position, limit=10) <= 8
-    # Behind a wall whose only gap a zealot plugs: a long way round, so out of a 10-tile walk
-    grid = np.ones((20, 20), dtype=np.float32)
-    grid[3:, 10] = np.inf
-    grid[10, 10] = 1.0
-    zealot = unit(10.5, 10.5, radius=0.5)
-    stalker = unit(10.5, 15.5, radius=0.625)
-    ling = zergling(10.5, 5.5)
-    reach = ReachMap(grid, [ling], [zealot, stalker], margin=20)
-    assert reach.walk_distance(stalker, ling.position, limit=10) == float("inf")
-    assert reach.walk_distance(stalker, ling.position, limit=40) > 10
-
-
 def test_totals_efficiency_and_summary():
     totals = EfficiencyTotals(potential=100, delivered=60, blocked=30, idle=10, damage_dealt=500, elapsed=10)
     assert totals.efficiency == 0.6

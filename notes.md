@@ -296,7 +296,7 @@ Why (logged per zergling): 6 zerglings vs 2 marines in the open, sim says VICTOR
    and keeps following a target that moves.
 
 Fixes:
-- **Near fighters = touching, or within a 10-tile walk** (`ReachMap.walk_distance`: the walking
+- **Near fighters = touching, or within a 10-tile walk** (`ReachMap.walk_distance`, since removed: the walking
   distance to a spot next to the target with enemy units as walls, a Dijkstra capped at the
   limit). Keeps the original point: a stalker behind the gateway grid is a long way round.
 - `BlockTracker`: while the target itself moves (`TARGET_MOVED` 1.0), it's a chase, not blocked.

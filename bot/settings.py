@@ -130,7 +130,6 @@ DETOUR_SECONDS = 6.0  # follow a detour at most this long
 REACH_SECONDS = 1.0  # rebuild the reachability map (which enemy units melee can get to) this often
 REACH_WINDOW_MARGIN = 12  # the map covers our units and nearby enemies plus this many tiles
 CLEAR_THE_WAY_RANGE = 10  # no reachable fighter: attack the closest structures within this range
-MIN_OPEN_SIDES = 3  # an enemy unit is worth engaging in melee only with this many reachable cells around it
 PLUG_HARM_RANGE = 2  # a unit blocking our way that can hit us from there (range >= this) is fought anyway
 # A melee unit (range < PLUG_HARM_RANGE) with at most CHOKE_SLOTS open sides is a choke fight: taken
 # only if the zerglings we'd lose killing it (that many at a time, under the fire of everything covering

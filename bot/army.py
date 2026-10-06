@@ -1429,7 +1429,7 @@ class Army:
                 reach = self.reach_map(ai, units, enemies)
                 slots = TargetSlots(
                     reach,
-                    self.breach_caps(ai, reach, units, enemies, threats, present),
+                    self.breach_caps(ai, reach, enemies),
                     self.taken,
                     self.settled,
                     self.cells_taken,
@@ -1594,10 +1594,7 @@ class Army:
         self,
         ai: AresBot,
         reach: ReachMap | None,
-        units: list[Unit],
         enemies: list[Unit],
-        threats: list[Unit],
-        present: list[Unit],
     ) -> dict[int, int]:
         """The structure worth breaking to get at enemy fighters we can't reach (`ReachMap.breaches`),
         as {tag: attackers}: exactly as many as can hit it at once (full damage, nobody piling up
@@ -1859,7 +1856,7 @@ class Army:
         if reach is not None:
             # Work there besides fighting units: the breach (as many as hit it at once) and the safe cells
             # next to other structures (outside every enemy's reach)
-            caps = self.breach_caps(ai, reach, units, enemies, threats, present)
+            caps = self.breach_caps(ai, reach, enemies)
             slots += sum(caps.values())
             if reach.danger_stamp is not None:
                 slots += sum(
