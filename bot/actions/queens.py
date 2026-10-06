@@ -43,21 +43,32 @@ def control_queens(ai: AresBot) -> None:
 
 
 def pair_injectors(ai: AresBot, queens: list[Unit]) -> dict[int, Unit]:
-    """Queen tag -> hatchery it injects. Each hatchery gets its closest unassigned queen."""
+    """Queen tag -> hatchery it injects. A hatchery keeps its injector while both live; one without (new,
+    or its queen died) gets the closest queen that isn't injecting. (Re-pairing every step by distance
+    made two queens swap two hatcheries back and forth, ~1,000 swaps a game, walking instead of injecting.)"""
+    kept: dict[int, int] = ai.__dict__.setdefault("injectors", {})  # hatchery tag -> queen tag
+    alive = {q.tag for q in queens}
     pairs: dict[int, Unit] = {}
-    free = list(queens)
-    for hatch in ai.townhalls.ready:
-        if not free:
-            break
+    hatcheries = list(ai.townhalls.ready)
+    for hatch in hatcheries:
+        if (queen := kept.get(hatch.tag)) in alive and queen not in pairs:
+            pairs[queen] = hatch
+    paired = {hatch.tag for hatch in pairs.values()}
+    free = [q for q in queens if q.tag not in pairs]
+    for hatch in hatcheries:
+        if hatch.tag in paired or not free:
+            continue
         queen = min(free, key=lambda q: q.distance_to(hatch))
         free.remove(queen)
         pairs[queen.tag] = hatch
+    kept.clear()
+    kept.update({hatch.tag: queen for queen, hatch in pairs.items()})
     return pairs
 
 
 def note_injector_switches(ai: AresBot, queens: list[Unit], injectors: dict[int, Unit]) -> None:
-    """Log a hatchery's injector changing while its old one is still alive (CODE_REVIEW.md 25: does the
-    step-by-step pairing churn?)."""
+    """Log a hatchery's injector changing while its old one is still alive (CODE_REVIEW.md 25: the pairing
+    used to churn every step; this should now stay silent)."""
     previous: dict[int, int] = ai.__dict__.setdefault("injector_of", {})  # hatchery tag -> queen tag
     alive = {q.tag for q in queens}
     for queen, hatch in injectors.items():
