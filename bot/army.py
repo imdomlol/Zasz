@@ -124,7 +124,6 @@ from bot.squads import (
     center_of,
     choose_helpers,
     cluster,
-    connected,
     enemy_groups,
     enemy_sites,
     fight_verdict,
@@ -359,8 +358,14 @@ class Army:
 
     def unseen_circles(self) -> list[tuple[Point2, float, int]]:
         """Recent unseen hits grouped by place: (center, damage, hits)."""
-        hits = self.unseen_hits
-        circles = [[hits[i] for i in group] for group in connected([h[0] for h in hits], UNSEEN_RADIUS)]
+        circles: list[list[tuple[Point2, float, float]]] = []
+        for hit in self.unseen_hits:
+            for c in circles:
+                if any(hit[0].distance_to(h[0]) < UNSEEN_RADIUS for h in c):
+                    c.append(hit)
+                    break
+            else:
+                circles.append([hit])
         return [(center_of_points([h[0] for h in c]), sum(h[1] for h in c), len(c)) for c in circles]
 
     def unseen_fire_on(self, ai: AresBot, units: list[Unit]) -> Point2 | None:
