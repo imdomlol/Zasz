@@ -1,0 +1,221 @@
+"""Offline tests for target choice as `fight()` makes it (`bot.targeting.pick_tiered`) and the slot accounting
+behind it (`TargetSlots`, `Assignments`).
+
+Tests marked xfail pin down known bugs from CODE_REVIEW.md: they fail now and should pass once the finding
+is fixed (strict, so a fix that makes one pass shows up as a failure to remove the mark).
+"""
+
+import pytest
+from sc2.position import Point2
+
+from bot.targeting import Assignments, BlockTracker, TargetSlots, attack_capacity, melee_share, pick_tiered
+from fakes import bay, marine, zergling
+
+ORIGIN = Point2((0, 0))
+
+
+def new_step(now: float, assignments: Assignments | None = None, alive=()) -> TargetSlots:
+    """A fresh step's slots, as `Army` makes them: assignments carried over, reservations redone."""
+    assignments = assignments if assignments is not None else Assignments()
+    assignments.start(now, {a.tag for a in alive})
+    return TargetSlots(assignments=assignments)
+
+
+def block(blocks: BlockTracker, attacker, target, until: float = 99.0) -> None:
+    blocks.blocked.setdefault(attacker.tag, {})[target.tag] = until
+
+
+# --- choosing a target ---
+
+
+def test_no_candidates_no_target():
+    assert pick_tiered(new_step(1.0), BlockTracker(), zergling(), [([], True)], ORIGIN, 1.0) == (None, False)
+
+
+def test_fill_from_the_back():
+    """The first attackers take the deepest structure; once it's full the next one is used."""
+    front, back = bay(5, 0), bay(10, 0)
+    slots, blocks = new_step(1.0), BlockTracker()
+    capacity = attack_capacity(zergling(), back)
+    picks = [
+        pick_tiered(slots, blocks, zergling(0, 0), [([front, back], True)], ORIGIN, 1.0) for _ in range(capacity + 2)
+    ]
+    assert picks[:capacity] == [(back, False)] * capacity
+    assert picks[capacity:] == [(front, False)] * 2
+
+
+def test_nearest_fill_without_depth():
+    front, back = bay(5, 0), bay(10, 0)
+    assert pick_tiered(new_step(1.0), BlockTracker(), zergling(0, 0), [([front, back], True)], None, 1.0) == (
+        front,
+        False,
+    )
+
+
+def test_a_tier_not_filled_from_the_back_keeps_the_callers_order():
+    front, back = bay(5, 0), bay(10, 0)
+    target, _ = pick_tiered(new_step(1.0), BlockTracker(), zergling(0, 0), [([back, front], False)], ORIGIN, 1.0)
+    assert target is back
+
+
+def test_the_pick_is_remembered():
+    slots, attacker, target = new_step(1.0), zergling(0, 0), bay(5, 0)
+    pick_tiered(slots, BlockTracker(), attacker, [([target], True)], ORIGIN, 1.0)
+    assert slots.assignments.target[attacker.tag] == target.tag
+    assert slots.taken[target.tag] == 1
+
+
+def test_keeps_its_game_order_target_while_it_has_room():
+    front, back = bay(5, 0), bay(10, 0)
+    attacker = zergling(0, 0)
+    attacker.order_target = front.tag
+    target, _ = pick_tiered(new_step(1.0), BlockTracker(), attacker, [([front, back], True)], ORIGIN, 1.0)
+    assert target is front
+
+
+def test_keeps_last_steps_target_across_steps():
+    """A zergling walking around others has a move order (no target to read back): `Assignments`
+    remembers what it went for, so the next step it keeps it rather than re-picking the deepest."""
+    front, back = bay(5, 0), bay(10, 0)
+    attacker = zergling(0, 0)
+    assignments = Assignments()
+    slots = new_step(1.0, assignments, [attacker])
+    assert pick_tiered(slots, BlockTracker(), attacker, [([front], True)], ORIGIN, 1.0) == (front, False)
+    slots = new_step(1.2, assignments, [attacker])
+    assert pick_tiered(slots, BlockTracker(), attacker, [([front, back], True)], ORIGIN, 1.2) == (front, False)
+
+
+def test_a_higher_tier_beats_keeping_the_target():
+    """A zergling breaking through a building switches back to units as soon as one is reachable."""
+    building, unit_target = bay(5, 0), marine(8, 0)
+    attacker = zergling(0, 0)
+    attacker.order_target = building.tag
+    tiers = [([unit_target], True), ([building], True)]
+    assert pick_tiered(new_step(1.0), BlockTracker(), attacker, tiers, ORIGIN, 1.0) == (unit_target, False)
+
+
+def test_a_blocked_target_is_not_kept():
+    front, back = bay(5, 0), bay(10, 0)
+    attacker, blocks = zergling(0, 0), BlockTracker()
+    attacker.order_target = front.tag
+    block(blocks, attacker, front)
+    assert pick_tiered(new_step(1.0), blocks, attacker, [([front, back], True)], ORIGIN, 1.0) == (back, False)
+
+
+def test_blocked_from_everything_goes_around_the_closest():
+    front, back = bay(5, 0), bay(10, 0)
+    attacker, blocks = zergling(0, 0), BlockTracker()
+    block(blocks, attacker, front)
+    block(blocks, attacker, back)
+    slots = new_step(1.0)
+    assert pick_tiered(slots, blocks, attacker, [([front, back], True)], ORIGIN, 1.0) == (front, True)
+    assert not slots.taken  # going around isn't a claim
+
+
+def test_a_full_tier_gives_way_to_the_next_with_room():
+    full, spare = bay(5, 0), marine(30, 0)
+    slots = new_step(1.0)
+    for _ in range(attack_capacity(zergling(), full)):
+        slots.take(full, zergling(0, 0))
+    tiers = [([full], True), ([spare], True)]
+    assert pick_tiered(slots, BlockTracker(), zergling(0, 0), tiers, ORIGIN, 1.0) == (spare, False)
+
+
+def test_everything_full_falls_back_to_the_closest_in_the_best_tier():
+    near, deep, lower = bay(5, 0), bay(10, 0), bay(3, 3)
+    slots = new_step(1.0)
+    for target in (near, deep, lower):
+        for _ in range(attack_capacity(zergling(), target)):
+            slots.take(target, zergling(0, 0))
+    tiers = [([near, deep], True), ([lower], True)]  # closest of the first tier, not the deepest or `lower`
+    assert pick_tiered(slots, BlockTracker(), zergling(0, 0), tiers, ORIGIN, 1.0) == (near, False)
+
+
+def test_a_slot_held_from_far_away_goes_to_a_closer_attacker():
+    # A zergling target: every slot held by zerglings stuck 5 tiles away. One right next to it gets
+    # a slot: the furthest holder loses its own, and picks again when handled
+    target = zergling(10, 0)
+    assignments = Assignments()
+    far = [zergling(4, 0) for _ in range(attack_capacity(zergling(), target))]
+    slots = new_step(1.0, assignments, far)
+    for f in far:
+        assert pick_tiered(slots, BlockTracker(), f, [([target], True)], None, 1.0) == (target, False)
+    near = zergling(9, 0)
+    assert pick_tiered(slots, BlockTracker(), near, [([target], True)], None, 1.0) == (target, False)
+    assert sum(assignments.target.get(f.tag) == target.tag for f in far) == len(far) - 1
+
+
+# --- slot accounting ---
+
+
+def test_last_steps_holders_keep_their_slots_from_newcomers():
+    target = bay(5, 0)
+    assignments = Assignments()
+    holders = [zergling(4, 2) for _ in range(attack_capacity(zergling(), target))]
+    slots = new_step(1.0, assignments, holders)
+    for h in holders:
+        pick_tiered(slots, BlockTracker(), h, [([target], True)], None, 1.0)
+    slots = new_step(1.2, assignments, holders)  # nobody handled yet this step
+    assert not slots.has_room(zergling(4, 2), target)
+    for h in holders:  # handled: they keep it, and it's still full
+        assert pick_tiered(slots, BlockTracker(), h, [([target], True)], None, 1.2) == (target, False)
+    assert not slots.has_room(zergling(4, 2), target)
+
+
+def test_dead_attackers_free_their_slots():
+    target = bay(5, 0)
+    assignments = Assignments()
+    holders = [zergling(4, 2) for _ in range(attack_capacity(zergling(), target))]
+    slots = new_step(1.0, assignments, holders)
+    for h in holders:
+        pick_tiered(slots, BlockTracker(), h, [([target], True)], None, 1.0)
+    slots = new_step(1.2, assignments, holders[1:])
+    assert slots.has_room(zergling(4, 2), target)
+
+
+def test_releasing_twice_releases_once():
+    target = bay(5, 0)
+    assignments = Assignments()
+    a, b = zergling(4, 2), zergling(4, 3)
+    slots = new_step(1.0, assignments, [a, b])
+    for attacker in (a, b):
+        pick_tiered(slots, BlockTracker(), attacker, [([target], True)], None, 1.0)
+    new_step(1.2, assignments, [a, b])
+    assignments.release(a)
+    assignments.release(a)
+    assert assignments.reserved[target.tag] == pytest.approx(melee_share(b, target))
+
+
+@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 07: a stale attacker releases a recent one's reservation")
+def test_a_stale_attacker_releases_nothing():
+    target = bay(5, 0)
+    assignments = Assignments()
+    stale, recent = zergling(4, 2), zergling(4, 3)
+    assignments.assign(stale, target, 0.0)
+    assignments.assign(recent, target, 0.8)
+    assignments.start(1.0, {stale.tag, recent.tag})  # only `recent` picked within the last 0.5 s
+    assignments.release(stale)
+    assert assignments.reserved[target.tag] == pytest.approx(melee_share(recent, target))
+
+
+@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 07: a repick (blocked, repick in fight) keeps the old claim")
+def test_a_repick_replaces_the_claim():
+    first, second = bay(5, 0), bay(10, 0)
+    attacker, blocks = zergling(0, 0), BlockTracker()
+    slots = new_step(1.0)
+    tiers = [([first, second], False)]
+    assert pick_tiered(slots, blocks, attacker, tiers, None, 1.0) == (first, False)
+    block(blocks, attacker, first)  # what `fight()` finds out next, before picking again
+    assert pick_tiered(slots, blocks, attacker, tiers, None, 1.0) == (second, False)
+    assert slots.taken == {second.tag: 1}
+
+
+@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 07: following a detour takes the same slot again")
+def test_taking_the_same_target_again_is_one_claim():
+    target = bay(5, 0)
+    attacker = zergling(0, 0)
+    slots = new_step(1.0)
+    pick_tiered(slots, BlockTracker(), attacker, [([target], True)], None, 1.0)
+    slots.take(target, attacker)  # `fight()` recursing after planning a detour ("detour follow")
+    assert slots.taken[target.tag] == 1
+    assert slots.assignments.used[target.tag] == pytest.approx(melee_share(attacker, target))

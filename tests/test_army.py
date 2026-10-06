@@ -1,0 +1,130 @@
+"""Offline tests for `Army` state shared between squads: the map-wide route cache (`route_map`) and squad
+scouting plans (`send_squad_scout`). The bot is a stand-in with only what the code reads.
+
+Tests marked xfail pin down known bugs from CODE_REVIEW.md (strict: a fix makes them fail until the mark
+is removed).
+"""
+
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+from ares.consts import EngagementResult
+from sc2.ids.unit_typeid import UnitTypeId
+from sc2.position import Point2
+
+import bot.army
+from bot.army import Army
+from bot.settings import PLAN_SECONDS
+from fakes import marine, zergling
+
+STRONG = 10  # zerglings the stand-in combat sim needs to beat the enemy group
+
+
+def fake_ai(time=10.0, expansions=()):
+    def can_win_fight(own_units, enemy_units, **_):
+        return EngagementResult.VICTORY_DECISIVE if len(own_units) >= STRONG else EngagementResult.LOSS_DECISIVE
+
+    mediator = SimpleNamespace(
+        get_ground_grid=np.ones((40, 40), dtype=np.float32),
+        can_win_fight=can_win_fight,
+        get_enemy_expansions=[(Point2(p), 0.0) for p in expansions],
+    )
+    return SimpleNamespace(time=time, mediator=mediator, is_visible=lambda p: False, scouting=None)
+
+
+def lings(n, x=5.5, y=5.5):
+    return [zergling(x, y, real_speed=4.13, sight_range=8.0) for _ in range(n)]
+
+
+@pytest.fixture
+def enemy_group(monkeypatch):
+    """One enemy marine at (20.5, 20.5), the only enemy group."""
+    enemy = marine(20.5, 20.5, type_id=UnitTypeId.MARINE, can_attack_ground=True)
+    group = SimpleNamespace(units=[enemy], center=enemy.position, spread=0.0, reach=6.0)
+    monkeypatch.setattr(bot.army, "enemy_groups", lambda ai: [group])
+    return enemy
+
+
+def blocked_at(routes, p: Point2) -> bool:
+    return not routes.open[int(p.x), int(p.y)]
+
+
+# --- route cache (CODE_REVIEW.md 03) ---
+
+
+def test_a_weak_squad_routes_around_a_group_it_cant_beat_and_a_strong_one_doesnt(enemy_group):
+    ai = fake_ai()
+    assert blocked_at(Army().route_map(ai, lings(2)), enemy_group.position)
+    assert not blocked_at(Army().route_map(ai, lings(STRONG)), enemy_group.position)
+
+
+def test_the_route_map_is_rebuilt_after_plan_seconds(enemy_group):
+    army, ai = Army(), fake_ai(time=10.0)
+    first = army.route_map(ai, lings(2))
+    ai.time += PLAN_SECONDS / 2
+    assert army.route_map(ai, lings(2)) is first
+    ai.time += PLAN_SECONDS
+    assert army.route_map(ai, lings(2)) is not first
+
+
+@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 03: the first squad's route map is reused by every squad")
+def test_a_weak_squad_after_a_strong_one_still_avoids_the_group(enemy_group):
+    army, ai = Army(), fake_ai()
+    army.route_map(ai, lings(STRONG))
+    assert blocked_at(army.route_map(ai, lings(2)), enemy_group.position)
+
+
+@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 03: the first squad's route map is reused by every squad")
+def test_a_strong_squad_after_a_weak_one_isnt_kept_out(enemy_group):
+    army, ai = Army(), fake_ai()
+    army.route_map(ai, lings(2))
+    assert not blocked_at(army.route_map(ai, lings(STRONG)), enemy_group.position)
+
+
+# --- squad scouts (CODE_REVIEW.md 02) ---
+
+SPOT = (30.5, 5.5)  # the one enemy expansion to look at
+
+
+def scouting_army(monkeypatch):
+    """An army with a squad held back by a partly seen position (so it wants to scout), no danger."""
+    army = Army()
+    army.turned_back_at = [(Point2((15, 15)), 5.0, 999.0)]
+    army.avoid_reasons[Point2((15, 15))] = "scout needed"
+    monkeypatch.setattr(army, "dangerous_for", lambda ai, units, spot: False)
+    monkeypatch.setattr(army, "route_map", lambda ai, units: SimpleNamespace(distance=lambda a, b: a.distance_to(b)))
+    return army
+
+
+def squad(army, n=4):
+    s = army.book.new()
+    s.units = lings(n)
+    s.tags = {u.tag for u in s.units}
+    return s
+
+
+def test_a_squad_waiting_on_an_overlord_scouts_an_expansion(monkeypatch):
+    army, ai = scouting_army(monkeypatch), fake_ai(expansions=[SPOT])
+    s = squad(army)
+    army.send_squad_scout(ai, s)
+    assert (s.job, s.target) == ("scout", Point2(SPOT))
+    assert army.squad_scouts[s.id][0] == Point2(SPOT)
+
+
+def test_a_spot_being_scouted_isnt_given_to_a_second_squad(monkeypatch):
+    army, ai = scouting_army(monkeypatch), fake_ai(expansions=[SPOT])
+    first, second = squad(army), squad(army)
+    army.send_squad_scout(ai, first)
+    army.send_squad_scout(ai, second)
+    assert second.id not in army.squad_scouts and second.job != "scout"
+
+
+@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 02: a dead or merged squad's scout plan claims its spot forever")
+def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
+    army, ai = scouting_army(monkeypatch), fake_ai(expansions=[SPOT])
+    dead, other = squad(army), squad(army)
+    army.send_squad_scout(ai, dead)
+    del army.book.squads[dead.id]  # all its zerglings died (or it was merged into another squad)
+    army.send_squad_scout(ai, other)
+    assert other.job == "scout"

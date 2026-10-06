@@ -3,46 +3,12 @@
 Units are stand-ins with just the attributes the code reads, so no game is needed.
 """
 
-from types import SimpleNamespace
-
 import numpy as np
 from sc2.position import Point2
 
 from bot.efficiency import COMMIT_SECONDS, DamageTracker, EfficiencyTotals
 from bot.targeting import ReachMap, TargetSlots, attack_capacity, melee_width
-
-_tags = iter(range(1, 10_000))
-
-
-def unit(x=0.0, y=0.0, *, radius=0.375, ground_range=0.1, air_range=0.0, flying=False, structure=False, **extra):
-    return SimpleNamespace(
-        tag=next(_tags),
-        position=Point2((x, y)),
-        radius=radius,
-        ground_range=ground_range,
-        air_range=air_range,
-        is_flying=flying,
-        is_structure=structure,
-        order_target=None,
-        **extra,
-    )
-
-
-def zergling(x=0.0, y=0.0, **extra):
-    return unit(x, y, radius=0.375, ground_range=0.1, **extra)
-
-
-def mutalisk(x=0.0, y=0.0, **extra):
-    return unit(x, y, radius=0.5, ground_range=3.0, air_range=3.0, flying=True, **extra)
-
-
-def bay(x=0.0, y=0.0):
-    return unit(x, y, radius=1.75, ground_range=0.0, structure=True)
-
-
-def ultralisk(x=0.0, y=0.0, **extra):
-    return unit(x, y, radius=1.0, ground_range=1.0, **extra)
-
+from fakes import bay, mutalisk, ultralisk, unit, zergling
 
 # --- targeting ---
 
@@ -60,36 +26,6 @@ def test_no_cap_for_ranged_or_air_attackers():
 def test_melee_vs_unit_is_about_a_full_ring():
     vs_unit = attack_capacity(zergling(), zergling(1, 0))
     assert vs_unit is not None and 4 <= vs_unit <= 8
-
-
-def test_fill_from_the_back():
-    """The first attackers take the deepest structure; once it's full the next one is used."""
-    front, back = bay(5, 0), bay(10, 0)
-    slots = TargetSlots()
-    capacity = attack_capacity(zergling(), back)
-    picks = [slots.pick(zergling(0, 0), [front, back], depth_from=Point2((0, 0))) for _ in range(capacity + 2)]
-    assert picks[:capacity] == [back] * capacity
-    assert picks[capacity:] == [front, front]
-
-
-def test_nearest_fill_without_depth():
-    front, back = bay(5, 0), bay(10, 0)
-    assert TargetSlots().pick(zergling(0, 0), [front, back]) is front
-
-
-def test_keeps_current_target_while_it_has_room():
-    front, back = bay(5, 0), bay(10, 0)
-    attacker = zergling(0, 0)
-    attacker.order_target = front.tag
-    assert TargetSlots().pick(attacker, [front, back], depth_from=Point2((0, 0))) is front
-
-
-def test_everything_full_falls_back_to_closest():
-    target = bay(5, 0)
-    slots = TargetSlots()
-    for _ in range(attack_capacity(zergling(), target)):
-        slots.take(target, zergling())
-    assert slots.pick(zergling(0, 0), [target]) is target
 
 
 def test_attackers_of_different_sizes_share_a_target_by_angle():

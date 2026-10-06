@@ -265,33 +265,6 @@ class TargetSlots:
         used = self.assignments.used
         used[target.tag] = used.get(target.tag, 0.0) + melee_share(attacker, target)
 
-    def pick(self, attacker: Unit, candidates: list[Unit], depth_from: Point2 | None = None) -> Unit:
-        """Which candidate this attacker should go for.
-
-        Without `depth_from`: the closest one with room. With it (structures, melee): fill from
-        the back. Attackers are handled front-first, and each takes the *deepest* candidate (the
-        farthest from `depth_from`, the squad's position) that still has room, so the first ones
-        in run past the front structures and later ones fill in toward the front: nobody has to
-        get past anyone. An attacker keeps its current target while that still has room (the
-        squad's position moves as it advances, so re-picking "deepest" every step would send
-        attackers back and forth). If every candidate is full: the closest.
-        """
-        if not candidates:
-            raise ValueError("TargetSlots.pick needs at least one candidate")
-        by_distance = sorted(candidates, key=lambda e: e.position.distance_to(attacker.position))
-        self.assignments.release(attacker)
-        kept = self.assignments.target.get(attacker.tag, attacker.order_target)
-        current = next((e for e in candidates if e.tag == kept), None)
-        if current is not None and self.has_room(attacker, current):
-            choice = current  # stick with it until it dies or fills up (re-picking on the way thrashes)
-        elif depth_from is not None:
-            deepest = sorted(candidates, key=lambda e: -e.position.distance_to(depth_from))
-            choice = next((e for e in deepest if self.has_room(attacker, e)), by_distance[0])
-        else:
-            choice = next((e for e in by_distance if self.has_room(attacker, e)), by_distance[0])
-        self.take(choice, attacker)
-        return choice
-
 
 @dataclass
 class _Progress:

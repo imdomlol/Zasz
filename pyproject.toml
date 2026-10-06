@@ -34,7 +34,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 "scripts/*" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bot", "scenarios", "scripts"]
+known-first-party = ["bot", "scenarios", "scripts", "fakes"]
 known-third-party = ["ares", "sc2", "sc2_helper", "map_analyzer", "cython_extensions"]
 
 [tool.pytest.ini_options]
