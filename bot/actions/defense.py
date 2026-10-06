@@ -8,6 +8,8 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
 
+from bot.settings import SPORE_RETRY_SECONDS
+
 # Enemy tech that means air units are coming
 AIR_TECH = {
     UnitTypeId.STARGATE,
@@ -33,14 +35,20 @@ async def build_spores(ai: AresBot, per_base: int) -> None:
     if ai.already_pending(UnitTypeId.SPORECRAWLER) or ai.structure_pending(UnitTypeId.SPORECRAWLER):
         return  # one at a time
     spores = ai.structures(UnitTypeId.SPORECRAWLER)
+    # Bases where a spore couldn't be placed (or no drone found) lately: the next base gets a go, and the
+    # placement query isn't repeated every step
+    failed: dict[int, float] = ai.__dict__.setdefault("spore_failed_at", {})
     for hatch in ai.townhalls.ready:
         if spores.closer_than(8, hatch).amount >= per_base:
+            continue
+        if ai.time - failed.get(hatch.tag, -SPORE_RETRY_SECONDS) < SPORE_RETRY_SECONDS:
             continue
         if spot := mineral_line_spot(ai, hatch):
             pos = await ai.find_placement(UnitTypeId.SPORECRAWLER, near=spot, max_distance=4)
             if pos and (drone := ai.mediator.select_worker(target_position=pos)):
                 ai.mediator.build_with_specific_worker(worker=drone, structure_type=UnitTypeId.SPORECRAWLER, pos=pos)
-            return
+                return
+            failed[hatch.tag] = ai.time
 
 
 def mineral_line_spot(ai: AresBot, hatch: Unit) -> Point2 | None:

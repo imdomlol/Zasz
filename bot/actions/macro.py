@@ -28,7 +28,8 @@ def macro_plan(ai: AresBot, decision: Decision, expansions: ExpansionAccess) -> 
             plan.add(BuildStructure(base_location=ai.start_location, structure_id=UnitTypeId.SPAWNINGPOOL))
         return plan
 
-    if decision.build == Build.EXPAND and (location := next_expansion_location(ai, expansions)):
+    # (With no drones left there's nobody to build it: make drones first, below)
+    if decision.build == Build.EXPAND and ai.workers and (location := next_expansion_location(ai, expansions)):
         if affordable_on_arrival(ai, UnitTypeId.HATCHERY, location):
             plan.add(ExpandTo(to_count=ai.townhalls.ready.amount + 1, can_afford_check=False, location=location))
         return plan

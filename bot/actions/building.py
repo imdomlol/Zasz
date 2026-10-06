@@ -17,6 +17,8 @@ def affordable_on_arrival(ai: AresBot, structure: UnitTypeId, target: Point2) ->
     cost = ai.calculate_cost(structure).minerals
     if ai.minerals >= cost:
         return True
+    if not ai.workers:
+        return False  # nobody to send
     drone = ai.workers.closest_to(target)
     path = ai.mediator.find_raw_path(
         start=drone.position, target=target, grid=ai.mediator.get_ground_grid, sensitivity=1

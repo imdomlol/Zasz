@@ -212,3 +212,5 @@ SCRIPTED_UPGRADES = [
 ARMY_COMPOSITION = {
     UnitTypeId.ZERGLING: 1.0,
 }
+
+SPORE_RETRY_SECONDS = 5.0  # a base whose spore couldn't be placed isn't tried again for this long
