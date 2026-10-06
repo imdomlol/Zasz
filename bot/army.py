@@ -1243,13 +1243,10 @@ class Army:
     def turned_back(self, ai: AresBot, threats: list[Unit], reason: str = "") -> None:
         """Remember where a squad had to back off: the area those enemies cover (their spread plus
         weapon range), replacing an older entry for the same spot."""
-        COUNTS[f"avoid area ({reason})"] += 1
         center = center_of(threats)
         spread = max(t.position.distance_to(center) for t in threats)
         radius = spread + max(weapon_range(t) + t.radius for t in threats) + AVOID_MARGIN
-        self.turned_back_at = [(p, r, t) for p, r, t in self.turned_back_at if p.distance_to(center) > radius / 2]
-        self.turned_back_at.append((center, radius, ai.time + AVOID_SECONDS))
-        self.avoid_reasons[center] = reason
+        self.mark_avoid(ai, center, radius, reason)
 
     def find_partly_seen(self, ai: AresBot) -> set[int]:
         """Armed enemies we can see standing on ground we have no vision of: revealed by firing at us
@@ -1314,9 +1311,17 @@ class Army:
     ) -> None:
         """An avoid area of a given size (`turned_back` works it out from the enemies seen)."""
         COUNTS[f"avoid area ({reason})"] += 1
-        self.turned_back_at = [(p, r, t) for p, r, t in self.turned_back_at if p.distance_to(center) > radius / 2]
+        self.set_avoid_areas([(p, r, t) for p, r, t in self.turned_back_at if p.distance_to(center) > radius / 2])
         self.turned_back_at.append((center, radius, ai.time + seconds))
         self.avoid_reasons[center] = reason
+
+    def set_avoid_areas(self, areas: list[tuple[Point2, float, float]]) -> None:
+        """Replace the avoid areas, forgetting why the dropped ones were made (unless another area has the
+        same center)."""
+        if len(areas) < len(self.turned_back_at):
+            centers = {p for p, _, _ in areas}
+            self.avoid_reasons = {c: why for c, why in self.avoid_reasons.items() if c in centers}
+        self.turned_back_at = areas
 
     def clear_empty_avoid_areas(self, ai: AresBot) -> None:
         """An avoid area whose center we can see with no armed enemy in it is over: the army that
@@ -1342,11 +1347,11 @@ class Army:
                 COUNTS["avoid area cleared (seen empty)"] += 1
                 continue
             kept.append((center, radius, until))
-        self.turned_back_at = kept
+        self.set_avoid_areas(kept)
 
     def avoided(self, ai: AresBot) -> list[tuple[Point2, float]]:
         """Active avoid areas: (center, radius)."""
-        self.turned_back_at = [(p, r, t) for p, r, t in self.turned_back_at if t > ai.time]
+        self.set_avoid_areas([(p, r, t) for p, r, t in self.turned_back_at if t > ai.time])
         return [(p, r) for p, r, _ in self.turned_back_at]
 
     def blocked(self, ai: AresBot, spot: Point2) -> bool:

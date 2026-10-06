@@ -155,3 +155,25 @@ def test_a_new_game_starts_with_no_counts_left():
     REACH_DUMPED.add(3)
     Army()
     assert not COUNTS and not REACH_DUMPED
+
+
+# --- avoid areas (CODE_REVIEW.md 18) ---
+
+
+def test_avoid_areas_expire_and_take_their_reasons_with_them():
+    army, ai = Army(), fake_ai(time=10.0)
+    army.turned_back(ai, [marine(20.5, 20.5, type_id=UnitTypeId.MARINE)], "army can't beat")
+    army.mark_avoid(ai, Point2((5, 30)), 4.0, "scout needed", seconds=100)
+    assert army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
+    assert set(army.avoid_reasons.values()) == {"army can't beat", "scout needed"}
+    ai.time += 60  # past AVOID_SECONDS, not past the scout's 100 s
+    assert not army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
+    assert list(army.avoid_reasons.values()) == ["scout needed"]
+
+
+def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
+    army, ai = Army(), fake_ai(time=10.0)
+    army.mark_avoid(ai, Point2((20, 20)), 6.0, "army can't beat")
+    army.mark_avoid(ai, Point2((21, 20)), 6.0, "unseen fire")
+    assert [(p, r) for p, r, _ in army.turned_back_at] == [(Point2((21, 20)), 6.0)]
+    assert army.avoid_reasons == {Point2((21, 20)): "unseen fire"}
