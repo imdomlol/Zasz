@@ -18,10 +18,15 @@ from dataclasses import dataclass, field
 import numpy as np
 from ares import AresBot
 from loguru import logger
+from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.units import Units
 
 from bot.settings import EXPANSION_RECHECK_SECONDS
+
+# Structures ground units walk over: a new one can't change whether a base is reachable (queens spread
+# creep tumors all game, and each one used to clear every cached answer)
+WALK_OVER = {UnitTypeId.CREEPTUMOR, UnitTypeId.CREEPTUMORBURROWED, UnitTypeId.CREEPTUMORQUEEN}
 
 
 @dataclass
@@ -40,6 +45,8 @@ class ExpansionAccess:
         self._checked: dict[Point2, float] = {}  # reachable expansions -> when we last checked
         self._blockers: int | None = None  # fingerprint of everything that can block a path
         self._blockers_loop = -1
+        self._grids: dict[str, np.ndarray] = {}  # this step's pathing grids (`_grid`), shared by every base
+        self._grids_loop = -1
 
     def is_reachable(self, ai: AresBot, location: Point2) -> bool:
         self._forget_if_blockers_changed(ai)
@@ -67,8 +74,8 @@ class ExpansionAccess:
         self._blockers_loop = ai.state.game_loop
         blockers = hash(
             (
-                frozenset(ai.structures.not_flying.tags),
-                frozenset(ai.enemy_structures.not_flying.tags),
+                frozenset(s.tag for s in ai.structures.not_flying if s.type_id not in WALK_OVER),
+                frozenset(s.tag for s in ai.enemy_structures.not_flying if s.type_id not in WALK_OVER),
                 frozenset(ai.destructables.tags),
             )
         )
@@ -78,25 +85,40 @@ class ExpansionAccess:
             for blockage in self.blocked.values():
                 blockage.checked_at = -EXPANSION_RECHECK_SECONDS
 
+    def _grid(self, ai: AresBot, kind: str) -> np.ndarray:
+        """A pathing grid, built at most once per step however many bases are checked:
+        "fresh" (structures and rocks solid), "without rocks", or "terrain" (no structures or rocks)."""
+        if self._grids_loop != ai.state.game_loop:
+            self._grids_loop = ai.state.game_loop
+            self._grids = {}
+        if kind not in self._grids:
+            map_data = ai.mediator.get_map_data_object
+            if kind == "fresh":
+                grid = map_data.get_pyastar_grid()
+            elif kind == "without rocks":
+                grid = map_data.get_pyastar_grid(include_destructables=False)
+            else:
+                terrain = map_data.pather.get_base_pathing_grid(include_destructables=False)
+                grid = np.where(terrain != 0, 1, np.inf).astype(np.float32)
+            self._grids[kind] = grid
+        return self._grids[kind]
+
     def _find_blockage(self, ai: AresBot, location: Point2) -> Blockage | None:
         map_data = ai.mediator.get_map_data_object
         start = ai.townhalls.closest_to(location).position if ai.townhalls else ai.start_location
         # A fresh grid: ares only refreshes its own every 8 steps, so a structure that just
         # appeared might not be in `mediator.get_ground_grid` yet
-        if map_data.pathfind(start, location, map_data.get_pyastar_grid()) is not None:
+        if map_data.pathfind(start, location, self._grid(ai, "fresh")) is not None:
             return None
 
         # Rocks counted as open ground, structures still solid: if that works, only rocks are in the way
-        without_rocks = map_data.get_pyastar_grid(include_destructables=False)
-        if path := map_data.pathfind(start, location, without_rocks):
+        if path := map_data.pathfind(start, location, self._grid(ai, "without rocks")):
             # "Unbuildable" plates/bricks are floor tiles that don't block ground units
             rocks = ai.destructables.filter(lambda d: "UNBUILDABLE" not in d.type_id.name)
             return Blockage("rocks", ai.time, rocks=on_path(rocks, path))
 
         # Otherwise structures are involved: see whose are on the terrain-only route
-        terrain = map_data.pather.get_base_pathing_grid(include_destructables=False)
-        terrain = np.where(terrain != 0, 1, np.inf).astype(np.float32)
-        if path := map_data.pathfind(start, location, terrain):
+        if path := map_data.pathfind(start, location, self._grid(ai, "terrain")):
             if enemy := on_path(ai.enemy_structures.not_flying, path):
                 return Blockage("hostile", ai.time, structures=enemy)
             # (not the hatchery the path starts from)
