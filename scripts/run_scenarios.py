@@ -11,8 +11,9 @@
 
 Every run uses a fixed game seed for its side (`scenarios/seeds.py`), so it plays out the same way
 each time and can be compared number for number. Each result is appended to
-benchmarks/scenarios.csv (army lost, damage taken/dealt, time) with the commit, and printed next to
-the last run of the same scenario, side and seed on another commit.
+benchmarks/scenarios.csv (army lost, damage taken/dealt, time) with the commit and run id
+(`scripts/run_meta.py`), and printed next to the last earlier run of the same scenario, side, seed and
+StarCraft II build.
 
 Exits with 1 if any scenario fails, so it can gate a commit. Replays of failed scenarios are kept in
 replays/scenarios/<run>/ (--replays all keeps every one).
@@ -25,7 +26,6 @@ import io
 import multiprocessing
 import os
 import random
-import subprocess
 import sys
 import threading
 import time
@@ -47,7 +47,8 @@ from sc2.data import Difficulty, Race
 from sc2.main import run_game
 from sc2.player import Bot, Computer
 
-from scenarios import ALL, ScenarioBot, seeds
+from scenarios import ALL, ScenarioBot, efficiency, seeds
+from scripts import run_meta
 
 REPLAYS_DIR = ROOT / "replays" / "scenarios"
 RESULTS_FILE = ROOT / "benchmarks" / "scenarios.csv"
@@ -65,6 +66,7 @@ FIELDS = [
     "damage_taken",
     "damage_dealt",
     "message",
+    "run_id",  # new columns go at the end, so older rows still parse
 ]
 # Watchdog: a scenario taking longer than time_limit * FACTOR + MARGIN real seconds is stuck
 WATCHDOG_FACTOR = 3
@@ -142,27 +144,6 @@ def make_repeatable(seed: int) -> None:
     uuid.uuid4 = lambda: uuid.UUID(int=random.getrandbits(128), version=4)
 
 
-def current_commit() -> str:
-    """Short commit, with "-dirty" if tracked files have uncommitted changes."""
-    try:
-        commit = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
-        ).stdout.strip()
-        dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True, text=True
-        ).stdout.strip()
-        return commit + ("-dirty" if dirty else "")
-    except (OSError, subprocess.CalledProcessError):
-        return "none"
-
-
-def load_results() -> list[dict]:
-    if not RESULTS_FILE.exists():
-        return []
-    with RESULTS_FILE.open(newline="") as f:
-        return list(csv.DictReader(f))
-
-
 def append_result(row: dict) -> None:
     RESULTS_FILE.parent.mkdir(exist_ok=True)
     new = not RESULTS_FILE.exists()
@@ -174,7 +155,7 @@ def append_result(row: dict) -> None:
 
 
 def compare(row: dict, history: list[dict]) -> str:
-    """This run next to the last run of the same scenario, side and seed on another commit."""
+    """This run next to the last earlier run of the same scenario, side, seed and build."""
     if not row["seed"]:
         return ""  # random start: nothing exactly comparable
     same = [
@@ -182,7 +163,7 @@ def compare(row: dict, history: list[dict]) -> str:
         for r in history
         if (r["scenario"], r["side"], r["seed"], r["sc2_build"])
         == (row["scenario"], row["side"], row["seed"], row["sc2_build"])
-        and r["commit"] != row["commit"]
+        and r.get("run_id") != row["run_id"]
     ]
     if not same:
         return ""
@@ -203,14 +184,14 @@ def compare(row: dict, history: list[dict]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("names", nargs="*", help="Scenarios to run (default: all)")
-    parser.add_argument("--jobs", type=int, default=4, help="Scenarios to run at once")
+    parser.add_argument("--jobs", type=run_meta.at_least(1), default=4, help="Scenarios to run at once")
     parser.add_argument(
         "--overlay", action="store_true", help="Draw what the army is doing in the game window (bot/overlay.py)"
     )
     parser.add_argument(
         "--slow", type=float, default=0, help="Play this many times slower than real time, to watch (e.g. 3)"
     )
-    parser.add_argument("--repeat", type=int, default=1, help="Run each scenario this many times")
+    parser.add_argument("--repeat", type=run_meta.at_least(1), default=1, help="Run each scenario this many times")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every scenario's game log")
     parser.add_argument("--list", action="store_true", help="List the scenarios and exit")
     parser.add_argument(
@@ -222,7 +203,7 @@ def main() -> None:
     parser.add_argument("--random", action="store_true", help="Random starts instead of the fixed seeds")
     parser.add_argument(
         "--seeds",
-        type=int,
+        type=run_meta.at_least(0),
         default=0,
         help="Play each scenario with game seeds 1..N instead of one fixed seed per side: the same N games "
         "every time (sides mixed by the seed), to compare versions over more than one game",
@@ -257,6 +238,8 @@ def main() -> None:
     known = {s.name for s in ALL}
     if unknown := [n for n in args.names if n not in known]:
         parser.error(f"unknown scenario(s): {', '.join(unknown)} (see --list)")
+    if repeated := sorted({n for n in args.names if args.names.count(n) > 1}):
+        parser.error(f"scenario(s) named twice: {', '.join(repeated)} (use --repeat)")
     names = args.names or [s.name for s in ALL]
     by_name = {s.name: s for s in ALL}
 
@@ -275,7 +258,12 @@ def main() -> None:
             plays.append((name, side_name, seed))
     runs = [(play, i) for play in plays for i in range(1, args.repeat + 1)]
 
-    run_dir = REPLAYS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S")
+    # This run's commit, build and id, for its rows here and the efficiency scenarios' (in the workers)
+    meta = run_meta.start_run(seeds.sc2_build())
+    history = run_meta.ensure_header(RESULTS_FILE, FIELDS)
+    run_meta.ensure_header(efficiency.RESULTS_FILE, efficiency.FIELDS)
+    print(f"Run {meta['run_id']} on {meta['commit']} (StarCraft II build {meta['sc2_build']})", flush=True)
+    run_dir = REPLAYS_DIR / meta["run_id"]
     run_dir.mkdir(parents=True)
 
     def label(run) -> str:
@@ -284,8 +272,6 @@ def main() -> None:
 
     replays = {run: run_dir / f"{label(run)}.SC2Replay" for run in runs}
     reports: list[Report] = []
-    commit, build = current_commit(), seeds.sc2_build()
-    history = load_results()
     started = time.monotonic()
 
     jobs = 1 if args.realtime else max(1, min(args.jobs, len(runs)))
@@ -320,14 +306,15 @@ def main() -> None:
             )
             row = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "commit": commit,
+                "commit": meta["commit"],
                 "scenario": name,
                 "side": side,
                 "seed": seed if seed is not None else "",
-                "sc2_build": build,
+                "sc2_build": meta["sc2_build"],
                 "status": report.status,
                 "game_time": round(report.game_time, 1),
                 "message": report.message,
+                "run_id": meta["run_id"],
                 **stats,
             }
             if line := compare({k: str(v) for k, v in row.items()}, history):

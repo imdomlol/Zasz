@@ -19,6 +19,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+from scripts import run_meta
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS_FILE = ROOT / "benchmarks" / "efficiency.csv"
@@ -28,18 +29,21 @@ STRUCTURE = UnitTypeId.ENGINEERINGBAY  # 3x3, can't lift off
 # happened to be the structure closest to the bot's rally point)
 KEEP_ALIVE = UnitTypeId.BARRACKSFLYING
 ZERGLINGS = 30
-FIELDS = ["timestamp", "commit", "scenario", "kill_time", "dps", "efficiency", "blocked", "idle", "dealt", "taken"]
-
-
-def current_commit() -> str:
-    head = ROOT / ".git" / "HEAD"
-    try:
-        ref = head.read_text().strip()
-        if ref.startswith("ref: "):
-            return (ROOT / ".git" / ref[5:]).read_text().strip()[:7]
-        return ref[:7]
-    except OSError:
-        return "none"
+# New columns go at the end (older rows still parse; `scripts/run_scenarios.py` upgrades the header)
+FIELDS = [
+    "timestamp",
+    "commit",
+    "scenario",
+    "kill_time",
+    "dps",
+    "efficiency",
+    "blocked",
+    "idle",
+    "dealt",
+    "taken",
+    "sc2_build",
+    "run_id",
+]
 
 
 class StructureAssault(Scenario):
@@ -116,6 +120,7 @@ class StructureAssault(Scenario):
         text = f"[{side}] {text}"
         RESULTS_FILE.parent.mkdir(exist_ok=True)
         new_file = not RESULTS_FILE.exists()
+        meta = run_meta.inherited()  # this run's commit, build and id, as in scenarios.csv
         with RESULTS_FILE.open("a", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=FIELDS)
             if new_file:
@@ -123,7 +128,7 @@ class StructureAssault(Scenario):
             writer.writerow(
                 {
                     "timestamp": datetime.now().isoformat(timespec="seconds"),
-                    "commit": current_commit(),
+                    "commit": meta["commit"],
                     "scenario": self.name,
                     "kill_time": round(self.elapsed(bot), 1) if verdict is passed else "",
                     "dps": round(t.dealt_per_second, 1),
@@ -132,6 +137,8 @@ class StructureAssault(Scenario):
                     "idle": round(t.share(t.idle), 3),
                     "dealt": round(t.damage_dealt),
                     "taken": round(t.damage_taken),
+                    "sc2_build": meta["sc2_build"],
+                    "run_id": meta["run_id"],
                 }
             )
         return verdict(f"{text}; {t.summary()}")

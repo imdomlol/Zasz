@@ -19,20 +19,12 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from scripts.run_meta import sc2_build
+
 SEEDS_FILE = Path(__file__).with_name("seeds.json")
 FIRST, SECOND = "first", "second"  # --side top/left, bottom/right
 PROBE_BATCH = 4  # probe games at once
 MAX_SEED = 40
-
-
-def sc2_build() -> int:
-    """The StarCraft II build python-sc2 will launch (its newest installed version)."""
-    from sc2.paths import Paths
-
-    builds = [int(p.name[4:]) for p in (Paths.BASE / "Versions").glob("Base*") if p.name[4:].isdigit()]
-    if not builds:
-        raise RuntimeError(f"no StarCraft II versions found in {Paths.BASE / 'Versions'}")
-    return max(builds)
 
 
 def side_name(enemy_start, own_start) -> str:

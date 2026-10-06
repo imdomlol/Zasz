@@ -6,8 +6,14 @@ Run this before and after a change to catch regressions:
     uv run python scripts/benchmark.py --games 12 --difficulty VeryHard --races Terran
     uv run python scripts/benchmark.py --games 30 --jobs 6    # 6 games at a time
 
-Each game's stats are appended to benchmarks/results.csv (gitignored). With --jobs, games run in parallel
-but their logs and results are reported in matchup order, exactly as a sequential run would.
+Each game's stats are appended to benchmarks/results.csv with the commit ("-dirty" for uncommitted
+changes), StarCraft II build, game seed and run id (`scripts/run_meta.py`). With --jobs, games run in
+parallel but their logs and results are reported in matchup order, exactly as a sequential run would.
+
+Matchups go through every map x race pair, in an order fixed by --seed (random if not given; printed,
+so a run can be repeated: the same seed plays the same matchups with the same game seeds). A --games
+count that is a multiple of maps x races plays each pair equally often. The built-in AI and StarCraft
+II still aren't bit-for-bit repeatable over a whole game, so compare per matchup over a few games.
 
 Step time is measured the way the AI Arena ladder measures it (the bot's own time per step, not
 time spent waiting on SC2) and checked against the ladder's limits (LADDER_* below): a game over a
@@ -17,7 +23,7 @@ over the limit with --jobs > 1 is worth rerunning with --jobs 1.
 With --record, every game's (observation, decision) pairs are saved to data/decisions/<run>/ as
 JSON lines (`bot.recording`), e.g. as training data for a model.
 
-A game that crashes is recorded as "Crash" and the rest of the run carries on. Replays go to
+A game that crashes is recorded as "Crash" and the rest of the run carries on; the run then exits with 1. Replays go to
 replays/benchmarks/<run>/; by default only notable ones are kept (see --replays), plus a .log next to
 each crash with its traceback and game log.
 """
@@ -51,6 +57,7 @@ from sc2.player import Bot, Computer
 
 from bot import ZaszBot
 from bot.recording import DecisionRecorder
+from scripts import run_meta
 
 RESULTS_FILE = ROOT / "benchmarks" / "results.csv"
 REPLAYS_DIR = ROOT / "replays" / "benchmarks"
@@ -83,6 +90,10 @@ FIELDS = [
     "startup_s",
     "replay",
     "error",
+    # New columns go at the end, so older rows (and older copies of the file elsewhere) still parse
+    "seed",
+    "sc2_build",
+    "run_id",
 ]
 
 
@@ -165,28 +176,51 @@ def installed_maps() -> list[str]:
     return sorted(p.stem for p in Path(Paths.MAPS).glob("*.SC2Map"))
 
 
-def current_commit() -> str:
-    head = ROOT / ".git" / "HEAD"
+def map_installed(name: str) -> bool:
+    """Whether python-sc2 can find this map (it also looks one folder down)."""
     try:
-        ref = head.read_text().strip()
-        if ref.startswith("ref: "):
-            return (ROOT / ".git" / ref[5:]).read_text().strip()[:7]
-        return ref[:7]
-    except OSError:
-        return "none"
+        maps.get(name)
+    except (KeyError, OSError):
+        return False
+    return True
+
+
+def plan_matchups(map_names: list[str], races: list[str], games: int, seed: int) -> list[tuple[str, str]]:
+    """`games` (map, race) pairs going through every map x race pair once before repeating any, in
+    an order fixed by `seed`. The races take turns, so every stretch of len(races) games has each
+    once, and the maps rotate (a short run still sees several)."""
+    rng = random.Random(seed)
+    map_names, races = list(map_names), list(races)
+    rng.shuffle(map_names)
+    rng.shuffle(races)
+    # Pair k: race k % R in round k // R, against the map that round shifts along by the race's
+    # index; over M rounds each race meets every map once
+    cycle = [
+        (map_names[(k // len(races) + k % len(races)) % len(map_names)], races[k % len(races)])
+        for k in range(len(map_names) * len(races))
+    ]
+    return list(itertools.islice(itertools.cycle(cycle), games))
 
 
 def play_game(
-    map_name: str, race: str, difficulty: str, time_limit: int, commit: str, record: str | None, replay: str
+    map_name: str,
+    race: str,
+    difficulty: str,
+    time_limit: int,
+    labels: dict,
+    seed: int,
+    record: str | None,
+    replay: str,
 ) -> tuple[dict, float, str]:
-    """Play one game. Returns its row, real seconds taken and its log; a crash becomes a "Crash" row."""
+    """Play one game with game seed `seed`. Returns its row (with the run's `labels`: commit, build,
+    run id), real seconds taken and its log; a crash becomes a "Crash" row."""
     log = io.StringIO()
     # Same sink settings python-sc2 uses (sc2/main.py), so a replayed log matches a sequential run
     capture = logger.add(log, level="INFO", colorize=sys.stdout.isatty())
-    meta = {"map": map_name, "opponent_race": race, "difficulty": difficulty, "commit": commit}
+    meta = {"map": map_name, "opponent_race": race, "difficulty": difficulty, "commit": labels["commit"]}
     bot = BenchmarkZasz(recorder=DecisionRecorder(record, meta=meta) if record else None)
     started = time.monotonic()
-    row = {"commit": commit, "map": map_name, "opponent_race": race, "difficulty": difficulty}
+    row = game_row(map_name, race, difficulty, labels, seed)
     try:
         result = run_game(
             maps.get(map_name),
@@ -194,6 +228,7 @@ def play_game(
             realtime=False,
             game_time_limit=time_limit,
             save_replay_as=replay,
+            random_seed=seed,
         )
         row["result"] = result.name if isinstance(result, Result) else str(result)
     except Exception as e:
@@ -204,6 +239,19 @@ def play_game(
         logger.remove(capture)
     row = {"timestamp": datetime.now().isoformat(timespec="seconds"), **row, **bot.stats}
     return row, time.monotonic() - started, log.getvalue()
+
+
+def game_row(map_name: str, race: str, difficulty: str, labels: dict, seed: int) -> dict:
+    """What a game's row says before it's played: which game, and which run of which code."""
+    return {
+        "commit": labels["commit"],
+        "map": map_name,
+        "opponent_race": race,
+        "difficulty": difficulty,
+        "seed": seed,
+        "sc2_build": labels["sc2_build"],
+        "run_id": labels["run_id"],
+    }
 
 
 def play_game_in_worker(game_args: tuple) -> tuple[dict, float, str]:
@@ -228,13 +276,10 @@ def run_matchups(game_args: list[tuple], jobs: int):
                 try:
                     row, real_time, log = future.result()
                 except Exception as e:  # the worker process itself died
-                    map_name, race, difficulty, _, commit, _, _ = a
+                    map_name, race, difficulty, _, labels, seed, _, _ = a
                     row = {
                         "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        "commit": commit,
-                        "map": map_name,
-                        "opponent_race": race,
-                        "difficulty": difficulty,
+                        **game_row(map_name, race, difficulty, labels, seed),
                         "result": "Crash",
                         "error": f"worker died: {type(e).__name__}: {e}",
                     }
@@ -244,22 +289,6 @@ def run_matchups(game_args: list[tuple], jobs: int):
         except KeyboardInterrupt:
             pool.shutdown(wait=False, cancel_futures=True)
             raise
-
-
-def open_results() -> tuple[list[dict], bool]:
-    """Past results, upgrading the file to the current columns if they changed. Returns (rows, new_file)."""
-    if not RESULTS_FILE.exists():
-        return [], True
-    with RESULTS_FILE.open(newline="") as f:
-        reader = csv.DictReader(f)
-        history = list(reader)
-        header = reader.fieldnames
-    if header != FIELDS:
-        with RESULTS_FILE.open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(history)
-    return history, False
 
 
 def over_ladder_limits(row: dict) -> list[str]:
@@ -285,16 +314,24 @@ def is_notable(row: dict, win_times: list[float]) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--games", type=int, default=6)
+    parser.add_argument("--games", type=run_meta.at_least(1), default=6)
     parser.add_argument(
         "--overlay", action="store_true", help="Draw what the army is doing in the game window (bot/overlay.py)"
     )
     parser.add_argument("--difficulty", default="Hard", choices=[d.name for d in Difficulty])
-    parser.add_argument("--races", nargs="+", default=["Terran", "Zerg", "Protoss"])
+    parser.add_argument(
+        "--races", nargs="+", default=["Terran", "Zerg", "Protoss"], choices=[r.name for r in Race if r != Race.NoRace]
+    )
     parser.add_argument("--maps", nargs="+", default=None, help="Defaults to every installed map")
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Fixes the matchups and game seeds (default: random, printed)"
+    )
     parser.add_argument("--time-limit", type=int, default=20 * 60, help="Game seconds before calling it a tie")
     parser.add_argument(
-        "--jobs", type=int, default=1, help="Games to run at once (each uses ~1 CPU core and ~1.5 GB of RAM)"
+        "--jobs",
+        type=run_meta.at_least(1),
+        default=1,
+        help="Games to run at once (each uses ~1 CPU core and ~1.5 GB of RAM)",
     )
     parser.add_argument(
         "--replays",
@@ -309,20 +346,27 @@ def main() -> None:
     if args.overlay:
         os.environ["ZASZ_OVERLAY"] = "1"  # read by the game processes (bot/overlay.py)
 
-    map_names = args.maps or installed_maps()
-    # Cycle races evenly; shuffle maps so short runs still see variety
-    random.shuffle(map_names)
-    matchups = list(itertools.islice(zip(itertools.cycle(map_names), itertools.cycle(args.races)), args.games))
+    map_names = list(dict.fromkeys(args.maps or installed_maps()))
+    if not map_names:
+        parser.error(f"no maps installed in {Paths.MAPS}")
+    if unknown := [m for m in map_names if not map_installed(m)]:
+        parser.error(f"map(s) not installed in {Paths.MAPS}: {', '.join(unknown)}")
+    races = list(dict.fromkeys(args.races))
+    seed = args.seed if args.seed is not None else random.randrange(1_000_000)
+    matchups = plan_matchups(map_names, races, args.games, seed)
+    print(f"Seed {seed} (--seed {seed} plays these again):")
+    for i, (map_name, race) in enumerate(matchups, 1):
+        print(f"  {i:02d} {race:<8} {map_name}  (game seed {seed + i})")
 
-    RESULTS_FILE.parent.mkdir(exist_ok=True)
-    history, new_file = open_results()
+    history = run_meta.ensure_header(RESULTS_FILE, FIELDS)
     win_times = [
         float(r["game_time"])
         for r in history
         if r["difficulty"] == args.difficulty and r["result"] == "Victory" and r["game_time"]
     ]
-    commit = current_commit()
-    run_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+    labels = run_meta.start_run(run_meta.sc2_build())
+    print(f"Run {labels['run_id']} on {labels['commit']} (StarCraft II build {labels['sc2_build']})", flush=True)
+    run_name = labels["run_id"]
     run_dir = REPLAYS_DIR / run_name
     run_dir.mkdir(parents=True)
     record_dir = RECORDINGS_DIR / run_name if args.record else None
@@ -332,7 +376,8 @@ def main() -> None:
             race,
             args.difficulty,
             args.time_limit,
-            commit,
+            labels,
+            seed + i,
             str(record_dir / f"{i:02d}_{race}_{map_name}.jsonl") if record_dir else None,
             str(run_dir / f"{i:02d}_{race}_{map_name}.SC2Replay"),
         )
@@ -342,8 +387,6 @@ def main() -> None:
 
     with RESULTS_FILE.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
-        if new_file:
-            writer.writeheader()
 
         jobs = max(1, min(args.jobs, len(matchups)))
         for i, (row, real_time, log) in enumerate(run_matchups(game_args, jobs), 1):
@@ -371,13 +414,14 @@ def main() -> None:
 
     if not any(run_dir.iterdir()):
         run_dir.rmdir()
-    print_summary(rows, jobs)
+    print_summary(rows, jobs, seed)
     if record_dir and record_dir.exists():
         print(f"Decisions recorded in {record_dir.relative_to(ROOT)}")
     if over := [r for r in rows if over_ladder_limits(r)]:
         print(f"\n{len(over)} game(s) over the AI Arena time limits:")
         for r in over:
             print(f"  {r['map']} vs {r['opponent_race']}: {'; '.join(over_ladder_limits(r))}")
+    if over or any(r["result"] == "Crash" for r in rows):
         sys.exit(1)
 
 
@@ -401,12 +445,14 @@ def print_step_time(rows: list[dict], jobs: int) -> None:
         print("  (parallel games slow each other down; rerun with --jobs 1 for exact numbers)")
 
 
-def print_summary(rows: list[dict], jobs: int = 1) -> None:
+def print_summary(rows: list[dict], jobs: int = 1, seed: int | None = None) -> None:
     def win_rate(subset: list[dict]) -> str:
         wins = sum(r["result"] == "Victory" for r in subset)
-        return f"{wins}/{len(subset)} ({100 * wins / len(subset):.0f}%)"
+        return f"{wins}/{len(subset)} ({100 * wins / max(len(subset), 1):.0f}%)"
 
     print("\n=== Benchmark summary ===")
+    if seed is not None:
+        print(f"Seed: {seed}")
     print(f"Overall: {win_rate(rows)}")
     for key in ("opponent_race", "map"):
         for value in sorted({r[key] for r in rows}):
