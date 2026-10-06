@@ -52,6 +52,13 @@ remove the matching strict xfail marks as tests start passing. Check per fix: sc
 rule below. Worse: one reworked attempt, else revert and note why here. Push after each group: (03, 04, 02),
 (07, 20, 05), (06, 21, 24), (25, 19). Stop after phase 4 (phase 5 waits for the user).
 
+Phase 4 status: 03, 04, 02, 07, 05 kept (checks: same or better; 03+04 6/6 vs Hard at a third of phase 3's losses).
+06 reworked: strict corner rule only for safe areas; plugs/breaches/widening keep 8-connected labels (strict ones made
+efficiency_open_army_free leave every run). 20 reverted: it made that scenario's army leave ~40% of runs (0 of 15 before);
+the full games were fine (20/21), so grouping is worth another try once that's understood. A raid's gather clock now
+follows its moving site (found on the way). Ultralove vs Protoss is the recurring non-win (ties in about half the runs,
+on every version): worth its own look.
+
 ## Baseline to compare against (Linux, SC2 build 75689, code `cfbdb7e`, 2026-10-05)
 
 Bot code is identical to `b8a4d22` (the earlier baseline, rows labelled `fb600ec-dirty`).
