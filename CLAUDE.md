@@ -26,7 +26,7 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
    scout cleanup, benchmark helpers). Done in `e9c7c75`. Known bugs are pinned as strict xfails (07 x3, 03 x2,
    02 x1): a phase 4 fix makes its xfail "XPASS(strict)" fail — then remove the mark.
 3. **Perf/cleanup; scenario numbers must stay identical** — 01 + 23, 08 + 09, 12, 10, 15, 14, 13 (step 1), 18,
-   11, 17. Batch them; if any scenario number moves, that change has a bug. ← next
+   11, 17. Batch them; judge them by the regression rule below (same on average, not number for number). ← next
 4. **Behavior-changing fixes, one per benchmark run** — 03, 04 (needs 03), 02, 07, 20, 05, 06, 21 (after 20),
    24, 25, then 19 (changes the efficiency metric; compare efficiency only between runs that both have it).
 5. **Structure/recordings/packaging/docs** — 22 (army.py split, last; orders must stay identical), 37–40, 41,
@@ -56,8 +56,10 @@ Bot code is identical to `b8a4d22` (the earlier baseline, rows labelled `fb600ec
   pass with 0 lost.
 - **Not exactly repeatable, even on identical code with a fixed seed** (4 runs at `cfbdb7e`): 
   efficiency_cramped_main 106.9–111.5 / 16–17, efficiency_cramped_more_zealots 132.1–140.2 / 19–24,
-  efficiency_open_army 15.5–16.1 / 9–11, efficiency_open_army_free 57.8–66.3 / 26–34. For these, "identical"
-  means inside that spread over a few repeats (`--repeat 3`), not number for number.
-- A regression: any new FAIL or crash, or a big jump in losses/time. Pure perf/cleanup must reproduce the
-  exactly-repeatable scenario numbers exactly; behavior-changing fixes may move them. Full-game win rates over a
+  efficiency_open_army 15.5–16.1 / 9–11, efficiency_open_army_free 57.8–66.3 / 26–34. Judge these over a few
+  repeats (`--repeat 3`), by their average.
+- **What counts as a regression (the user's rule):** results don't have to be identical, for any phase. A
+  change is fine if it's the same *on average*: one run much better and another worse is fine. It's a regression
+  if it's significantly worse on average, or worse across the board (most scenarios/matchups worse, even a
+  little), or a new FAIL or crash. Losses (resources lost) matter most, time less. Full-game win rates over a
   few games are noisy: compare per matchup with the same `--seed`. Windows runs (build 97563) aren't comparable.
