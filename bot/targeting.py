@@ -23,9 +23,8 @@ from dataclasses import dataclass
 import numpy as np
 from sc2.position import Point2
 from sc2.unit import Unit
-from scipy.ndimage import label
 from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import dijkstra
+from scipy.sparse.csgraph import connected_components, dijkstra
 
 from bot.settings import (
     APPROACH_DETOUR_SLACK,
@@ -538,6 +537,7 @@ class ReachMap:
         self._safe_graph = None
         self._safe_fields: dict[tuple[int, int], np.ndarray] = {}
         self._breach_fields: dict[tuple[int, int], np.ndarray] = {}
+        self._regions: np.ndarray | None = None  # `regions`
         self._cell_centers: list[np.ndarray] | None = None  # map x, y of every cell's center (`set_danger`)
         self._spots: dict[tuple, list[Point2]] = {}  # see `attack_spots`
 
@@ -678,8 +678,11 @@ class ReachMap:
         for center, radius in zones:
             danger |= (gx - center.x) ** 2 + (gy - center.y) ** 2 <= radius * radius
         self.danger = danger
-        self.safe_labels, _ = label(self.walkable & ~danger, structure=np.ones((3, 3), dtype=bool))
-        self._safe_graph = None
+        # Safe areas: connected the way units walk (`_build_graph`'s corner rule), the same graph `safe_step`
+        # walks on, so "same safe area" means a safe way exists
+        safe = self.walkable & ~danger
+        self._safe_graph = self._build_graph(safe)
+        self.safe_labels = components(self._safe_graph, safe)
         self._safe_fields = {}
         self._breach_fields = {}
 
@@ -769,6 +772,13 @@ class ReachMap:
             cx, cy = min(options, key=lambda n: field[n])
             here = field[cx, cy]
         return cx, cy
+
+    def regions(self) -> np.ndarray:
+        """Walkable cells labelled by connected area (0: not walkable), connected the way units walk:
+        past an enemy unit's corner only where `_squeezed` allows (so same area = reachable)."""
+        if self._regions is None:
+            self._regions = components(self._cell_graph(), self.walkable)
+        return self._regions
 
     def _cell_graph(self):
         """Walkable cells (enemy units as walls) as a graph: 8 neighbors (see `_squeezed`)."""
@@ -875,7 +885,7 @@ class ReachMap:
         both the ground our attackers reach and a sealed-off patch with some of `targets` in it (e.g.
         the back row of a gateway block with stalkers behind it). Per structure: how many attackers this
         size can hit it at once (its `attack_spots`) and the targets it opens up."""
-        regions, _ = label(self.walkable, structure=np.ones((3, 3), dtype=bool))
+        regions = self.regions()
         reached = set(np.unique(regions[self.reached & self.walkable]).tolist()) - {0}
         behind: dict[int, list[Unit]] = {}  # sealed-off region -> targets in it
         for t in targets:
@@ -1008,6 +1018,15 @@ class RouteMap:
             cx, cy = min(options, key=lambda n: field[n])
             here = field[cx, cy]
         return Point2((cx + 0.5, cy + 0.5))
+
+
+def components(graph, mask: np.ndarray) -> np.ndarray:
+    """Cells of `mask` labelled by connected component of `graph` (a `build_graph` of it), 1 and up; 0
+    outside `mask`."""
+    _, labels = connected_components(graph, directed=False)
+    labels = labels.reshape(mask.shape).astype(np.int32) + 1
+    labels[~mask] = 0
+    return labels
 
 
 def build_graph(walk: np.ndarray, unit_blocked: np.ndarray | None = None, cost: np.ndarray | None = None):

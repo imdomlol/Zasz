@@ -9,7 +9,7 @@ import pytest
 from sc2.position import Point2
 
 from bot.targeting import Assignments, BlockTracker, TargetSlots, attack_capacity, melee_share, pick_tiered
-from fakes import bay, marine, zergling
+from fakes import bay, marine, unit, zergling
 
 ORIGIN = Point2((0, 0))
 
@@ -341,3 +341,36 @@ def test_reaches_from_one_place_agrees_with_reaches():
     for goal in [Point2((10.5, 30.5)), Point2((30.5, 5.5)), Point2((30.5, 38.5)), Point2((19.5, 20.5))]:
         assert routes.reaches_from(start, goal) == routes.reaches(start, goal)
     assert not routes.reaches_from(start, Point2((30.5, 5.5)))  # behind the wall, the gap in danger
+
+
+def test_areas_past_an_enemy_units_corner_are_separate():
+    """A diagonal step with terrain on one side and an enemy unit on the other: units can't take it, so the
+    two sides aren't one area (they used to be labelled as one, though nothing could walk across)."""
+    import numpy as np
+
+    from bot.targeting import ReachMap
+
+    grid = np.full((12, 12), np.inf, dtype=np.float32)
+    grid[1:5, 4] = 1.0  # our side: a corridor ending at A = (4, 4)
+    grid[5, 5:9] = 1.0  # their side: B = (5, 5) and up
+    grid[4, 5] = 1.0  # beside both, where an enemy unit stands; (5, 4) is terrain
+    blocker = unit(4.5, 5.5, radius=0.375, ground_range=5.0, is_memory=False)
+    target = unit(5.5, 8.5, radius=0.375, ground_range=5.0, is_memory=False)
+    reach = ReachMap(grid, [zergling(1.5, 4.5)], [blocker, target], margin=20)
+    a, b = (4, 4), (5, 5)
+    assert reach.reached[a] and not reach.reached[b]
+    assert reach.regions()[a] != reach.regions()[b] and reach.regions()[b] != 0
+    reach.set_danger([], 1.0)
+    assert reach.safe_labels[a] != reach.safe_labels[b]
+
+
+def test_buildings_touching_at_a_corner_still_leave_a_gap():
+    import numpy as np
+
+    from bot.targeting import ReachMap
+
+    grid = np.full((12, 12), np.inf, dtype=np.float32)
+    grid[1:5, 4] = 1.0
+    grid[5, 5:9] = 1.0  # (4, 5) and (5, 4) both buildings/terrain: the corner gap is walkable
+    reach = ReachMap(grid, [zergling(1.5, 4.5)], [unit(5.5, 8.5, is_memory=False)], margin=20)
+    assert reach.reached[5, 5] and reach.regions()[4, 4] == reach.regions()[5, 5]

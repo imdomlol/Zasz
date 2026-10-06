@@ -1751,7 +1751,7 @@ class Army:
         evaluation: dropped when the target moves, dies or it stops paying off, and given up after
         WIDEN_MAX_SECONDS (none for that target for WIDEN_GIVE_UP_SECONDS)."""
         now = ai.time
-        regions, _ = label(reach.walkable, structure=np.ones((3, 3), dtype=bool))
+        regions = reach.regions()
         ours_ids = set(np.unique(regions[reach.reached & reach.walkable]).tolist()) - {0}
         z_hp = max(probe.health_max, 1)
         options: dict[int, tuple[float, int, int, int, float, float]] = {}  # target -> best plan for it
