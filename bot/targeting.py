@@ -118,6 +118,10 @@ class Assignments:
         self.recent = 0.5
         self.deferred: set[int] = set()  # targets not attacked head on for now (a widening plan, `Army`)
         self.holders: dict[int, set[int]] = {}  # target tag -> attackers whose target it is (`far_holder`)
+        # This step, per attacker: what it holds from last step until handled (`start`), and what it has taken
+        # since (`TargetSlots.take`), each as (target tag, share). Releasing or re-picking undoes exactly that
+        self.reservation: dict[int, tuple[int, float]] = {}
+        self.claims: dict[int, tuple[int, float]] = {}
 
     def start(self, now: float, alive: set[int], recent: float = 0.5) -> None:
         """New step: forget dead attackers; reserve the targets of those that picked one recently."""
@@ -131,9 +135,13 @@ class Assignments:
         self.now, self.recent = now, recent
         self.reserved = {}
         self.used = {}
+        self.reservation = {}
+        self.claims = {}
         for attacker, target in self.target.items():
             if now - self.picked_at.get(attacker, -99) <= recent:
-                self.reserved[target] = self.reserved.get(target, 0.0) + self.share.get(attacker, 0.0)
+                share = self.share.get(attacker, 0.0)
+                self.reserved[target] = self.reserved.get(target, 0.0) + share
+                self.reservation[attacker] = (target, share)
         self.handled = set()
 
     def release(self, attacker: Unit) -> None:
@@ -141,9 +149,10 @@ class Assignments:
         if attacker.tag in self.handled:
             return
         self.handled.add(attacker.tag)
-        target = self.target.get(attacker.tag)
-        if target is not None and target in self.reserved:
-            self.reserved[target] = max(0.0, self.reserved[target] - self.share.get(attacker.tag, 0.0))
+        # Only what it reserved itself: an attacker that hadn't picked recently holds nothing to give back
+        if (held := self.reservation.pop(attacker.tag, None)) is not None:
+            target, share = held
+            self.reserved[target] = max(0.0, self.reserved.get(target, 0.0) - share)
 
     def assign(self, attacker: Unit, target: Unit, now: float) -> None:
         if (old := self.target.get(attacker.tag)) is not None:
@@ -176,17 +185,22 @@ class Assignments:
         ]
         return max(far)[1] if far else None
 
-    def drop(self, attacker: int, target: int) -> None:
-        """Take `attacker`'s slot on `target` away (a closer attacker gets it); it picks again when handled."""
-        share = self.share.get(attacker, 0.0)
-        if attacker in self.handled:
-            self.used[target] = max(0.0, self.used.get(target, 0.0) - share)
-        else:
-            self.reserved[target] = max(0.0, self.reserved.get(target, 0.0) - share)
+    def drop(self, attacker: int, target: int) -> bool:
+        """Take `attacker`'s slot on `target` away (a closer attacker gets it); it picks again when handled.
+        True if that was a slot taken this step (counted in `TargetSlots.taken`), not one held from the last."""
+        claimed = False
+        if (claim := self.claims.pop(attacker, None)) is not None:
+            t, share = claim
+            self.used[t] = max(0.0, self.used.get(t, 0.0) - share)
+            claimed = True
+        elif (held := self.reservation.pop(attacker, None)) is not None:
+            t, share = held
+            self.reserved[t] = max(0.0, self.reserved.get(t, 0.0) - share)
         del self.target[attacker]
         self.holders[target].discard(attacker)
         self.picked_at.pop(attacker, None)
         self.taken_over += 1
+        return claimed
 
 
 def edge_gap(attacker: Unit, target: Unit) -> float:
@@ -264,18 +278,25 @@ class TargetSlots:
         return self.taken.get(tag, 0) > 0 or self.assignments.reserved.get(tag, 0.0) > 0
 
     def take(self, target: Unit, attacker: Unit) -> None:
+        # One claim per attacker per step: a repick (blocked, detour) replaces its earlier one
+        if (old := self.assignments.claims.pop(attacker.tag, None)) is not None:
+            old_target, old_share = old
+            self.taken[old_target] = max(0, self.taken.get(old_target, 0) - 1)
+            self.assignments.used[old_target] = max(0.0, self.assignments.used.get(old_target, 0.0) - old_share)
         capacity = self.capacity(attacker, target)
         # Full: the slot of an attacker still far away is this closer one's (`Assignments.far_holder`)
         if (
             capacity is not None
             and not self._fits(attacker, target, capacity)
             and (far := self.assignments.far_holder(attacker, target)) is not None
+            and self.assignments.drop(far, target.tag)
         ):
-            self.assignments.drop(far, target.tag)
             self.taken[target.tag] = max(0, self.taken.get(target.tag, 0) - 1)
+        share = melee_share(attacker, target)
         self.taken[target.tag] = self.taken.get(target.tag, 0) + 1
         used = self.assignments.used
-        used[target.tag] = used.get(target.tag, 0.0) + melee_share(attacker, target)
+        used[target.tag] = used.get(target.tag, 0.0) + share
+        self.assignments.claims[attacker.tag] = (target.tag, share)
 
 
 @dataclass

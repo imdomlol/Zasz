@@ -186,7 +186,6 @@ def test_releasing_twice_releases_once():
     assert assignments.reserved[target.tag] == pytest.approx(melee_share(b, target))
 
 
-@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 07: a stale attacker releases a recent one's reservation")
 def test_a_stale_attacker_releases_nothing():
     target = bay(5, 0)
     assignments = Assignments()
@@ -198,7 +197,6 @@ def test_a_stale_attacker_releases_nothing():
     assert assignments.reserved[target.tag] == pytest.approx(melee_share(recent, target))
 
 
-@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 07: a repick (blocked, repick in fight) keeps the old claim")
 def test_a_repick_replaces_the_claim():
     first, second = bay(5, 0), bay(10, 0)
     attacker, blocks = zergling(0, 0), BlockTracker()
@@ -207,10 +205,9 @@ def test_a_repick_replaces_the_claim():
     assert pick_tiered(slots, blocks, attacker, tiers, None, 1.0) == (first, False)
     block(blocks, attacker, first)  # what `fight()` finds out next, before picking again
     assert pick_tiered(slots, blocks, attacker, tiers, None, 1.0) == (second, False)
-    assert slots.taken == {second.tag: 1}
+    assert {t: n for t, n in slots.taken.items() if n} == {second.tag: 1}
 
 
-@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 07: following a detour takes the same slot again")
 def test_taking_the_same_target_again_is_one_claim():
     target = bay(5, 0)
     attacker = zergling(0, 0)
