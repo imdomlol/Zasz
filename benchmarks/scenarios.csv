@@ -1123,3 +1123,243 @@ timestamp,commit,scenario,side,seed,sc2_build,status,game_time,units_lost,army_l
 2026-10-05T23:25:47,9bf51ae,efficiency_open_army_free,top,1,75689,PASS,57.3,25,625,951,1240,"[top] all 8 units dead in 56s, 23 zerglings left; 22 dmg/s, efficiency 42% (blocked 42%, idle 17%), dealt 1240, taken 742 (ratio 1.7)",20261005-232219-0488
 2026-10-05T23:26:13,9bf51ae,efficiency_open_army_free,top,1,75689,FAIL,120.0,2,50,119,300,"[top] 6 of 8 units still alive, 46 zerglings left; 3 dmg/s, efficiency 51% (blocked 28%, idle 21%), dealt 300, taken 112 (ratio 2.7)",20261005-232219-0488
 2026-10-05T23:26:13,9bf51ae,efficiency_open_army_free,top,1,75689,PASS,57.6,26,650,977,1240,"[top] all 8 units dead in 56s, 22 zerglings left; 22 dmg/s, efficiency 42% (blocked 40%, idle 19%), dealt 1240, taken 770 (ratio 1.6)",20261005-232219-0488
+2026-10-05T23:39:09,72e4384,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-233900-9618
+2026-10-05T23:39:10,72e4384,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-233900-9618
+2026-10-05T23:39:10,72e4384,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-233900-9618
+2026-10-05T23:39:11,72e4384,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-233900-9618
+2026-10-05T23:39:20,72e4384,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-233900-9618
+2026-10-05T23:39:20,72e4384,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-233900-9618
+2026-10-05T23:39:20,72e4384,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-233900-9618
+2026-10-05T23:39:21,72e4384,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-233900-9618
+2026-10-05T23:39:30,72e4384,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-233900-9618
+2026-10-05T23:39:30,72e4384,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-233900-9618
+2026-10-05T23:39:30,72e4384,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-233900-9618
+2026-10-05T23:39:30,72e4384,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-233900-9618
+2026-10-05T23:39:39,72e4384,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-233900-9618
+2026-10-05T23:39:40,72e4384,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-233900-9618
+2026-10-05T23:39:40,72e4384,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-233900-9618
+2026-10-05T23:39:42,72e4384,tank_dive,top,1,75689,PASS,6.9,7,175,347,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-233900-9618
+2026-10-05T23:39:50,72e4384,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-233900-9618
+2026-10-05T23:39:51,72e4384,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-233900-9618
+2026-10-05T23:39:54,72e4384,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-233900-9618
+2026-10-05T23:39:57,72e4384,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-233900-9618
+2026-10-05T23:40:05,72e4384,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-233900-9618
+2026-10-05T23:40:05,72e4384,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-233900-9618
+2026-10-05T23:40:08,72e4384,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-233900-9618
+2026-10-05T23:40:12,72e4384,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-233900-9618
+2026-10-05T23:40:28,72e4384,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-233900-9618
+2026-10-05T23:40:29,72e4384,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-233900-9618
+2026-10-05T23:40:31,72e4384,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-233900-9618
+2026-10-05T23:40:31,72e4384,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-233900-9618
+2026-10-05T23:40:33,72e4384,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-233900-9618
+2026-10-05T23:40:38,72e4384,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-233900-9618
+2026-10-05T23:40:47,72e4384,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:40:48,72e4384,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:40:50,72e4384,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:41:03,72e4384,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:41:11,72e4384,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:41:12,72e4384,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:41:12,72e4384,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:41:21,72e4384,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:41:26,72e4384,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-233900-9618
+2026-10-05T23:42:01,72e4384,efficiency_cramped_main,top,1,75689,PASS,111.8,16,400,670,16080,"[top] all units and 15 gateways dead in 111s; 145 dmg/s, efficiency 65% (blocked 9%, idle 26%), dealt 16081, taken 541 (ratio 29.7)",20261005-233900-9618
+2026-10-05T23:42:02,72e4384,efficiency_cramped_main,top,1,75689,PASS,106.1,16,400,708,16080,"[top] all units and 15 gateways dead in 105s; 153 dmg/s, efficiency 64% (blocked 9%, idle 27%), dealt 16080, taken 588 (ratio 27.3)",20261005-233900-9618
+2026-10-05T23:42:11,72e4384,efficiency_cramped_main,top,1,75689,PASS,107.8,15,375,689,16088,"[top] all units and 15 gateways dead in 107s; 151 dmg/s, efficiency 63% (blocked 9%, idle 28%), dealt 16088, taken 569 (ratio 28.3)",20261005-233900-9618
+2026-10-05T23:42:22,72e4384,efficiency_cramped_more_zealots,top,1,75689,PASS,140.1,21,525,822,16450,"[top] all units and 15 gateways dead in 139s; 118 dmg/s, efficiency 65% (blocked 8%, idle 27%), dealt 16450, taken 657 (ratio 25.0)",20261005-233900-9618
+2026-10-05T23:43:00,72e4384,efficiency_cramped_more_zealots,top,1,75689,PASS,136.2,19,475,848,16478,"[top] all units and 15 gateways dead in 135s; 122 dmg/s, efficiency 64% (blocked 11%, idle 25%), dealt 16478, taken 723 (ratio 22.8)",20261005-233900-9618
+2026-10-05T23:43:04,72e4384,efficiency_cramped_more_zealots,top,1,75689,PASS,152.5,21,525,848,16470,"[top] all units and 15 gateways dead in 151s; 109 dmg/s, efficiency 66% (blocked 5%, idle 28%), dealt 16470, taken 691 (ratio 23.8)",20261005-233900-9618
+2026-10-05T23:43:04,72e4384,efficiency_open_army,top,1,75689,PASS,15.7,10,250,553,1240,"[top] all 8 units dead in 14s, 38 zerglings left; 86 dmg/s, efficiency 55% (blocked 18%, idle 27%), dealt 1240, taken 498 (ratio 2.5)",20261005-233900-9618
+2026-10-05T23:43:04,72e4384,efficiency_open_army,top,1,75689,PASS,15.6,7,175,526,1240,"[top] all 8 units dead in 14s, 41 zerglings left; 86 dmg/s, efficiency 54% (blocked 21%, idle 25%), dealt 1240, taken 492 (ratio 2.5)",20261005-233900-9618
+2026-10-05T23:43:04,72e4384,efficiency_open_army,top,1,75689,PASS,15.0,10,250,543,1240,"[top] all 8 units dead in 14s, 38 zerglings left; 90 dmg/s, efficiency 58% (blocked 14%, idle 27%), dealt 1240, taken 493 (ratio 2.5)",20261005-233900-9618
+2026-10-05T23:43:12,72e4384,efficiency_open_army_free,top,1,75689,PASS,63.4,32,800,1199,1240,"[top] all 8 units dead in 62s, 16 zerglings left; 20 dmg/s, efficiency 46% (blocked 34%, idle 19%), dealt 1240, taken 895 (ratio 1.4)",20261005-233900-9618
+2026-10-05T23:43:13,72e4384,efficiency_open_army_free,top,1,75689,PASS,57.4,26,650,965,1240,"[top] all 8 units dead in 56s, 22 zerglings left; 22 dmg/s, efficiency 42% (blocked 39%, idle 19%), dealt 1240, taken 784 (ratio 1.6)",20261005-233900-9618
+2026-10-05T23:43:34,72e4384,efficiency_open_army_free,top,1,75689,PASS,58.8,28,700,1058,1240,"[top] all 8 units dead in 58s, 20 zerglings left; 22 dmg/s, efficiency 51% (blocked 28%, idle 21%), dealt 1240, taken 830 (ratio 1.5)",20261005-233900-9618
+2026-10-05T23:43:34,72e4384,wall_techlab,top,1,75689,PASS,34.7,3,75,149,2540,"all marines dead in 33s, 3 of 24 zerglings lost",20261005-233900-9618
+2026-10-05T23:43:34,72e4384,wall_techlab,top,1,75689,PASS,35.0,3,75,149,2540,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-233900-9618
+2026-10-05T23:43:35,72e4384,wall_techlab,top,1,75689,PASS,34.7,3,75,149,2540,"all marines dead in 33s, 3 of 24 zerglings lost",20261005-233900-9618
+2026-10-05T23:44:02,72e4384,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-233900-9618
+2026-10-05T23:44:10,72e4384,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-233900-9618
+2026-10-05T23:44:11,72e4384,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-233900-9618
+2026-10-05T23:44:11,72e4384,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-233900-9618
+2026-10-05T23:44:14,72e4384,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-233900-9618
+2026-10-05T23:44:20,72e4384,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-233900-9618
+2026-10-05T23:48:54,2c80bce,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-234843-57de
+2026-10-05T23:48:54,2c80bce,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-234843-57de
+2026-10-05T23:49:04,2c80bce,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-234843-57de
+2026-10-05T23:49:06,2c80bce,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-234843-57de
+2026-10-05T23:49:15,2c80bce,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-234843-57de
+2026-10-05T23:49:17,2c80bce,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-234843-57de
+2026-10-05T23:49:27,2c80bce,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-234843-57de
+2026-10-05T23:49:27,2c80bce,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-234843-57de
+2026-10-05T23:49:38,2c80bce,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-234843-57de
+2026-10-05T23:49:38,2c80bce,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-234843-57de
+2026-10-05T23:49:47,2c80bce,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-234843-57de
+2026-10-05T23:49:49,2c80bce,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-234843-57de
+2026-10-05T23:49:58,2c80bce,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-234843-57de
+2026-10-05T23:49:59,2c80bce,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-234843-57de
+2026-10-05T23:50:09,2c80bce,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-234843-57de
+2026-10-05T23:50:12,2c80bce,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-234843-57de
+2026-10-05T23:50:22,2c80bce,tank_dive,top,1,75689,PASS,6.9,7,175,341,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-234843-57de
+2026-10-05T23:50:24,2c80bce,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-234843-57de
+2026-10-05T23:50:37,2c80bce,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-234843-57de
+2026-10-05T23:50:40,2c80bce,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-234843-57de
+2026-10-05T23:50:53,2c80bce,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-234843-57de
+2026-10-05T23:50:54,2c80bce,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-234843-57de
+2026-10-05T23:51:08,2c80bce,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-234843-57de
+2026-10-05T23:51:08,2c80bce,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-234843-57de
+2026-10-05T23:51:31,2c80bce,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-234843-57de
+2026-10-05T23:51:32,2c80bce,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-234843-57de
+2026-10-05T23:51:55,2c80bce,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-234843-57de
+2026-10-05T23:51:55,2c80bce,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-234843-57de
+2026-10-05T23:51:55,2c80bce,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-234843-57de
+2026-10-05T23:52:06,2c80bce,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-234843-57de
+2026-10-05T23:52:12,2c80bce,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:52:23,2c80bce,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:52:29,2c80bce,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:52:47,2c80bce,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:52:53,2c80bce,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:53:09,2c80bce,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:53:09,2c80bce,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:53:26,2c80bce,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:53:26,2c80bce,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-234843-57de
+2026-10-05T23:54:13,2c80bce,efficiency_cramped_main,top,1,75689,PASS,116.2,17,425,689,16083,"[top] all units and 15 gateways dead in 115s; 140 dmg/s, efficiency 62% (blocked 12%, idle 26%), dealt 16083, taken 554 (ratio 29.1)",20261005-234843-57de
+2026-10-05T23:54:13,2c80bce,efficiency_cramped_main,top,1,75689,PASS,111.8,16,400,746,16115,"[top] all units and 15 gateways dead in 111s; 146 dmg/s, efficiency 63% (blocked 10%, idle 26%), dealt 16115, taken 630 (ratio 25.6)",20261005-234843-57de
+2026-10-05T23:55:02,2c80bce,efficiency_cramped_main,top,1,75689,PASS,113.0,16,400,731,16082,"[top] all units and 15 gateways dead in 112s; 144 dmg/s, efficiency 61% (blocked 10%, idle 28%), dealt 16082, taken 608 (ratio 26.4)",20261005-234843-57de
+2026-10-05T23:55:09,2c80bce,efficiency_cramped_more_zealots,top,1,75689,PASS,146.5,21,525,904,16435,"[top] all units and 15 gateways dead in 145s; 113 dmg/s, efficiency 65% (blocked 10%, idle 26%), dealt 16435, taken 750 (ratio 21.9)",20261005-234843-57de
+2026-10-05T23:55:55,2c80bce,efficiency_cramped_more_zealots,top,1,75689,PASS,137.2,19,475,839,16385,"[top] all units and 15 gateways dead in 136s; 120 dmg/s, efficiency 65% (blocked 9%, idle 26%), dealt 16385, taken 707 (ratio 23.2)",20261005-234843-57de
+2026-10-05T23:56:03,2c80bce,efficiency_cramped_more_zealots,top,1,75689,PASS,142.1,20,500,897,16380,"[top] all units and 15 gateways dead in 141s; 116 dmg/s, efficiency 64% (blocked 10%, idle 26%), dealt 16380, taken 747 (ratio 21.9)",20261005-234843-57de
+2026-10-05T23:56:09,2c80bce,efficiency_open_army,top,1,75689,PASS,15.9,10,250,530,1240,"[top] all 8 units dead in 15s, 38 zerglings left; 85 dmg/s, efficiency 55% (blocked 20%, idle 26%), dealt 1240, taken 482 (ratio 2.6)",20261005-234843-57de
+2026-10-05T23:56:17,2c80bce,efficiency_open_army,top,1,75689,PASS,15.6,10,250,560,1240,"[top] all 8 units dead in 14s, 38 zerglings left; 86 dmg/s, efficiency 55% (blocked 18%, idle 27%), dealt 1240, taken 511 (ratio 2.4)",20261005-234843-57de
+2026-10-05T23:56:23,2c80bce,efficiency_open_army,top,1,75689,PASS,16.1,10,250,540,1240,"[top] all 8 units dead in 15s, 38 zerglings left; 84 dmg/s, efficiency 55% (blocked 18%, idle 27%), dealt 1240, taken 490 (ratio 2.5)",20261005-234843-57de
+2026-10-05T23:56:46,2c80bce,efficiency_open_army_free,top,1,75689,PASS,60.1,33,825,1194,1240,"[top] all 8 units dead in 59s, 15 zerglings left; 21 dmg/s, efficiency 43% (blocked 38%, idle 19%), dealt 1240, taken 942 (ratio 1.3)",20261005-234843-57de
+2026-10-05T23:56:51,2c80bce,efficiency_open_army_free,top,1,75689,PASS,57.6,25,625,955,1240,"[top] all 8 units dead in 56s, 23 zerglings left; 22 dmg/s, efficiency 42% (blocked 40%, idle 18%), dealt 1240, taken 750 (ratio 1.7)",20261005-234843-57de
+2026-10-05T23:57:14,2c80bce,efficiency_open_army_free,top,1,75689,PASS,64.5,31,775,1196,1240,"[top] all 8 units dead in 63s, 17 zerglings left; 20 dmg/s, efficiency 41% (blocked 41%, idle 17%), dealt 1240, taken 943 (ratio 1.3)",20261005-234843-57de
+2026-10-05T23:57:14,2c80bce,wall_techlab,top,1,75689,PASS,35.2,3,75,149,2568,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-234843-57de
+2026-10-05T23:57:26,2c80bce,wall_techlab,top,1,75689,PASS,35.0,3,75,149,2540,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-234843-57de
+2026-10-05T23:57:31,2c80bce,wall_techlab,top,1,75689,PASS,35.0,3,75,149,2540,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-234843-57de
+2026-10-05T23:57:55,2c80bce,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-234843-57de
+2026-10-05T23:58:00,2c80bce,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-234843-57de
+2026-10-05T23:58:41,2c80bce,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-234843-57de
+2026-10-05T23:58:41,2c80bce,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-234843-57de
+2026-10-05T23:58:47,2c80bce,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-234843-57de
+2026-10-05T23:59:02,2c80bce,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-234843-57de
+2026-10-05T23:59:16,b7ea37b,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-235905-b49c
+2026-10-05T23:59:17,b7ea37b,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-235905-b49c
+2026-10-05T23:59:29,b7ea37b,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261005-235905-b49c
+2026-10-05T23:59:30,b7ea37b,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-235905-b49c
+2026-10-05T23:59:42,b7ea37b,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-235905-b49c
+2026-10-05T23:59:43,b7ea37b,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261005-235905-b49c
+2026-10-05T23:59:55,b7ea37b,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-235905-b49c
+2026-10-05T23:59:56,b7ea37b,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-235905-b49c
+2026-10-06T00:00:08,b7ea37b,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261005-235905-b49c
+2026-10-06T00:00:08,b7ea37b,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-235905-b49c
+2026-10-06T00:00:19,b7ea37b,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-235905-b49c
+2026-10-06T00:00:20,b7ea37b,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261005-235905-b49c
+2026-10-06T00:00:32,b7ea37b,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-235905-b49c
+2026-10-06T00:00:33,b7ea37b,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-235905-b49c
+2026-10-06T00:00:43,b7ea37b,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261005-235905-b49c
+2026-10-06T00:00:46,b7ea37b,tank_dive,top,1,75689,PASS,6.8,7,175,303,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-235905-b49c
+2026-10-06T00:00:57,b7ea37b,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-235905-b49c
+2026-10-06T00:00:59,b7ea37b,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261005-235905-b49c
+2026-10-06T00:01:14,b7ea37b,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-235905-b49c
+2026-10-06T00:01:15,b7ea37b,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-235905-b49c
+2026-10-06T00:01:29,b7ea37b,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261005-235905-b49c
+2026-10-06T00:01:29,b7ea37b,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-235905-b49c
+2026-10-06T00:01:44,b7ea37b,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-235905-b49c
+2026-10-06T00:01:44,b7ea37b,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261005-235905-b49c
+2026-10-06T00:02:08,b7ea37b,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-235905-b49c
+2026-10-06T00:02:09,b7ea37b,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-235905-b49c
+2026-10-06T00:02:32,b7ea37b,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261005-235905-b49c
+2026-10-06T00:02:32,b7ea37b,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-235905-b49c
+2026-10-06T00:02:32,b7ea37b,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-235905-b49c
+2026-10-06T00:02:44,b7ea37b,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261005-235905-b49c
+2026-10-06T00:02:50,b7ea37b,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:03:03,b7ea37b,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:03:07,b7ea37b,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:03:28,b7ea37b,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:03:31,b7ea37b,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:03:51,b7ea37b,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:03:51,b7ea37b,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:04:05,b7ea37b,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:04:08,b7ea37b,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261005-235905-b49c
+2026-10-06T00:04:50,b7ea37b,efficiency_cramped_main,top,1,75689,PASS,115.3,17,425,714,16110,"[top] all units and 15 gateways dead in 114s; 141 dmg/s, efficiency 63% (blocked 12%, idle 26%), dealt 16110, taken 592 (ratio 27.2)",20261005-235905-b49c
+2026-10-06T00:04:52,b7ea37b,efficiency_cramped_main,top,1,75689,PASS,111.0,16,400,706,16105,"[top] all units and 15 gateways dead in 110s; 147 dmg/s, efficiency 63% (blocked 9%, idle 28%), dealt 16106, taken 580 (ratio 27.7)",20261005-235905-b49c
+2026-10-06T00:05:33,b7ea37b,efficiency_cramped_main,top,1,75689,PASS,113.7,15,375,733,16088,"[top] all units and 15 gateways dead in 112s; 143 dmg/s, efficiency 61% (blocked 12%, idle 27%), dealt 16088, taken 619 (ratio 26.0)",20261005-235905-b49c
+2026-10-06T00:05:40,b7ea37b,efficiency_cramped_more_zealots,top,1,75689,PASS,137.1,18,450,809,16452,"[top] all units and 15 gateways dead in 136s; 121 dmg/s, efficiency 64% (blocked 11%, idle 26%), dealt 16452, taken 662 (ratio 24.8)",20261005-235905-b49c
+2026-10-06T00:06:22,b7ea37b,efficiency_cramped_more_zealots,top,1,75689,PASS,137.1,19,475,845,16385,"[top] all units and 15 gateways dead in 136s; 121 dmg/s, efficiency 65% (blocked 8%, idle 27%), dealt 16385, taken 686 (ratio 23.9)",20261005-235905-b49c
+2026-10-06T00:06:30,b7ea37b,efficiency_cramped_more_zealots,top,1,75689,PASS,149.0,19,475,863,16417,"[top] all units and 15 gateways dead in 148s; 111 dmg/s, efficiency 65% (blocked 8%, idle 27%), dealt 16417, taken 725 (ratio 22.6)",20261005-235905-b49c
+2026-10-06T00:06:35,b7ea37b,efficiency_open_army,top,1,75689,PASS,15.4,8,200,547,1240,"[top] all 8 units dead in 14s, 40 zerglings left; 87 dmg/s, efficiency 57% (blocked 17%, idle 26%), dealt 1240, taken 503 (ratio 2.5)",20261005-235905-b49c
+2026-10-06T00:06:45,b7ea37b,efficiency_open_army,top,1,75689,PASS,15.9,10,250,552,1240,"[top] all 8 units dead in 15s, 38 zerglings left; 85 dmg/s, efficiency 53% (blocked 21%, idle 26%), dealt 1240, taken 503 (ratio 2.5)",20261005-235905-b49c
+2026-10-06T00:06:51,b7ea37b,efficiency_open_army,top,1,75689,PASS,15.5,8,200,533,1240,"[top] all 8 units dead in 14s, 40 zerglings left; 87 dmg/s, efficiency 57% (blocked 17%, idle 26%), dealt 1240, taken 495 (ratio 2.5)",20261005-235905-b49c
+2026-10-06T00:07:24,b7ea37b,efficiency_open_army_free,top,1,75689,PASS,57.3,26,650,944,1243,"[top] all 8 units dead in 56s, 22 zerglings left; 22 dmg/s, efficiency 42% (blocked 41%, idle 17%), dealt 1243, taken 755 (ratio 1.6)",20261005-235905-b49c
+2026-10-06T00:07:29,b7ea37b,efficiency_open_army_free,top,1,75689,PASS,58.7,27,675,1005,1240,"[top] all 8 units dead in 57s, 21 zerglings left; 22 dmg/s, efficiency 42% (blocked 41%, idle 17%), dealt 1240, taken 805 (ratio 1.5)",20261005-235905-b49c
+2026-10-06T00:08:04,b7ea37b,efficiency_open_army_free,top,1,75689,PASS,60.5,36,900,1356,1240,"[top] all 8 units dead in 59s, 12 zerglings left; 21 dmg/s, efficiency 48% (blocked 30%, idle 21%), dealt 1240, taken 1129 (ratio 1.1)",20261005-235905-b49c
+2026-10-06T00:08:04,b7ea37b,wall_techlab,top,1,75689,PASS,35.0,3,75,149,2540,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-235905-b49c
+2026-10-06T00:08:18,b7ea37b,wall_techlab,top,1,75689,PASS,35.0,3,75,149,2540,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-235905-b49c
+2026-10-06T00:08:30,b7ea37b,wall_techlab,top,1,75689,PASS,35.0,3,75,149,2540,"all marines dead in 34s, 3 of 24 zerglings lost",20261005-235905-b49c
+2026-10-06T00:09:07,b7ea37b,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-235905-b49c
+2026-10-06T00:09:19,b7ea37b,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-235905-b49c
+2026-10-06T00:09:49,b7ea37b,wall_bunker,top,1,75689,FAIL,150.0,21,525,760,912,"4 marines alive after 150s, 21 of 24 zerglings lost, 11 wall buildings left",20261005-235905-b49c
+2026-10-06T00:09:49,b7ea37b,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-235905-b49c
+2026-10-06T00:10:02,b7ea37b,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-235905-b49c
+2026-10-06T00:10:09,b7ea37b,wall_bays,top,1,75689,PASS,29.2,4,100,178,2114,"all marines dead in 28s, 4 of 24 zerglings lost",20261005-235905-b49c
+2026-10-06T00:10:21,a02dbc1,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261006-001011-d428
+2026-10-06T00:10:22,a02dbc1,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261006-001011-d428
+2026-10-06T00:10:32,a02dbc1,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261006-001011-d428
+2026-10-06T00:10:34,a02dbc1,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261006-001011-d428
+2026-10-06T00:10:43,a02dbc1,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261006-001011-d428
+2026-10-06T00:10:46,a02dbc1,expansion_hostile,top,1,75689,PASS,3.0,0,0,0,0,13 bases skipped as hostile,20261006-001011-d428
+2026-10-06T00:10:54,a02dbc1,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261006-001011-d428
+2026-10-06T00:10:56,a02dbc1,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261006-001011-d428
+2026-10-06T00:11:05,a02dbc1,expansion_walled,top,1,75689,PASS,3.0,0,0,0,0,14 bases skipped as walled,20261006-001011-d428
+2026-10-06T00:11:07,a02dbc1,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261006-001011-d428
+2026-10-06T00:11:15,a02dbc1,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261006-001011-d428
+2026-10-06T00:11:17,a02dbc1,expansion_rocks,top,1,75689,PASS,0.1,0,0,0,0,"4 gated bases; (124, 76) needs the gate broken",20261006-001011-d428
+2026-10-06T00:11:26,a02dbc1,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261006-001011-d428
+2026-10-06T00:11:28,a02dbc1,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261006-001011-d428
+2026-10-06T00:11:37,a02dbc1,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261006-001011-d428
+2026-10-06T00:11:40,a02dbc1,tank_dive,top,1,75689,PASS,6.7,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261006-001011-d428
+2026-10-06T00:11:50,a02dbc1,tank_dive,top,1,75689,PASS,6.9,7,175,319,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261006-001011-d428
+2026-10-06T00:11:53,a02dbc1,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261006-001011-d428
+2026-10-06T00:12:05,a02dbc1,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261006-001011-d428
+2026-10-06T00:12:09,a02dbc1,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261006-001011-d428
+2026-10-06T00:12:20,a02dbc1,retreat_losing_fight,top,1,75689,PASS,25.0,0,0,0,0,6 of 6 zerglings alive,20261006-001011-d428
+2026-10-06T00:12:23,a02dbc1,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261006-001011-d428
+2026-10-06T00:12:35,a02dbc1,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261006-001011-d428
+2026-10-06T00:12:37,a02dbc1,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261006-001011-d428
+2026-10-06T00:12:58,a02dbc1,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261006-001011-d428
+2026-10-06T00:13:01,a02dbc1,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261006-001011-d428
+2026-10-06T00:13:20,a02dbc1,alternate_target,top,1,75689,PASS,85.5,2,50,70,1559,base found and killed at 86s with 22 zerglings left,20261006-001011-d428
+2026-10-06T00:13:20,a02dbc1,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261006-001011-d428
+2026-10-06T00:13:23,a02dbc1,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261006-001011-d428
+2026-10-06T00:13:32,a02dbc1,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261006-001011-d428
+2026-10-06T00:13:38,a02dbc1,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:13:48,a02dbc1,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:13:55,a02dbc1,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:14:11,a02dbc1,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:14:17,a02dbc1,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:14:32,a02dbc1,efficiency_deep_base,top,1,75689,PASS,64.2,0,0,0,9909,"[top] all 12 structures dead in 63s; 162 dmg/s, efficiency 62% (blocked 11%, idle 27%), dealt 10200, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:14:33,a02dbc1,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:14:48,a02dbc1,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:14:48,a02dbc1,efficiency_ramp,top,1,75689,PASS,36.2,0,0,0,5000,"[top] all 6 structures dead in 35s; 146 dmg/s, efficiency 63% (blocked 12%, idle 25%), dealt 5100, taken 0 (ratio inf)",20261006-001011-d428
+2026-10-06T00:15:31,a02dbc1,efficiency_cramped_main,top,1,75689,PASS,113.7,17,425,723,16095,"[top] all units and 15 gateways dead in 112s; 143 dmg/s, efficiency 64% (blocked 9%, idle 27%), dealt 16095, taken 579 (ratio 27.8)",20261006-001011-d428
+2026-10-06T00:15:33,a02dbc1,efficiency_cramped_main,top,1,75689,PASS,115.0,17,425,733,16094,"[top] all units and 15 gateways dead in 114s; 141 dmg/s, efficiency 63% (blocked 10%, idle 27%), dealt 16094, taken 606 (ratio 26.6)",20261006-001011-d428
+2026-10-06T00:16:13,a02dbc1,efficiency_cramped_main,top,1,75689,PASS,107.0,17,425,708,16088,"[top] all units and 15 gateways dead in 106s; 152 dmg/s, efficiency 64% (blocked 10%, idle 26%), dealt 16088, taken 574 (ratio 28.0)",20261006-001011-d428
+2026-10-06T00:16:23,a02dbc1,efficiency_cramped_more_zealots,top,1,75689,PASS,142.7,18,450,829,16432,"[top] all units and 15 gateways dead in 141s; 116 dmg/s, efficiency 65% (blocked 10%, idle 25%), dealt 16432, taken 705 (ratio 23.3)",20261006-001011-d428
+2026-10-06T00:17:02,a02dbc1,efficiency_cramped_more_zealots,top,1,75689,PASS,138.4,18,450,800,16621,"[top] all units and 15 gateways dead in 137s; 121 dmg/s, efficiency 64% (blocked 9%, idle 27%), dealt 16621, taken 670 (ratio 24.8)",20261006-001011-d428
+2026-10-06T00:17:11,a02dbc1,efficiency_cramped_more_zealots,top,1,75689,PASS,143.1,18,450,823,16438,"[top] all units and 15 gateways dead in 142s; 116 dmg/s, efficiency 66% (blocked 9%, idle 25%), dealt 16438, taken 691 (ratio 23.8)",20261006-001011-d428
+2026-10-06T00:17:16,a02dbc1,efficiency_open_army,top,1,75689,PASS,16.4,8,200,530,1240,"[top] all 8 units dead in 15s, 40 zerglings left; 82 dmg/s, efficiency 53% (blocked 23%, idle 25%), dealt 1240, taken 493 (ratio 2.5)",20261006-001011-d428
+2026-10-06T00:17:25,a02dbc1,efficiency_open_army,top,1,75689,PASS,16.2,7,175,540,1240,"[top] all 8 units dead in 15s, 41 zerglings left; 83 dmg/s, efficiency 53% (blocked 23%, idle 24%), dealt 1240, taken 506 (ratio 2.5)",20261006-001011-d428
+2026-10-06T00:17:29,a02dbc1,efficiency_open_army,top,1,75689,PASS,15.4,10,250,560,1240,"[top] all 8 units dead in 14s, 38 zerglings left; 87 dmg/s, efficiency 57% (blocked 16%, idle 27%), dealt 1240, taken 511 (ratio 2.4)",20261006-001011-d428
+2026-10-06T00:17:52,a02dbc1,efficiency_open_army_free,top,1,75689,PASS,60.1,29,725,1117,1240,"[top] all 8 units dead in 59s, 19 zerglings left; 21 dmg/s, efficiency 44% (blocked 38%, idle 18%), dealt 1240, taken 911 (ratio 1.4)",20261006-001011-d428
+2026-10-06T00:17:57,a02dbc1,efficiency_open_army_free,top,1,75689,PASS,62.1,30,750,1099,1242,"[top] all 8 units dead in 61s, 18 zerglings left; 20 dmg/s, efficiency 40% (blocked 41%, idle 19%), dealt 1242, taken 864 (ratio 1.4)",20261006-001011-d428
+2026-10-06T00:18:19,a02dbc1,efficiency_open_army_free,top,1,75689,PASS,63.5,35,875,1286,1240,"[top] all 8 units dead in 62s, 13 zerglings left; 20 dmg/s, efficiency 45% (blocked 36%, idle 19%), dealt 1240, taken 1031 (ratio 1.2)",20261006-001011-d428
+2026-10-06T00:18:19,a02dbc1,wall_techlab,top,1,75689,PASS,31.1,4,100,178,2278,"all marines dead in 30s, 4 of 24 zerglings lost",20261006-001011-d428
+2026-10-06T00:18:30,a02dbc1,wall_techlab,top,1,75689,PASS,31.1,4,100,178,2278,"all marines dead in 30s, 4 of 24 zerglings lost",20261006-001011-d428
+2026-10-06T00:18:36,a02dbc1,wall_techlab,top,1,75689,PASS,31.1,4,100,178,2278,"all marines dead in 30s, 4 of 24 zerglings lost",20261006-001011-d428
+2026-10-06T00:19:04,a02dbc1,wall_bunker,top,1,75689,FAIL,150.0,18,450,678,2396,"4 marines alive after 150s, 18 of 24 zerglings lost, 10 wall buildings left",20261006-001011-d428
+2026-10-06T00:19:09,a02dbc1,wall_bunker,top,1,75689,FAIL,150.0,18,450,678,2396,"4 marines alive after 150s, 18 of 24 zerglings lost, 10 wall buildings left",20261006-001011-d428
+2026-10-06T00:19:37,a02dbc1,wall_bunker,top,1,75689,FAIL,150.0,18,450,690,1865,"4 marines alive after 150s, 18 of 24 zerglings lost, 10 wall buildings left",20261006-001011-d428
+2026-10-06T00:19:37,a02dbc1,wall_bays,top,1,75689,PASS,29.6,4,100,178,2086,"all marines dead in 28s, 4 of 24 zerglings lost",20261006-001011-d428
+2026-10-06T00:19:43,a02dbc1,wall_bays,top,1,75689,PASS,29.2,4,100,178,2082,"all marines dead in 28s, 4 of 24 zerglings lost",20261006-001011-d428
+2026-10-06T00:20:00,a02dbc1,wall_bays,top,1,75689,PASS,29.6,4,100,184,2102,"all marines dead in 28s, 4 of 24 zerglings lost",20261006-001011-d428
