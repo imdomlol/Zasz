@@ -29,7 +29,7 @@ from ares import AresBot
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, AttackTarget, PathUnitToTarget, ShootTargetInRange
 from ares.behaviors.combat.individual.combat_individual_behavior import CombatIndividualBehavior
-from ares.consts import TOWNHALL_TYPES, WORKER_TYPES, EngagementResult, UnitRole, UnitTreeQueryType
+from ares.consts import IGNORE_IN_COST_DICT, TOWNHALL_TYPES, WORKER_TYPES, EngagementResult, UnitRole, UnitTreeQueryType
 from loguru import logger
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
@@ -2267,6 +2267,11 @@ def choke_worth(
         # Only a unit that can't hit us from where it stands (a zealot) can be left alone: refusing a
         # stalker in a gap doesn't stop it shooting us
         return True
+    # Spawned/free units (notably broodlings) intentionally have no creation ability or entry in ares'
+    # cost table. They are not worth losing zerglings to in a choke, and asking python-sc2 for their
+    # production cost raises instead of returning zero.
+    if target.type_id in IGNORE_IN_COST_DICT:
+        return False
     if target.tag in CHOKE_NOTES:
         return CHOKE_NOTES[target.tag][2]
     capacity = slots.capacity(unit, target)
@@ -2549,6 +2554,11 @@ def back_off(
     """Get out of the threats' actual weapon range (not ares' danger map, which pads every range by
     4 and sent zerglings all the way home), then stop: at `hold_at` if given (a rally), else right
     there. Units already out of reach wait."""
+    if not threats:
+        for unit in units:
+            if unit.orders:
+                unit.stop()
+        return
     shooters = [t for t in threats if armed(t)]
     center = center_of(threats)
     probe = units[0]
