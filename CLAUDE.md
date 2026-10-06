@@ -53,12 +53,26 @@ remove the matching strict xfail marks as tests start passing. Check per fix: sc
 rule below. Worse: one reworked attempt, else revert and note why here. Push after each group: (03, 04, 02),
 (07, 20, 05), (06, 21, 24), (25, 19). Stop after phase 4 (phase 5 waits for the user).
 
-Phase 4 status: 03, 04, 02, 07, 05 kept (checks: same or better; 03+04 6/6 vs Hard at a third of phase 3's losses).
-06 reworked: strict corner rule only for safe areas; plugs/breaches/widening keep 8-connected labels (strict ones made
-efficiency_open_army_free leave every run). 20 reverted: it made that scenario's army leave ~40% of runs (0 of 15 before);
-the full games were fine (20/21), so grouping is worth another try once that's understood. A raid's gather clock now
-follows its moving site (found on the way). Ultralove vs Protoss is the recurring non-win (ties in about half the runs,
-on every version): worth its own look.
+### Phase 4 results (2026-10-06, branch `review-phase4-behavior`; final bot code = `d6e38de`)
+
+- Kept: 03 (route maps per squad strength), 04 (no push when nowhere is safe; patrols check the way), 02 (dead
+  scouts free their spot; old area maps evicted), 07 (slot accounting per attacker), 05 (area maps per squad), 21
+  step 2 (one `combat_estimate`), 24 (no-drone and spore fallbacks), 25 (stable injector pairs: measured 22,614
+  swaps in 21 games before), 19 (efficiency metric). Plus: a raid's gather clock follows its moving site, and
+  `production_cost` (enemy units with no price crashed `choke_worth` vs Zerg; pre-existing).
+- Reverted: 20 (connected-component groups: efficiency_open_army_free's army left ~40% of runs, 0 of 15 before; full
+  games were fine, so worth another try once that's understood) and 06 (strict corner rule: in plugs it made that
+  army leave every run; in safe areas it cost ~2 s of army time per 3 heavy scenarios for a rare case).
+- Tried and reverted (no net gain): no early area-map rebuild; area maps shared per walled-off region (army time
+  -12%, but efficiency_open_army_free left in 12 of 12 runs).
+- Not done: 21 step 1 (shared kill-time arithmetic, no behavior change); 04's optional "hold with no safe route".
+- **Result, 21 games vs Hard (`--games 21 --seed 1 --jobs 6`, run alone):** phase 3 `9bf51ae` 20 wins + 1 tie, 128k
+  lost, 8.8 ms per game loop (max step 210 ms); phase 4 `d6e38de` 19 wins + 2 ties, 101k lost (-22%), 10.8 ms per
+  loop (+23%, 27% of the ladder's 40 ms), max step 949 ms. Three phase-4 runs: 18-21 wins, 94-101k lost.
+  Scenarios: the same on average (2717 vs 2719 summed resources lost); efficiency_open_army_free 15 of 15 passes.
+- Known: Ultralove vs Protoss ties in about half of all runs on every version (the recurring non-win); a 20-minute tie
+  can crash the benchmark's replay save (5.3 MB replay > python-sc2's 4 MB websocket limit: tooling, logged as
+  "Crash"). Efficiency % numbers changed meaning with 19: compare them only between runs that both have it.
 
 ## Baseline to compare against (Linux, SC2 build 75689, code `cfbdb7e`, 2026-10-05)
 
