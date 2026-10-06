@@ -68,18 +68,23 @@ def test_the_route_map_is_rebuilt_after_plan_seconds(enemy_group):
     assert army.route_map(ai, lings(2)) is not first
 
 
-@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 03: the first squad's route map is reused by every squad")
 def test_a_weak_squad_after_a_strong_one_still_avoids_the_group(enemy_group):
     army, ai = Army(), fake_ai()
     army.route_map(ai, lings(STRONG))
     assert blocked_at(army.route_map(ai, lings(2)), enemy_group.position)
 
 
-@pytest.mark.xfail(strict=True, reason="CODE_REVIEW.md 03: the first squad's route map is reused by every squad")
 def test_a_strong_squad_after_a_weak_one_isnt_kept_out(enemy_group):
     army, ai = Army(), fake_ai()
     army.route_map(ai, lings(2))
     assert not blocked_at(army.route_map(ai, lings(STRONG)), enemy_group.position)
+
+
+def test_squads_that_lose_to_the_same_groups_share_a_route_map(enemy_group):
+    army, ai = Army(), fake_ai()
+    weak = army.route_map(ai, lings(2))
+    assert army.route_map(ai, lings(3)) is weak
+    assert army.route_map(ai, lings(STRONG)) is not weak
 
 
 # --- squad scouts (CODE_REVIEW.md 02) ---

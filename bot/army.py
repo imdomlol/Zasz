@@ -199,7 +199,13 @@ class Army:
         self.settled: dict[tuple[int, float], int | None] = {}  # (target, attacker radius) -> capacity (`TargetSlots`)
         self.cells_taken: set[tuple[float, float]] = set()  # attack spots claimed this step (`spot_key`)
         self.assignments = Assignments()  # each zergling's target, kept across steps
-        self.routes: RouteMap | None = None  # map-wide routes around danger (`route_map`)
+        # Map-wide routes around danger (`route_map`), per PLAN_SECONDS window: the enemy groups and avoid areas
+        # as the window began; per squad (its units' tags), which of those groups it can't beat; and one
+        # route map per set of groups to avoid (squads that lose to the same groups share it)
+        self.route_groups: list[EnemyGroup] = []
+        self.route_zones: list[tuple[Point2, float]] = []
+        self.route_losing: dict[frozenset[int], frozenset[int]] = {}
+        self.route_maps: dict[frozenset[int], RouteMap] = {}
         # Squads scouting while waiting on an overlord: squad id -> (spot, deadline, started, what it was
         # doing before: job, target, site, site tags, helping)
         self.squad_scouts: dict[int, tuple] = {}
@@ -842,22 +848,32 @@ class Army:
         return spot, True
 
     def route_map(self, ai: AresBot, units: list[Unit]) -> RouteMap:
-        """Routes around danger, rebuilt every PLAN_SECONDS: avoid areas, and the reach (+ BACK_OFF_MARGIN)
-        of every unit in an enemy group these units can't beat."""
-        if self.routes is None or ai.time - self.routes_at >= PLAN_SECONDS:
-            started = time.perf_counter()
-            zones = list(self.avoided(ai))
-            for g in enemy_groups(ai):
-                if units and wins(ai, units, g.units):
-                    continue
-                zones += [
-                    (u.position, weapon_range(u) + u.radius + 0.375 + BACK_OFF_MARGIN) for u in g.units if armed(u)
-                ]
-            self.routes = RouteMap(ai.mediator.get_ground_grid, zones)
+        """Routes around danger for these units, rebuilt every PLAN_SECONDS: avoid areas, and the reach
+        (+ BACK_OFF_MARGIN) of every unit in an enemy group *these* units can't beat. (One map for every
+        squad sent a weak patrol through a group only a big raid beats, or kept the raid out.)"""
+        if ai.time - self.routes_at >= PLAN_SECONDS:
             self.routes_at = ai.time
+            self.route_groups = enemy_groups(ai)
+            self.route_zones = list(self.avoided(ai))
+            self.route_losing, self.route_maps = {}, {}
+        own = frozenset(u.tag for u in units)
+        losing = self.route_losing.get(own)
+        if losing is None:
+            losing = frozenset(i for i, g in enumerate(self.route_groups) if not (units and wins(ai, units, g.units)))
+            self.route_losing[own] = losing
+        routes = self.route_maps.get(losing)
+        if routes is None:
+            started = time.perf_counter()
+            zones = self.route_zones + [
+                (u.position, weapon_range(u) + u.radius + 0.375 + BACK_OFF_MARGIN)
+                for i in sorted(losing)
+                for u in self.route_groups[i].units
+                if armed(u)
+            ]
+            routes = self.route_maps[losing] = RouteMap(ai.mediator.get_ground_grid, zones)
             if self.debug:
                 self.route_ms.append((time.perf_counter() - started) * 1000)
-        return self.routes
+        return routes
 
     def route_ok(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:
         """Can these units travel to `spot` without crossing danger (`route_map`)?"""
