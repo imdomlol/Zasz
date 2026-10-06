@@ -200,3 +200,53 @@ def test_a_plain_win_is_enough_when_no_set_makes_it_comfortable():
     comfortable, plain = wins_with_at_least(100), wins_with_at_least(20)
     chosen = choose_helpers(present, [unit(5, 0)], candidates, comfortable, room=40, wins_at_all=plain)
     assert [s.name for s in chosen] == ["a"]
+
+
+def counting_bot(loop=1):
+    calls = []
+
+    def can_win_fight(own_units, enemy_units, **_):
+        calls.append((len(own_units), len(enemy_units)))
+        return EngagementResult.VICTORY_CLOSE if len(own_units) >= 4 else EngagementResult.LOSS_MARGINAL
+
+    bot = SimpleNamespace(
+        state=SimpleNamespace(game_loop=loop),
+        mediator=SimpleNamespace(can_win_fight=can_win_fight, get_cached_enemy_army=[]),
+    )
+    return bot, calls
+
+
+def test_the_same_fight_is_simulated_once_a_step():
+    from bot.settings import FIGHT_AT, HELP_WIN_AT
+    from bot.squads import wins
+
+    bot, calls = counting_bot()
+    own, enemies = [ling(0, 0) for _ in range(6)], [unit(5, 5)]
+    assert wins(bot, own, enemies, HELP_WIN_AT) == (EngagementResult.VICTORY_CLOSE >= HELP_WIN_AT)
+    assert wins(bot, own, enemies, FIGHT_AT)
+    assert len(calls) == 1
+    needed(bot, own, enemies, Point2((0, 0)), HELP_WIN_AT) or needed(bot, own, enemies, Point2((0, 0)), FIGHT_AT)
+    assert len(calls) == 1  # `assign_raids`' two passes over the same sizes: answered from the first
+    bot.state.game_loop += 2  # a new step: health and positions have changed
+    wins(bot, own, enemies)
+    assert len(calls) == 2
+
+
+def test_different_forces_are_simulated_separately():
+    from bot.squads import fight_verdict
+
+    bot, calls = counting_bot()
+    own, enemies = [ling(0, 0) for _ in range(6)], [unit(5, 5)]
+    assert fight_verdict(bot, own[:2], enemies) == EngagementResult.LOSS_MARGINAL
+    assert fight_verdict(bot, own, enemies) == EngagementResult.VICTORY_CLOSE
+    fight_verdict(bot, own[::-1], enemies)  # same units, another order: the sim isn't assumed order-free
+    assert len(calls) == 3
+
+
+def test_enemy_groups_are_built_once_a_step():
+    bot, _ = counting_bot()
+    bot.mediator.get_cached_enemy_army = [unit(5, 5)]
+    first = enemy_groups(bot)
+    assert enemy_groups(bot) is first
+    bot.state.game_loop += 2
+    assert enemy_groups(bot) is not first

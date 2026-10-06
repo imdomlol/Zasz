@@ -125,6 +125,7 @@ from bot.squads import (
     cluster,
     enemy_groups,
     enemy_sites,
+    fight_verdict,
     needed,
     wins,
 )
@@ -1173,12 +1174,15 @@ class Army:
         self, ai: AresBot, pool: list[Unit], group: list[Unit], reach: ReachMap | None = None
     ) -> int | None:
         """Fewest of `pool` (in order) that beat `group`: comfortably if possible, else at all."""
+        # Each size is judged once, for both bars (`through_bunkers` is more than one sim)
+        sizes = [*range(min(2, len(pool)), len(pool) + 1, 2), *([len(pool)] if pool else [])]
+        verdicts: dict[int, EngagementResult] = {}
         for at in (HELP_WIN_AT, FIGHT_AT):
-            for n in range(min(2, len(pool)), len(pool) + 1, 2):
-                if strike_result(ai, pool[:n], group, reach) >= at:
+            for n in sizes:
+                if n not in verdicts:
+                    verdicts[n] = strike_result(ai, pool[:n], group, reach)
+                if verdicts[n] >= at:
                     return n
-            if pool and strike_result(ai, pool, group, reach) >= at:
-                return len(pool)
         return None
 
     def execute_strikes(self, ai: AresBot) -> None:
@@ -1909,7 +1913,7 @@ def fight_result(
     melee = [u for u in own if u.type_id in ARMY_TYPES]
     if bunkers and melee:
         return through_bunkers(ai, own, melee, bunkers, [t for t in threats if t not in bunkers]), own
-    return ai.mediator.can_win_fight(own_units=own, enemy_units=threats, workers_do_no_damage=True), own
+    return fight_verdict(ai, own, threats), own
 
 
 def through_bunkers(
@@ -1954,7 +1958,7 @@ def through_bunkers(
     survivors = survivors[:keep]
     if others:
         rest = [u for u in own if u.type_id not in ARMY_TYPES] + survivors
-        return ai.mediator.can_win_fight(own_units=rest, enemy_units=others, workers_do_no_damage=True)
+        return fight_verdict(ai, rest, others)
     share = keep / len(melee)  # what's left of us once the bunkers are dead
     if share >= 0.75:
         return EngagementResult.VICTORY_DECISIVE
@@ -1986,7 +1990,7 @@ def strike_result(ai: AresBot, own: list[Unit], group: list[Unit], reach: ReachM
     bunkers = [e for e in group if e.type_id == UnitTypeId.BUNKER]
     if bunkers:
         return through_bunkers(ai, own, own, bunkers, [e for e in group if e not in bunkers], reach)
-    return ai.mediator.can_win_fight(own_units=own, enemy_units=group, workers_do_no_damage=True)
+    return fight_verdict(ai, own, group)
 
 
 def tank_neutralized(enemy: Unit, own: list[Unit]) -> bool:

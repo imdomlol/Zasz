@@ -92,7 +92,18 @@ def cluster(units: list[Unit], radius: float) -> list[list[Unit]]:
 
 
 def enemy_groups(ai: AresBot) -> list[EnemyGroup]:
-    """Known enemy ground army (seen now or remembered), clustered by distance."""
+    """Known enemy ground army (seen now or remembered), clustered by distance. Built once per game
+    step (several callers ask for it, some once per spot they consider); don't change the result."""
+    state = getattr(ai, "state", None)
+    if state is not None and getattr(ai, "_enemy_groups", (None,))[0] == state.game_loop:
+        return ai._enemy_groups[1]
+    groups = _enemy_groups(ai)
+    if state is not None:
+        ai._enemy_groups = (state.game_loop, groups)
+    return groups
+
+
+def _enemy_groups(ai: AresBot) -> list[EnemyGroup]:
     units = [
         u
         for u in ai.mediator.get_cached_enemy_army
@@ -113,12 +124,30 @@ def enemy_groups(ai: AresBot) -> list[EnemyGroup]:
     return groups
 
 
+def fight_verdict(ai: AresBot, own: list[Unit], enemies: list[Unit]) -> EngagementResult:
+    """ares' combat sim verdict for `own` against `enemies`. ares runs the sim on every request, and the
+    same fight gets asked about many times a step (both win bars, every helper or strike size, every
+    spot a squad might go), so verdicts are kept for the rest of the game step. Keyed by the units in
+    order (the sim gets exactly the same input); a new step starts afresh (health, positions change)."""
+    state = getattr(ai, "state", None)
+    if state is None:  # a stand-in bot (tests)
+        return ai.mediator.can_win_fight(own_units=own, enemy_units=enemies, workers_do_no_damage=True)
+    loop, verdicts = getattr(ai, "_fight_verdicts", (None, None))
+    if loop != state.game_loop:
+        verdicts = {}
+        ai._fight_verdicts = (state.game_loop, verdicts)
+    key = (tuple(u.tag for u in own), tuple(u.tag for u in enemies))
+    if key not in verdicts:
+        verdicts[key] = ai.mediator.can_win_fight(own_units=own, enemy_units=enemies, workers_do_no_damage=True)
+    return verdicts[key]
+
+
 def wins(ai: AresBot, own: list[Unit], enemies: list[Unit], at: EngagementResult = FIGHT_AT) -> bool:
     if not own:
         return False
     if not enemies:
         return True
-    return ai.mediator.can_win_fight(own_units=own, enemy_units=enemies, workers_do_no_damage=True) >= at
+    return fight_verdict(ai, own, enemies) >= at
 
 
 def needed(
