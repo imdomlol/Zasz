@@ -32,8 +32,9 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
 4. **Behavior-changing fixes, one per benchmark run** — 03, 04 (needs 03), 02, 07, 20, 05, 06, 21 (after 20),
    24, 25, then 19 (changes the efficiency metric; compare efficiency only between runs that both have it). Done
    on `review-phase4-behavior` (see Phase 4 below): all kept except 20 (reverted); 06 reworked; 21 step 2 only.
-5. **Structure/recordings/packaging/docs** ← next (waits for the user) — 22 (army.py split, last; orders must stay identical), 37–40, 41,
-   42, 35, 36, 27, 30, 31, 43 (docs last).
+5. **Structure/recordings/packaging/docs** — 22 (army.py split, last; orders must stay identical), 37–40, 41,
+   42, 35, 36, 27, 30, 31, 43 (docs last). Done on `review-phase5-structure` except 22 (see Phase 5 below).
+   **Next: 22**, on its own (waits for the user).
 
 ### Phase 1 (done): how runs are labelled now
 
@@ -74,6 +75,26 @@ rule below. Worse: one reworked attempt, else revert and note why here. Push aft
 - Known: Ultralove vs Protoss ties in about half of all runs on every version (the recurring non-win); a 20-minute tie
   can crash the benchmark's replay save (5.3 MB replay > python-sc2's 4 MB websocket limit: tooling, logged as
   "Crash"). Efficiency % numbers changed meaning with 19: compare them only between runs that both have it.
+
+### Phase 5 results (2026-10-07, branch `review-phase5-structure`; everything but 22)
+
+- Done: 37 (recorder closed state, `flush()`, benchmark closes it after a crash), 38 (header checks,
+  file:line errors, `skip_unfinished_line`, `iter_steps`), 35 (registry of classes, temp folder made and
+  removed per run), 27 (efficiency rows written by the parent, with side/seed/status; blank efficiency
+  when unmeasured), 31 (step-time count/total/max; logs dropped once printed), 39 (`Decision` validates and
+  keeps a read-only army; priority follows `ARMY_UNITS`), 40 (replay test + README wording), 36 (one staged
+  sequence for the efficiency scenarios, `spawn_all`, layouts once), 42 (zip: only 3.12 Linux binaries,
+  cached/hash-checked wheel, atomic write, `--out`), 41 (`scripts/bootstrap.py`, direct deps declared with
+  no version change, `bot/decisions/types.py`, `scenarios/base.py`, run.py builds its bot in `main`), 43
+  (README, docstrings, `docs/progress.md` current state, `experiments/README.md`). 30 was already done in
+  phase 1 (`run_meta.ensure_header`: temp file + swap, refuses to drop columns).
+- Not done (optional, waits for the user): 40's `attacking` observation feature (changes the recording
+  schema).
+- **Check** (`34b2311`): scenarios `--repeat 3` the same on average (summed lost 2700 vs 2717 at `d6e38de`;
+  the exact ones identical but tank_dive/wall_bays within their 1-ling spread; only wall_bunker fails, as
+  expected). `benchmark.py --games 6 --seed 1 --jobs 6`: 5 wins + the Ultralove Protoss tie (logged as
+  "Crash": the 4.6 MB replay save, the known tooling issue), every matchup inside earlier runs' spread,
+  5.9–16.6 ms per game loop, max step 609 ms.
 
 ## Baseline to compare against (Linux, SC2 build 75689, code `cfbdb7e`, 2026-10-05)
 
