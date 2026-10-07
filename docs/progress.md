@@ -3,7 +3,23 @@
 Where Zasz stands, what's been verified, and what's open. Update this when picking work back up
 or finishing a session, so it travels with the repo.
 
-## Current state (`main`, 2026-10-01)
+## Current state (branch `squads`, 2026-10-07)
+
+- **Army:** zerglings in squads of about `SQUAD_SIZE` (`SquadBook`, `bot/squads.py`), each with a job
+  (patrol, raid, help, defend, ...), planned in `bot/army.py`: sim-sized raids on enemy sites, help
+  for fights the sim calls losing, strikes on enemies shooting us, routes around armies we can't beat.
+  The single army and `bot/army_plan.py` described below are gone.
+- **Code review fixes:** `CODE_REVIEW.md` (44 findings), fixed in phases; status and measured results
+  in `CLAUDE.md`. Phases 1-4 are on `squads`; phase 5 (structure, recordings, packaging, docs) is on
+  `review-phase5-structure`.
+- **Results (Linux, 21 games vs Hard, `--seed 1`):** 19 wins + 2 ties at `d6e38de`, 10.8 ms of bot time
+  per game loop. Ultralove vs Protoss ties in about half of all runs.
+
+Everything below is the record from 2026-10-01 and earlier: kept as history, not updated. Since
+then the branches it calls unmerged were merged, `STRUCTURE_FILL` became `TARGET_FILL`, and the army
+plan became squads.
+
+## State on 2026-10-01 (`main`; historical)
 
 Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings only (by choice).
 

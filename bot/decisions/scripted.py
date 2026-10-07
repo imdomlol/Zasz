@@ -51,8 +51,8 @@ class ScriptedDecisions:
             self.attacking = False
         return self.attacking
 
-    # A drone still walking to the build spot counts as `pool_ordered`, so these stay True
-    # (and keep saving minerals) until the building is placed
+    # A drone still walking to the build spot counts as `pool_ordered`, so `pool_wanted` turns False
+    # as soon as the drone is sent, not when the building is placed
 
     def pool_wanted(self, obs: Observation) -> bool:
         return not obs.pool_ordered and obs.drones >= POOL_AT_DRONES

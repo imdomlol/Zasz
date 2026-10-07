@@ -6,11 +6,11 @@ A Zerg StarCraft II bot built on [ares-sc2](https://aressc2.github.io/ares-sc2/)
 Strategy: make 16 drones and a spawning pool, then keep expanding whenever the drones are about to fill
 every base (or patches mine out), up to 70 drones. Research zergling speed, make a queen per hatchery
 (injecting larva) plus creep queens, pump zerglings, and attack once there are 16 (until the army drops
-below 8), with two zerglings scouting ahead. The army moves as one until it meets (or scouts find) an
-enemy army it can't beat; then it splits: raids sized by the combat sim on bases away from that army,
-single zerglings peeking at remembered armies from outside their range, scouting and watching the routes
-to our bases, grouping up again only for a fight that needs everyone. Overlords watch the enemy's
-expansions from safe spots.
+below 8). Zerglings move in squads of about 8, each with its own job: patrolling where we've had no
+vision longest, raiding enemy bases with as many zerglings as the combat sim says they need, helping
+a squad in a fight it's losing (only when the helpers together turn it), defending our bases. Squads
+fight or retreat on their own, go around armies they can't beat, and gather outside the enemy's
+reach to go in together. Overlords watch the enemy's expansions from safe spots.
 
 ## Setup
 
@@ -83,6 +83,8 @@ game log.
 | `9bcfdcb` | Hard | 6/6 | tanks-and-scouting + no-path crash fix; wins in 7.1-9.4 min, no crashes |
 | `59432bf` | Hard | 6/6 | skip unreachable expansions; wins in 7.5-10.4 min, no crashes |
 | `1cc08d0` | Hard | 6/6 | learning interface (observe -> decide -> act), same decisions as before; wins in 6.4-9.6 min |
+| `9bf51ae` | Hard | 20/21 | squads, after the review's performance fixes (Linux, `--games 21 --seed 1`); 1 tie, 128k lost |
+| `d6e38de` | Hard | 19/21 | the review's behavior fixes (same run); 2 ties, 101k lost (-22%), 10.8 ms per game loop |
 
 The default opponent used to be Medium. It's now Hard, because Medium was 6/6 every time and no longer
 caught regressions.
@@ -107,7 +109,7 @@ scenario out exactly the same way every time (start location, the built-in AI's 
 own randomness: ares' creep spots and squad ids are seeded from it too). That makes runs comparable
 number for number, not just pass/fail: each result goes to `benchmarks/scenarios.csv` (units and
 resources lost, damage taken and dealt, game time, commit; `-dirty` for uncommitted code), and is
-printed next to the last run of the same scenario, side and seed on another commit:
+printed next to the last earlier run of the same scenario, side, seed and StarCraft II build:
 
 ```
 PASS  efficiency_cramped_main[top]  ... (80s game; lost 22 units (550 resources), damage taken 732)
@@ -135,7 +137,9 @@ watchdog reports it as an ERROR and the run carries on (`--watchdog SECONDS` to 
 **Damage efficiency** (`efficiency_*` scenarios): 30 zerglings vs structures on open ground, in a
 4-deep base and up the enemy's main ramp. They pass when everything is dead and report kill time,
 damage per second, and how much of the army's damage potential landed (delivered vs blocked vs
-idle, from `bot/efficiency.py`), appended to `benchmarks/efficiency.csv` with the commit:
+idle, from `bot/efficiency.py`), appended to `benchmarks/efficiency.csv` with the commit, side, seed
+and status. The `efficiency_cramped_*` and `efficiency_open_army*` scenarios do the same against
+zealots and stalkers, with and without a grid of gateways around them:
 
 ```sh
 uv run python scripts/run_scenarios.py efficiency_open_field efficiency_deep_base efficiency_ramp --repeat 2
@@ -165,11 +169,15 @@ observe(ai) -> Observation -> decisions.decide(obs) -> Decision -> actions carry
 - **Actions stay scripted** (`bot/actions/`, `bot/army.py`): worker choice, timing, placement and
   micro. A new *what* choice gets a `Decision` field instead of living in an action.
 - **Recording** (`bot/recording.py`): `benchmark.py --record` saves each game's (observation,
-  decision) pairs as JSON lines in `data/decisions/<run>/`; `read_records()` loads them back,
-  e.g. to train a model to imitate the scripted rules (or anything else recorded).
+  decision) pairs as JSON lines in `data/decisions/<run>/`; `read_records()` loads them back
+  (`iter_steps()` streams a large one), e.g. to train a model to imitate the scripted rules (or
+  anything else recorded). Reading checks the format version and feature names.
 
-Because decisions are a pure function of the observation, the scripted rules have offline unit
-tests (`uv run pytest`, no StarCraft II needed).
+Decisions only see the observation, plus whatever state the policy keeps itself: the scripted
+rules remember whether they're attacking (start at 16 zerglings, stop below 8), so between those
+counts the same observation can give either answer. A recording replayed in order reproduces it; a
+model trained on single steps can't see it. Either way the rules need no game to test: they have
+offline unit tests (`uv run pytest`, no StarCraft II needed).
 
 ## Layout
 
@@ -182,6 +190,7 @@ bot/
 ├── recording.py       # save / load (observation, decision) pairs
 ├── efficiency.py      # damage efficiency: how much of the army's damage potential lands
 ├── targeting.py       # target slots: spread melee attackers over structures (fill from the back)
+├── overlay.py         # debug drawing of what the army is doing (--overlay)
 ├── decisions/         # WHAT to do
 │   ├── __init__.py    #   Decision (the action space) and the Decisions interface
 │   └── scripted.py    #   hand-written rules (a learned model would sit next to this)
@@ -194,8 +203,8 @@ bot/
 │   ├── queens.py      #   inject + creep queens; queens defend (our only anti-air unit)
 │   ├── defense.py     #   spore crawlers once enemy air shows up
 │   └── scouting.py    #   overlords posted at enemy expansions, kept out of anti-air
-├── army_plan.py       # who does what: group up only when needed; raids, peeks, scouts, watchers
-└── army.py            # squads: fight or retreat, target priority, avoided areas, lookouts
+├── squads.py          # SquadBook: squads of zerglings and their jobs (patrol, raid, help, defend)
+└── army.py            # plans the jobs (raids, help, strikes, rallies) and fights: fight or retreat, targets
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
@@ -204,7 +213,11 @@ tests/                 # offline unit tests (uv run pytest)
 scripts/
 ├── benchmark.py       # win-rate benchmark
 ├── run_scenarios.py   # scenario runner
+├── run_meta.py        # commit, StarCraft II build and run id on every result row
 └── create_ladder_zip.py
+benchmarks/            # result CSVs (tracked; union-merged across machines)
+experiments/           # dropped army experiments, kept as patches (see its README)
+docs/                  # Linux setup, progress notes
 ares-sc2/              # git submodule, pinned to a known-good commit
 ```
 
@@ -217,7 +230,7 @@ minerals first. Every `ZaszBot` hook must call `super()` or ares stops working.
 ```sh
 uv run ruff check --fix .    # lint
 uv run ruff format .         # format
-uv run pytest                # offline unit tests (< 1 s)
+uv run pytest                # offline unit tests (~1 s)
 uv run python scripts/run_scenarios.py   # staged in-game scenarios (~40 s)
 ```
 
@@ -230,5 +243,7 @@ uv run python scripts/create_ladder_zip.py
 ```
 
 This writes `Zasz.zip` with the bot plus ares, python-sc2, map_analyzer and the **Linux** build of
-cython_extensions (downloaded from PyPI), so it can be built on Windows. `Debug` in `config.yml` must be
-`False`. Upload it on aiarena.net as a Python Zerg bot.
+cython_extensions (downloaded from PyPI once, then cached in `.cache/`), so it can be built on Windows.
+Only the ladder's binaries go in (Linux, Python 3.12), and a failed build leaves the previous zip as it
+was (`--out PATH` writes elsewhere). `Debug` in `config.yml` must be `False`. Upload it on aiarena.net
+as a Python Zerg bot.

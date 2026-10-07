@@ -6,9 +6,10 @@ Run this before and after a change to catch regressions:
     uv run python scripts/benchmark.py --games 12 --difficulty VeryHard --races Terran
     uv run python scripts/benchmark.py --games 30 --jobs 6    # 6 games at a time
 
-Each game's stats are appended to benchmarks/results.csv with the commit ("-dirty" for uncommitted
-changes), StarCraft II build, game seed and run id (`scripts/run_meta.py`). With --jobs, games run in
-parallel but their logs and results are reported in matchup order, exactly as a sequential run would.
+Each game's stats are appended to benchmarks/results.csv (tracked in git, union-merged across
+machines) with the commit ("-dirty" for uncommitted changes), StarCraft II build, game seed and run
+id (`scripts/run_meta.py`). With --jobs, games run in parallel but their logs and results are
+reported in matchup order, exactly as a sequential run would.
 
 Matchups go through every map x race pair, in an order fixed by --seed (random if not given; printed,
 so a run can be repeated: the same seed plays the same matchups with the same game seeds). A --games

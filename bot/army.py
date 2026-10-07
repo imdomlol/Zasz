@@ -1,7 +1,9 @@
 """Army control: squads, fight-or-retreat, and per-unit target selection.
 
-Zerglings get the ATTACKING role when they hatch (see `ZaszBot.on_unit_created`). ares groups
-them into squads; each squad then:
+Zerglings get the ATTACKING role when they hatch (see `ZaszBot.on_unit_created`). `SquadBook`
+(`bot/squads.py`) keeps them in squads and gives each a job (patrol, raid, help, defend, ...);
+this module plans those jobs (`assign_raids`, `coordinate_help`, strikes on enemies shooting us,
+rallies to go in together) and fights. Each squad:
 
 1. Fights if enemies are close and the combat sim predicts at least an even fight (or we're
    defending a base). Zerglings dive siege tanks first instead of trading with them from the
@@ -9,7 +11,8 @@ them into squads; each squad then:
 2. Retreats as soon as the sim predicts a loss, but only until it's out of known enemy range,
    then re-engages if the fight looks winnable. Flip-flopping keeps pressure on; the rule is
    that units never stand in enemy fire without either fighting or leaving.
-3. Otherwise regroups with the main squad before moving on, so we don't trickle in.
+3. Otherwise goes about its job, along routes around armies it can't beat; squads joining a
+   fight gather outside the enemy's reach first, so they don't trickle in.
 
 Threats are looked up around every unit in the squad (not just its center), and units that
 are being shot from out of sight count as "under fire", so long-range units like sieged tanks
