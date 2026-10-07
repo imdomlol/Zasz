@@ -9,9 +9,9 @@ or finishing a session, so it travels with the repo.
   (patrol, raid, help, defend, ...), planned in `bot/army.py`: sim-sized raids on enemy sites, help
   for fights the sim calls losing, strikes on enemies shooting us, routes around armies we can't beat.
   The single army and `bot/army_plan.py` described below are gone.
-- **Code review fixes:** `CODE_REVIEW.md` (44 findings), fixed in phases; status and measured results
-  in `CLAUDE.md`. Phases 1-4 are on `squads`; phase 5 (structure, recordings, packaging, docs) is on
-  `review-phase5-structure`.
+- **Code review fixes:** `CODE_REVIEW.md` (44 findings), fixed in phases 1-5 (all on `squads`); status and
+  measured results in `CLAUDE.md`. `bot/army.py` is split into parts (`bot/jobs.py`, `strikes.py`,
+  `breach.py`, `routes.py`, `avoid.py`, `micro.py`, `combat.py`, ...).
 - **Results (Linux, 21 games vs Hard, `--seed 1`):** 19 wins + 2 ties at `d6e38de`, 10.8 ms of bot time
   per game loop. Ultralove vs Protoss ties in about half of all runs.
 

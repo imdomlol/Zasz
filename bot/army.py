@@ -1,9 +1,19 @@
 """Army control: squads, fight-or-retreat, and per-unit target selection.
 
 Zerglings get the ATTACKING role when they hatch (see `ZaszBot.on_unit_created`). `SquadBook`
-(`bot/squads.py`) keeps them in squads and gives each a job (patrol, raid, help, defend, ...);
-this module plans those jobs (`assign_raids`, `coordinate_help`, strikes on enemies shooting us,
-rallies to go in together) and fights. Each squad:
+(`bot/squads.py`) keeps them in squads and gives each a job (patrol, raid, help, defend, ...).
+`Army` runs it all every step (`_control`) and decides each squad's fight (`control_squad`); its
+parts are in their own modules:
+
+- `bot.jobs`: where each squad goes, raids, help for losing fights, rallies, pushes, squad scouts
+- `bot.strikes`: zerglings sent for enemies shooting our units
+- `bot.breach`: the building worth breaking to get at enemies behind it
+- `bot.routes` and `bot.avoid`: routes around danger, reach maps, and areas to keep out of
+- `bot.army_debug` and `bot.army_notes`: debug logs, counts and overlay notes
+- `bot.micro`: what each zergling does in a fight (`fight`), and how units move
+- `bot.combat`: who can hit whom, and who wins (the combat sim, corrected)
+
+Each squad:
 
 1. Fights if enemies are close and the combat sim predicts at least an even fight (or we're
    defending a base). Zerglings dive siege tanks first instead of trading with them from the

@@ -166,7 +166,7 @@ observe(ai) -> Observation -> decisions.decide(obs) -> Decision -> actions carry
 - **`Decisions.decide(obs)`** only gets the observation, never the bot. `ScriptedDecisions` is the
   hand-written rules; a model implements the same method and is passed as
   `ZaszBot(decisions=...)` (the `custom_decisions` scenario does exactly that).
-- **Actions stay scripted** (`bot/actions/`, `bot/army.py`): worker choice, timing, placement and
+- **Actions stay scripted** (`bot/actions/`, `bot/army.py` and its parts): worker choice, timing, placement and
   micro. A new *what* choice gets a `Decision` field instead of living in an action.
 - **Recording** (`bot/recording.py`): `benchmark.py --record` saves each game's (observation,
   decision) pairs as JSON lines in `data/decisions/<run>/`; `read_records()` loads them back
@@ -205,7 +205,16 @@ bot/
 │   ├── defense.py     #   spore crawlers once enemy air shows up
 │   └── scouting.py    #   overlords posted at enemy expansions, kept out of anti-air
 ├── squads.py          # SquadBook: squads of zerglings and their jobs (patrol, raid, help, defend)
-└── army.py            # plans the jobs (raids, help, strikes, rallies) and fights: fight or retreat, targets
+├── army.py            # Army: runs the squads every step; each squad fights or backs off
+├── jobs.py            #   where squads go: raids, help, rallies, pushes, squad scouts
+├── strikes.py         #   zerglings sent for enemies shooting us
+├── breach.py          #   the building worth breaking to reach enemies behind it
+├── routes.py          #   routes around danger, reach maps
+├── avoid.py           #   areas to keep out of
+├── army_debug.py      #   debug logs (Army.debug)
+├── army_notes.py      # debug counts and overlay notes
+├── micro.py           # each zergling in a fight: target tiers, safe/breach work, back off, moves
+└── combat.py          # who can hit whom, and who wins (the combat sim, corrected)
 run.py                 # entry point for local and ladder games
 ladder.py              # AI Arena connection glue
 config.yml             # ares settings (overrides ares-sc2/src/ares/config.yml)
