@@ -17,7 +17,6 @@ picks another one it can reach, or goes around.
 from __future__ import annotations
 
 import math
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,7 +24,7 @@ from sc2.position import Point2
 from sc2.unit import Unit
 from scipy.ndimage import label
 from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import dijkstra
+from scipy.sparse.csgraph import connected_components, dijkstra
 
 from bot.settings import (
     APPROACH_DETOUR_SLACK,
@@ -503,23 +502,7 @@ class ReachMap:
         # between two buildings that only touch diagonally (walls must touch edge to edge); a diagonal
         # step is only refused next to an enemy unit
         self.unit_blocked = static & ~walkable
-        self.reached = np.zeros_like(walkable, dtype=bool)
-        queue: deque[tuple[int, int]] = deque()
-        for u in own:
-            cell = (int(u.position.x) - self.x0, int(u.position.y) - self.y0)
-            if 0 <= cell[0] < walkable.shape[0] and 0 <= cell[1] < walkable.shape[1] and not self.reached[cell]:
-                self.reached[cell] = True  # start from our units even if the grid says blocked
-                queue.append(cell)
-        w, h = walkable.shape
-        while queue:
-            cx, cy = queue.popleft()
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
-                nx, ny = cx + dx, cy + dy
-                if 0 <= nx < w and 0 <= ny < h and walkable[nx, ny] and not self.reached[nx, ny]:
-                    if dx and dy and self._squeezed(cx, cy, dx, dy):
-                        continue
-                    self.reached[nx, ny] = True
-                    queue.append((nx, ny))
+        self.reached = self._flood(own)
         self._open: dict[tuple[int, float], int] = {}  # (target, attacker radius) -> `open_sides`
         self._fields: dict[int, np.ndarray] = {}
         self._group_fields: dict[frozenset[int], np.ndarray] = {}  # targets -> walking distance field
@@ -635,6 +618,51 @@ class ReachMap:
                 if dx and dy and self._squeezed(cx, cy, dx, dy):
                     continue
                 yield nx, ny
+
+    def _flood(self, own: list[Unit]) -> np.ndarray:
+        """The cells our units can walk to: walkable cells joined side to side, and diagonally unless the
+        step squeezes past an enemy unit (`_squeezed`), from every unit's cell (even one the grid says is
+        blocked: its walkable neighbours count, by the same rule). Regions are labelled side to side
+        (`scipy.ndimage.label`), then joined across the allowed diagonals (`connected_components`): the
+        same cells a step-by-step search finds, without walking them one by one in Python."""
+        walkable, blocked = self.walkable, self.unit_blocked
+        w, h = walkable.shape
+        regions, count = label(walkable)  # side-to-side neighbours
+
+        def allowed(here, there, a, b):  # a diagonal step here -> there, past the side cells a and b
+            squeezed = ~walkable[a] & ~walkable[b] & (blocked[a] | blocked[b])
+            return walkable[here] & walkable[there] & ~squeezed
+
+        s = np.s_
+        down = allowed(s[:-1, :-1], s[1:, 1:], s[1:, :-1], s[:-1, 1:])  # (x, y) -> (x + 1, y + 1)
+        up = allowed(s[:-1, 1:], s[1:, :-1], s[1:, 1:], s[:-1, :-1])  # (x, y + 1) -> (x + 1, y)
+        i = np.concatenate([regions[:-1, :-1][down], regions[:-1, 1:][up]])
+        j = np.concatenate([regions[1:, 1:][down], regions[1:, :-1][up]])
+        joined = coo_matrix((np.ones(len(i), dtype=np.int8), (i, j)), shape=(count + 1, count + 1))
+        _, group = connected_components(joined, directed=False)
+        group_of = np.where(walkable, group[regions], -1)
+        reached = np.zeros_like(walkable, dtype=bool)
+        start: set[int] = set()
+        for u in own:
+            cx, cy = int(u.position.x) - self.x0, int(u.position.y) - self.y0
+            if not (0 <= cx < w and 0 <= cy < h):
+                continue
+            reached[cx, cy] = True  # start from our units even if the grid says blocked
+            if walkable[cx, cy]:
+                start.add(int(group_of[cx, cy]))
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                nx, ny = cx + dx, cy + dy
+                if (
+                    0 <= nx < w
+                    and 0 <= ny < h
+                    and walkable[nx, ny]
+                    and not (dx and dy and self._squeezed(cx, cy, dx, dy))
+                ):
+                    start.add(int(group_of[nx, ny]))
+        if start:
+            reached |= np.isin(group_of, list(start))
+        return reached
 
     def _squeezed(self, cx: int, cy: int, dx: int, dy: int) -> bool:
         """A diagonal step between two blocked cells, one of them blocked by an enemy unit. Between two
