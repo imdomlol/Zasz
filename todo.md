@@ -277,6 +277,17 @@ on the regression set (`--repeat 3`) and a 21-game benchmark.
 decision logic. Every fight, strike, raid and help judgement goes through one `combat_estimate`
 (`bot/combat.py`: tank neutralization and the bunker path); correct it further where we can estimate better.
 
+- **First: investigate how ares' combat sim works and what it takes into account.** Read its code
+  (`mediator.can_win_fight` and what it calls in `ares-sc2`) and probe it offline where possible: which
+  unit stats it uses (health, shields, armor, damage, attack speed, bonuses vs light/armored, ranges,
+  multi-hit attacks like the zealot's), whether upgrades count, how positions and spread count (if at all),
+  how it scales with numbers (48 small melee units vs a few big ones), and how its verdict tiers map to
+  outcomes. A concrete puzzle to explain: it calls 48 zerglings vs 6 zealots + 4 stalkers (the
+  `efficiency_cramped_more_zealots` setup) a loss, yet `efficiency_open_army` (48 vs 4 zealots + 4 stalkers
+  in the open) wins every run losing ~10. Check whether it's the sim itself or what we feed it (`needed()`
+  grows the force in steps of 6, nearest first). Write the findings down (a short doc or this section), so
+  the corrections below are based on what it actually does.
+
 - **Approach under fire:** the sim assumes everyone fights at once. Melee units first cross the ranged
   enemies' range: estimate the damage taken on the way (time to cross x their dps) and take those
   zerglings off before judging. The sim called 2 zerglings vs 2 sieged tanks VICTORY_EMPHATIC.
