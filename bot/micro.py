@@ -85,10 +85,57 @@ def fight(
     target it can reach, breaking through the structure in its way if that's all there is; a
     zergling breaking through switches back to the units as soon as one is reachable.
     """
-    position = unit.position
     # Its own slot from last step is its to take again: release the reservation before any room check (the
     # "all work full: hold" check counted it as taken, so zerglings on the breach left it every other step)
     slots.assignments.release(unit)
+    choice = fight_options(ai, unit, threats, enemies, slots)
+    if choice is None:
+        return False  # stepped away from a gap it shouldn't fight through
+    tiers, fighters, near_fighters = choice.tiers, choice.fighters, choice.near_fighters
+    note_options(ai, unit, choice, enemies, slots)
+    if not tiers:
+        # Nothing worth doing here: replace whatever order it still has (an attack picked earlier would
+        # carry it on into their fire) with stepping out of their reach and waiting there
+        note([unit], "nothing to do (no safe work, no breach): hold outside their reach")
+        hold(ai, unit, threats)
+        return False  # nothing to go after (e.g. only far-off remembered units, or nothing safe to break)
+    if not near_fighters and fighters and not any(slots.has_room(unit, e) for t, _ in tiers for e in t):
+        # Only structure work, and all of it full (the breach target saturated): wait just outside
+        # their reach to take the place of a breach attacker that dies, instead of piling on
+        COUNTS["hold for the breach"] += 1
+        note([unit], "hold outside their reach (all work full)")
+        back_off(ai, [unit], [e for e in threats if armed(e)], None)
+        return True
+
+    return go_for(ai, unit, choice, threats, enemies, slots, squad_position, blocks, detours, diagnostics)
+
+
+@dataclass
+class FightOptions:
+    """What one zergling could go for this step (`fight_options`): its targeting tiers, best first, each
+    (targets, whether they fill from the back), and the lists they were made from (for the notes and the
+    order)."""
+
+    tiers: list[tuple[list[Unit], bool]]
+    fighters: list[Unit]  # every enemy fighter in this fight
+    near_fighters: list[Unit]  # the ones it can surround (or is touching)
+    workers: list[Unit]
+    dive: list[Unit]
+    breach: list[Unit]
+    in_the_way: list[Unit]
+    covered: list[Unit]
+    clear: list[Unit]
+    key: list[Unit]
+    plugs: set[int]  # enemy units plugging a gap (only with a reach map)
+
+
+def fight_options(
+    ai: AresBot, unit: Unit, threats: list[Unit], enemies: list[Unit], slots: TargetSlots
+) -> FightOptions | None:
+    """The targeting tiers for `fight`. None if the zergling stepped away instead (touching an enemy unit
+    plugging a gap, or one not worth fighting in a choke)."""
+    position = unit.position
+    plugs: set[int] = set()
     dive: list[Unit] = []
     in_the_way: list[Unit] = []
     covered: list[Unit] = []
@@ -153,7 +200,7 @@ def fight(
                 why += f", lose ~{lost:.0f} vs worth {worth:.0f}"
             note([unit], f"step away from {name_of(nearest)} ({why})")
             unit.move(nearest.position.towards(position, nearest.radius + unit.radius + 2.0))
-            return False
+            return None  # stepped away
         near_fighters = [e for e in near_fighters if surroundable(e) or touching(e)]
         workers = [e for e in workers if slots.reach.reachable(e)]
     if near_fighters:
@@ -191,6 +238,12 @@ def fight(
         key = [s for s in structures if s.type_id in PRIORITY_STRUCTURES]
         tiers = [(fighters, True), (workers, True), (key, True), ([s for s in structures if s not in key], True)]
     tiers = [(t, back) for t, back in tiers if t]
+    return FightOptions(tiers, fighters, near_fighters, workers, dive, breach, in_the_way, covered, clear, key, plugs)
+
+
+def note_options(ai: AresBot, unit: Unit, choice: FightOptions, enemies: list[Unit], slots: TargetSlots) -> None:
+    """For the overlay and debug counts: each candidate's best tier and room, and why there's none."""
+    tiers, fighters, plugs = choice.tiers, choice.fighters, choice.plugs
     for rank, (tier, _) in enumerate(tiers, start=1):
         for e in tier:
             if e.tag not in TARGET_NOTES or TARGET_NOTES[e.tag][0] > rank:
@@ -206,20 +259,34 @@ def fight(
                 COUNTS[f"nothing to do: {e.type_id.name.lower()} plug{mem}"] += 1
             else:
                 COUNTS[f"nothing to do: {e.type_id.name.lower()} choke refused{mem}"] += 1
-    if not tiers:
-        # Nothing worth doing here: replace whatever order it still has (an attack picked earlier would
-        # carry it on into their fire) with stepping out of their reach and waiting there
-        note([unit], "nothing to do (no safe work, no breach): hold outside their reach")
-        hold(ai, unit, threats)
-        return False  # nothing to go after (e.g. only far-off remembered units, or nothing safe to break)
-    if not near_fighters and fighters and not any(slots.has_room(unit, e) for t, _ in tiers for e in t):
-        # Only structure work, and all of it full (the breach target saturated): wait just outside
-        # their reach to take the place of a breach attacker that dies, instead of piling on
-        COUNTS["hold for the breach"] += 1
-        note([unit], "hold outside their reach (all work full)")
-        back_off(ai, [unit], [e for e in threats if armed(e)], None)
-        return True
 
+
+def go_for(
+    ai: AresBot,
+    unit: Unit,
+    choice: FightOptions,
+    threats: list[Unit],
+    enemies: list[Unit],
+    slots: TargetSlots,
+    squad_position: Point2,
+    blocks: BlockTracker,
+    detours: Detours,
+    diagnostics: bool,
+) -> bool:
+    """Pick the target from `fight_options` and give the order: follow a detour, work a safe or breach cell,
+    get around a block, flank, or attack."""
+    position = unit.position
+    tiers, near_fighters, workers, dive, breach, in_the_way, covered, clear, key = (
+        choice.tiers,
+        choice.near_fighters,
+        choice.workers,
+        choice.dive,
+        choice.breach,
+        choice.in_the_way,
+        choice.covered,
+        choice.clear,
+        choice.key,
+    )
     now = ai.time
     maneuver = CombatManeuver()
     # On a detour around our own crowd: keep following it to that target
