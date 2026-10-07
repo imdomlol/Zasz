@@ -145,6 +145,18 @@ benchmark for timing.
   passivity: squads kept away from Protoss cannons (and batteries) longer. Ideas: keep the area only while
   the structure is what made the squad turn back *and* the army can't take it (sim with the structure), or
   shorten the area's life for structures.
+- **Avoid zones shouldn't be law (the user's rule, for R04 and the avoid areas generally).** If the army
+  has enough to beat what a zone was made for, the zone should go, vision or not: a raid shouldn't be
+  blocked because a scout or one squad couldn't take it on. Today `assign_raids` drops every site inside
+  any avoid zone, and three zones come from one squad's view: "no help possible" (`bot/jobs.py`: the free
+  squads nearby couldn't turn a losing fight), "choke not worth it" and "nothing to do safely"
+  (`Army.control_squad`: one squad's zerglings all came up empty). They block the whole army for up to
+  `AVOID_SECONDS` (45 s) unless seen empty. Even "army can't beat" zones aren't re-checked as the army
+  grows. (A plain back-off from a losing sim makes no zone: one squad losing isn't the army losing.)
+  Fix idea: at each raid plan, drop (or ignore for raids) a zone whose recorded threats the raid's pool
+  beats (`needed` / `wins` with the threats stored on the zone), so only zones the army as a whole can't
+  handle keep blocking. That would also give R04 a way back: a cannon's zone holds only while the army
+  can't take the cannon with what defends it.
 
 ### Phase 3: behavior fixes, one benchmark run each
 
