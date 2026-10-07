@@ -136,6 +136,16 @@ benchmark for timing.
   of dead tags that never shrink (`last_damaged`, `enemy_state`, `enemy_moved`, `most_hitting`,
   `breach_notes`, `scouted_at`).
 
+### Deferred for review (implementation reverted after measuring)
+
+- **R04 (static defense keeps its avoid area), reverted in `2fd16ac`.** Against phase 2 (`--seed 1`): 21 vs
+  Hard 20 wins + 1 tie, 81.3k lost (phase 2: 21 wins, 75.4k). The tie, Magannatha vs Protoss, lost only 2.4k
+  and took 3.5k damage in 20 minutes: an army that barely fought. Magannatha vs Protoss three times each
+  way: with R04 4.5k / 4.4k / 12.9k lost in 576-779 s, without 2.7k / 7.0k / 3.0k in 515-620 s. Likely
+  passivity: squads kept away from Protoss cannons (and batteries) longer. Ideas: keep the area only while
+  the structure is what made the squad turn back *and* the army can't take it (sim with the structure), or
+  shorten the area's life for structures.
+
 ### Phase 3: behavior fixes, one benchmark run each
 
 In this order; each judged against the previous fix (scenarios `--repeat 3` + 21 games `--seed 1`). Worse:
