@@ -9,10 +9,10 @@
     uv run python scripts/run_scenarios.py efficiency_cramped_main --seeds 8   # the same 8 games each time
     uv run python scripts/run_scenarios.py --list
 
-Every run uses a fixed game seed for its side (`scenarios/seeds.py`), so it plays out the same way
-each time and can be compared number for number. Each result is appended to
+Every run uses a fixed game seed for its side (`scenarios/seeds.py`), so it plays out the same way each
+time (`scenarios.REPEATABLE`; the rest nearly: judge those over --repeat). Each result is appended to
 benchmarks/scenarios.csv (army lost, damage taken/dealt, time) with the commit and run id
-(`scripts/run_meta.py`), and printed next to the last earlier run of the same scenario, side, seed and
+(`scripts/run_meta.py`), and printed next to the previous run (all its repeats) of the same scenario, side, seed and
 StarCraft II build.
 
 Exits with 1 if any scenario fails, so it can gate a commit. Replays of failed scenarios are kept in

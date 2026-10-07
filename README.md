@@ -104,12 +104,14 @@ uv run python scripts/run_scenarios.py --random --repeat 3   # random starts, to
 uv run python scripts/run_scenarios.py --list
 ```
 
-**Repeatable runs.** Every run uses a fixed game seed for its side, so the same code plays a
-scenario out exactly the same way every time (start location, the built-in AI's choices, and our
-own randomness: ares' creep spots and squad ids are seeded from it too). That makes runs comparable
-number for number, not just pass/fail: each result goes to `benchmarks/scenarios.csv` (units and
-resources lost, damage taken and dealt, game time, commit; `-dirty` for uncommitted code), and is
-printed next to the last earlier run of the same scenario, side, seed and StarCraft II build:
+**Repeatable runs.** Every run uses a fixed game seed for its side (start location, the built-in AI's
+choices, and our own randomness: ares' creep spots and Python's hash order follow it too). 13
+scenarios then play out command for command the same on the same code (`scenarios.REPEATABLE`); the
+rest still vary a little from run to run, from the game itself, so judge those over `--repeat 3` (how
+to judge a change: CLAUDE.md, "Judging a change"). Each result goes to `benchmarks/scenarios.csv` (units
+and resources lost, damage taken and dealt, game time, commit; `-dirty` for uncommitted code), and is
+printed next to the previous run of the same scenario, side, seed and StarCraft II build (the average of
+its repeats):
 
 ```
 PASS  efficiency_cramped_main[top]  ... (80s game; lost 22 units (550 resources), damage taken 732)
@@ -131,8 +133,9 @@ uv run python scripts/run_scenarios.py efficiency_cramped_main --side bottom --r
 
 Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`); see
 `scenarios/__init__.py` for how to write one and the debug quirks to watch for. Replays of failed
-scenarios are kept in `replays/scenarios/`. If StarCraft II crashes or freezes mid-scenario, a
-watchdog reports it as an ERROR and the run carries on (`--watchdog SECONDS` to change the limit).
+scenarios are kept in `replays/scenarios/`. A watchdog is meant to report a scenario stuck on a
+crashed or frozen StarCraft II as an ERROR (`--watchdog SECONDS`), but it can't interrupt a game
+waiting on the game's connection: a frozen game can still hang the run (`todo.md`, review R12).
 
 **Damage efficiency** (`efficiency_*` scenarios): 30 zerglings vs structures on open ground, in a
 4-deep base and up the enemy's main ramp. They pass when everything is dead and report kill time,

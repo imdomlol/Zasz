@@ -22,8 +22,9 @@ Debug quirks found so far:
 - The built-in AI controls spawned enemy units: it unsieges tanks and can lift off barracks (use
   engineering bays for walls). Enemy supply depots failed to spawn on our high ground.
 - A spawn that doesn't fit is moved to the nearest free spot (or dropped), so leave margin.
-- Each run uses a fixed game seed per side (`scenarios/seeds.py`), so it plays out the same way
-  every time; `--side both` covers both sides, `--random` gives random starts.
+- Each run uses a fixed game seed per side (`scenarios/seeds.py`): the `REPEATABLE` ones then play out
+  the same way every time, the rest nearly; `--side both` covers both sides, `--random` gives random
+  starts.
 
 Run them with `scripts/run_scenarios.py`.
 """

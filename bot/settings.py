@@ -1,4 +1,6 @@
-"""All of Zasz's tunables in one place."""
+"""Zasz's strategy tunables: what to build, when to fight, how far to look. Constants that are game facts
+or metric definitions stay next to their code (e.g. `bot/efficiency.py`'s thresholds, `GAS_PER_EXTRACTOR`
+in `bot/actions/upgrades.py`, `DIVE_FIRST` and `PRIORITY_STRUCTURES` in `bot/micro.py`)."""
 
 from ares.consts import EngagementResult
 from sc2.ids.unit_typeid import UnitTypeId
