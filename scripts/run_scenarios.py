@@ -26,10 +26,12 @@ import io
 import json
 import multiprocessing
 import os
+import statistics
 import sys
 import threading
 import time
 import traceback
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -164,29 +166,40 @@ def append_result(row: dict, path: Path = RESULTS_FILE, fields: list[str] = FIEL
 
 
 def compare(row: dict, history: list[dict]) -> str:
-    """This run next to the last earlier run of the same scenario, side, seed and build."""
+    """This run next to the last earlier run of the same scenario, side, seed and build: all of that run's
+    repeats (their average, and how many passed), not just its last one; ERROR rows aren't measurements."""
     if not row["seed"]:
         return ""  # random start: nothing exactly comparable
-    same = [
-        r
-        for r in history
-        if (r["scenario"], r["side"], r["seed"], r["sc2_build"])
-        == (row["scenario"], row["side"], row["seed"], row["sc2_build"])
-        and r.get("run_id") != row["run_id"]
-    ]
+
+    def key(r: dict) -> tuple:
+        return r["scenario"], r["side"], r["seed"], r["sc2_build"]
+
+    same = [r for r in history if key(r) == key(row) and r.get("run_id") != row["run_id"]]
     if not same:
         return ""
-    prev = same[-1]
+    last = same[-1]
+    group = [r for r in same if r.get("run_id") == last.get("run_id")] if last.get("run_id") else [last]
+    measured = [r for r in group if r["status"] != "ERROR"]
 
     def delta(field: str, unit: str = "") -> str:
-        old, new = float(prev[field] or 0), float(row[field] or 0)
-        if old == new:
-            return f"{field.replace('_', ' ')} {new:g}{unit} (same)"
-        return f"{field.replace('_', ' ')} {old:g}{unit} -> {new:g}{unit}"
+        name, new = field.replace("_", " "), float(row[field] or 0)
+        if not measured:
+            return f"{name} - -> {new:g}{unit}"
+        old = statistics.mean(float(r[field] or 0) for r in measured)
+        before = f"{old:g}{unit}" if len(measured) == 1 else f"{old:.4g}{unit} avg of {len(measured)}"
+        if len(measured) == 1 and old == new:
+            return f"{name} {new:g}{unit} (same)"
+        return f"{name} {before} -> {new:g}{unit}"
 
-    changed = "" if prev["status"] == row["status"] else f" {prev['status']} -> {row['status']};"
+    statuses = Counter(r["status"] for r in group)
+    if set(statuses) == {row["status"]}:
+        changed = ""
+    elif len(group) == 1:
+        changed = f" {last['status']} -> {row['status']};"
+    else:
+        changed = f" {', '.join(f'{n} {s}' for s, n in sorted(statuses.items()))} -> {row['status']};"
     return (
-        f"      vs {prev['commit']}:{changed} {delta('army_lost')}, {delta('damage_taken')}, {delta('game_time', 's')}"
+        f"      vs {last['commit']}:{changed} {delta('army_lost')}, {delta('damage_taken')}, {delta('game_time', 's')}"
     )
 
 

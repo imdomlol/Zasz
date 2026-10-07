@@ -65,7 +65,7 @@ from scripts import run_meta
 RESULTS_FILE = ROOT / "benchmarks" / "results.csv"
 REPLAYS_DIR = ROOT / "replays" / "benchmarks"
 RECORDINGS_DIR = ROOT / "data" / "decisions"
-# A win counts as slow (its replay is kept) past this multiple of the usual win time at that difficulty
+# A win counts as slow (its replay is kept) past this multiple of the usual win time (`usual_win_times`)
 SLOW_WIN_FACTOR = 1.5
 SLOW_WIN_MIN_HISTORY = 5
 # AI Arena limits, from its match controller (aiarena/sc2-ai-match-controller, checked 2026-10-01):
@@ -345,6 +345,28 @@ def over_ladder_limits(row: dict) -> list[str]:
     return over
 
 
+def win_history(history: list[dict], difficulty: str) -> dict[tuple, list[float]]:
+    """Win times at this difficulty, per matchup (race, map, build) and per race (`usual_win_times`)."""
+    times: dict[tuple, list[float]] = {}
+    for r in history:
+        if r["difficulty"] == difficulty and r["result"] == "Victory" and r["game_time"]:
+            record_win(times, r)
+    return times
+
+
+def record_win(times: dict[tuple, list[float]], row: dict) -> None:
+    seconds = float(row["game_time"])
+    times.setdefault((row["opponent_race"], row["map"], row.get("sc2_build", "")), []).append(seconds)
+    times.setdefault((row["opponent_race"],), []).append(seconds)
+
+
+def usual_win_times(times: dict[tuple, list[float]], row: dict) -> list[float]:
+    """The win times to judge this game against: the same matchup and build if there are enough of them,
+    else every win against that race (Protoss games run longer than Zerg ones)."""
+    exact = times.get((row["opponent_race"], row["map"], row.get("sc2_build", "")), [])
+    return exact if len(exact) >= SLOW_WIN_MIN_HISTORY else times.get((row["opponent_race"],), [])
+
+
 def is_notable(row: dict, win_times: list[float]) -> bool:
     """Lost, tied, crashed, over a ladder time limit, or a win much slower than usual."""
     if row["result"] != "Victory" or over_ladder_limits(row):
@@ -401,11 +423,7 @@ def main() -> None:
         print(f"  {i:02d} {race:<8} {map_name}  (game seed {seed + i})")
 
     history = run_meta.ensure_header(RESULTS_FILE, FIELDS)
-    win_times = [
-        float(r["game_time"])
-        for r in history
-        if r["difficulty"] == args.difficulty and r["result"] == "Victory" and r["game_time"]
-    ]
+    wins = win_history(history, args.difficulty)
     labels = run_meta.start_run(run_meta.sc2_build())
     print(f"Run {labels['run_id']} on {labels['commit']} (StarCraft II build {labels['sc2_build']})", flush=True)
     run_name = labels["run_id"]
@@ -436,13 +454,13 @@ def main() -> None:
             replay = Path(game_args[i - 1][-1])
             if row["result"] == "Crash":
                 replay.with_suffix(".log").write_text(re.sub(r"\x1b\[[0-9;]*m", "", log))  # drop colors
-            if args.replays == "all" or (args.replays == "notable" and is_notable(row, win_times)):
+            if args.replays == "all" or (args.replays == "notable" and is_notable(row, usual_win_times(wins, row))):
                 if replay.exists():
                     row["replay"] = str(replay.relative_to(ROOT))
             else:
                 replay.unlink(missing_ok=True)
             if row["result"] == "Victory" and "game_time" in row:
-                win_times.append(row["game_time"])
+                record_win(wins, row)
 
             writer.writerow(row)
             f.flush()

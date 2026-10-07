@@ -70,7 +70,7 @@ over the limit with `--jobs 1`.
 
 If the bot crashes in a game, that game is recorded as `Crash` (with the error) and the run carries on.
 Replays are saved to `replays/benchmarks/<run>/`. By default (`--replays notable`) only losses, ties,
-crashes and unusually slow wins (over 1.5x the usual win time at that difficulty) are kept. Use
+crashes and unusually slow wins (over 1.5x the usual win time for that race and map) are kept. Use
 `--replays all` or `--replays none` to change that. Each crash also gets a `.log` with its traceback and
 game log.
 

@@ -218,3 +218,28 @@ def test_loss_columns_add_up_the_score_categories():
         "lost_army_total": 600,
         "lost_tech_total": 200,
     }
+
+
+def test_compared_with_all_repeats_of_the_previous_run():
+    history = [
+        scenario_row(run_id="earlier", army_lost="100"),
+        scenario_row(run_id="earlier", army_lost="100"),
+        scenario_row(run_id="earlier", army_lost="1000", status="FAIL"),
+        scenario_row(run_id="earlier", army_lost="", status="ERROR"),  # not a measurement
+    ]
+    line = compare(scenario_row(army_lost="150"), history)
+    assert "army lost 400 avg of 3 -> 150" in line
+    assert "1 ERROR, 1 FAIL, 2 PASS -> PASS" in line
+
+
+def test_slow_wins_are_judged_per_matchup_with_a_race_fallback():
+    from scripts.benchmark import is_notable, record_win, usual_win_times
+
+    times: dict = {}
+    for _ in range(5):
+        record_win(times, {"opponent_race": "Protoss", "map": "M", "sc2_build": "1", "game_time": "800"})
+        record_win(times, {"opponent_race": "Zerg", "map": "M", "sc2_build": "1", "game_time": "400"})
+    protoss = {"result": "Victory", "opponent_race": "Protoss", "map": "M", "sc2_build": "1", "game_time": 950}
+    assert not is_notable(protoss, usual_win_times(times, protoss))  # usual for Protoss (pooled: over 900)
+    zerg = {**protoss, "opponent_race": "Zerg", "map": "Other", "game_time": 700}  # new map: per race
+    assert is_notable(zerg, usual_win_times(times, zerg))
