@@ -251,3 +251,14 @@ def test_raid_sizing_knows_a_sieged_tank_we_are_on_top_of_cant_shoot():
     assert wins(ai, on_top, [tank])  # left out of the sim: nothing left that shoots
     assert not wins(ai, lings(4, 30.5, 30.5), [tank])  # far away: it's in the sim
     assert needed(ai, on_top, [tank], tank.position, judge=wins) is not None
+
+
+def test_a_dead_units_memory_is_dropped():
+    army, ai = Army(), fake_ai()
+    ai._units_previous_map = {}
+    army.last_damaged[7] = 1.0
+    army.enemy_state[8] = (Point2((1, 1)), 0.0, 1.0)
+    army.enemy_moved[8] = 1.0
+    army.on_death(ai, 7)
+    army.on_death(ai, 8)
+    assert 7 not in army.last_damaged and 8 not in army.enemy_state and 8 not in army.enemy_moved

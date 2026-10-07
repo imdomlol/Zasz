@@ -46,7 +46,7 @@ def pair_injectors(ai: AresBot, queens: list[Unit]) -> dict[int, Unit]:
     """Queen tag -> hatchery it injects. A hatchery keeps its injector while both live; one without (new,
     or its queen died) gets the closest queen that isn't injecting. (Re-pairing every step by distance
     made two queens swap two hatcheries back and forth, ~1,000 swaps a game, walking instead of injecting.)"""
-    kept: dict[int, int] = ai.__dict__.setdefault("injectors", {})  # hatchery tag -> queen tag
+    kept = ai.action_state.injectors  # hatchery tag -> queen tag
     alive = {q.tag for q in queens}
     pairs: dict[int, Unit] = {}
     hatcheries = list(ai.townhalls.ready)
@@ -69,7 +69,7 @@ def pair_injectors(ai: AresBot, queens: list[Unit]) -> dict[int, Unit]:
 def note_injector_switches(ai: AresBot, queens: list[Unit], injectors: dict[int, Unit]) -> None:
     """Log a hatchery's injector changing while its old one is still alive (the pairing
     used to churn every step; this should now stay silent)."""
-    previous: dict[int, int] = ai.__dict__.setdefault("injector_of", {})  # hatchery tag -> queen tag
+    previous = ai.action_state.injector_of  # hatchery tag -> queen tag
     alive = {q.tag for q in queens}
     for queen, hatch in injectors.items():
         old = previous.get(hatch.tag)

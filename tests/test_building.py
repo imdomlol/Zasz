@@ -7,6 +7,7 @@ from sc2.position import Point2
 
 from bot.actions.building import affordable_on_arrival
 from bot.actions.defense import build_spores
+from bot.actions.state import ActionState
 from bot.settings import SPORE_RETRY_SECONDS
 
 
@@ -48,6 +49,7 @@ def spore_ai(placeable):
 
     return (
         SimpleNamespace(
+            action_state=ActionState(),
             time=100.0,
             can_afford=lambda t: True,
             already_pending=lambda t: 0,
