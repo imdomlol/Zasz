@@ -333,3 +333,24 @@ def test_help_counts_a_helper_already_in_the_fight_once(monkeypatch):
     army.coordinate_help(fake_ai(), [fighting, helper, spare])
     assert sorted(seen["tags"]) == sorted(u.tag for u in present)  # nobody twice
     assert seen["room"] == 10  # the fight's room already counts the helper
+
+
+@pytest.mark.parametrize("route_open", [True, False])
+def test_a_patrol_whose_route_gets_cut_picks_another_spot(monkeypatch, route_open):
+    import bot.jobs
+
+    army, ai = Army(), fake_ai()
+    patrol = army.book.new()
+    patrol.units = lings(4)
+    patrol.tags = {u.tag for u in patrol.units}
+    old, new = Point2((40, 40)), Point2((5, 40))
+    patrol.target = old
+    monkeypatch.setattr(bot.jobs, "rally_point", lambda ai: Point2((5, 5)))
+    monkeypatch.setattr(bot.jobs, "enemy_groups", lambda ai: [])
+    monkeypatch.setattr(army, "patrol", SimpleNamespace(fresh=lambda p, t: False, pick=lambda *args: new))
+    monkeypatch.setattr(army, "blocked", lambda ai, p: False)
+    monkeypatch.setattr(army, "can_walk_to", lambda ai, p: True)
+    monkeypatch.setattr(army, "route_map", lambda ai, units: SimpleNamespace(reaches_from=lambda a, b: True))
+    monkeypatch.setattr(army, "route_ok", lambda ai, units, p: route_open or p != old)
+    target, _ = army.squad_goal(ai, patrol, [patrol])
+    assert target == (old if route_open else new)

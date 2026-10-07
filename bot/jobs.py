@@ -80,12 +80,15 @@ class SquadJobs:
         if squad.job == "raid" and squad.target is not None:
             return squad.target, True
         # Patrol: keep the current spot until we get there or something of ours has seen it lately (or
-        # it turns dangerous), then the next
+        # it turns dangerous, or the way there gets cut: an enemy group moved across it after the spot was
+        # picked, and the squad would bounce off its edge), then the next. The rally point, picked when
+        # nothing else qualifies, is kept even without a route (re-picking every step finds nothing better)
         if (
             squad.target is None
             or squad.squad_position.distance_to(squad.target) < 4
             or self.patrol.fresh(squad.target, ai.time)
             or self.blocked(ai, squad.target)
+            or (squad.units and squad.target != rally_point(ai) and not self.route_ok(ai, squad.units, squad.target))
         ):
             claimed = [s.target for s in squads if s is not squad and s.job == "patrol" and s.target is not None]
             # Stay out of reach of enemy groups this squad can't beat (ones it beats are fair game), and
@@ -379,11 +382,13 @@ class SquadJobs:
             and ai.time - self.last_damaged[u.tag] < UNDER_FIRE_SECONDS
             for u in squad.units
         )
-        if seen or hit or ai.time >= started + (deadline - started) / 2:
+        # The way there cut (an enemy group moved across it): done too, as for a patrol
+        cut = not seen and not self.route_ok(ai, squad.units, spot)
+        if seen or hit or cut or ai.time >= started + (deadline - started) / 2:
             if seen:
                 self.scouted_at[spot] = ai.time
             del self.squad_scouts[squad.id]
-            COUNTS["squad scout done (seen)" if seen else "squad scout done (time or hit)"] += 1
+            COUNTS["squad scout done (seen)" if seen else "squad scout done (time, hit or route cut)"] += 1
             squad.job, squad.target, squad.site, squad.site_tags, squad.helping = before
             return self.squad_goal(ai, squad, list(self.book.squads.values()))
         note(squad.units, f"scout: {spot.x:.0f},{spot.y:.0f} (back by {deadline - ai.time:.0f}s)")
