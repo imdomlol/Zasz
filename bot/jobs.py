@@ -191,6 +191,8 @@ class SquadJobs:
                 demand = needed(ai, pool, site.defenders, site.center, HELP_WIN_AT, wins) or needed(
                     ai, pool, site.defenders, site.center, FIGHT_AT, wins
                 )
+                if demand is None and self.committed:
+                    demand = len(pool)  # told to fight whatever the sim says (scenarios): everyone goes
                 if demand is None:
                     # Can't staff it now: skip it this round (not an avoid area: only the whole army
                     # failing to beat a group makes one, see `avoid_armies_we_cannot_beat`)
