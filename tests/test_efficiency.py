@@ -343,7 +343,7 @@ def test_buildings_only_busy_enemies_reach_are_conditionally_free():
     # work; while nobody is on it they aren't
     from sc2.ids.unit_typeid import UnitTypeId
 
-    from bot.army import covered_work
+    from bot.micro import covered_work
 
     grid = np.full((40, 40), np.inf, dtype=np.float32)
     grid[:, 22:] = 1.0

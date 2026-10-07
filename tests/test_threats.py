@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
-from bot.army import back_off, choke_worth
 from bot.combat import armed, dps_vs, reach_of, weapon_range
+from bot.micro import back_off, choke_worth
 from bot.settings import BUNKER_MARINES, MARINE_DPS, MARINE_RANGE
 
 

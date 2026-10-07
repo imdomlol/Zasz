@@ -18,6 +18,7 @@ from bot.actions.upgrades import remaining_gas, upgrade_plan, workers_per_gas
 from bot.combat import ARMY_TYPES
 from bot.decisions import Decision, Decisions, ScriptedDecisions
 from bot.efficiency import DamageTracker
+from bot.micro import all_in
 from bot.observation import Observation, observe
 from bot.recording import DecisionRecorder
 from bot.settings import MAX_DRONES
@@ -62,7 +63,7 @@ class ZaszBot(AresBot):
             await self.chat_send("(glhf)")
 
         if not self.townhalls:
-            army.all_in(self)
+            all_in(self)
             return
 
         self.observation = observe(self)
