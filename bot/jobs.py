@@ -6,7 +6,7 @@ from sc2.position import Point2
 from sc2.unit import Unit
 
 from bot.army_notes import COUNTS, note
-from bot.combat import weapon_range, wins
+from bot.combat import ARMY_TYPES, weapon_range, wins
 from bot.micro import rally_point
 from bot.settings import (
     FIGHT_AT,
@@ -415,8 +415,12 @@ class SquadJobs:
                     if s.id not in self.battles:
                         s.free()  # doing fine, or no room for more: patrol on
                 continue
-            present = battle.present + [u for s in en_route for u in s.units]
-            room = battle.room - sum(len(s.tags) for s in en_route)
+            # Squads already helping are in the fight's own count (`Army.members`: present and room both);
+            # only units it doesn't have yet are added, once
+            counted = {u.tag for u in battle.present}
+            coming = [u for s in en_route for u in s.units if u.tag not in counted]
+            present = battle.present + coming
+            room = battle.room - sum(1 for u in coming if u.type_id in ARMY_TYPES)
             candidates = sorted(
                 (
                     s

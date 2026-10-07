@@ -303,3 +303,33 @@ def test_spare_squads_join_a_gathering_raid_at_its_staging_point(monkeypatch):
     raiders = [s for s in squads if s.job == "raid"]
     assert len(raiders) == 5 and {s.target for s in raiders} != {site.center}  # all at the staging point
     assert len({s.target for s in raiders}) == 1
+
+
+def test_help_counts_a_helper_already_in_the_fight_once(monkeypatch):
+    from ares.consts import EngagementResult
+
+    import bot.jobs
+    from bot.squads import Battle
+
+    army = Army()
+
+    def squad_of(n, x, job="patrol"):
+        s = army.book.new()
+        s.units, s.job = lings(n, x, x), job
+        s.tags = {u.tag for u in s.units}
+        return s
+
+    fighting, helper, spare = squad_of(2, 10), squad_of(2, 12, "help"), squad_of(4, 14)
+    helper.helping = fighting.id
+    present = fighting.units + helper.units  # what `Army.members` gives the fight: the helper included
+    army.battles[fighting.id] = Battle(Point2((20, 20)), [marine(20, 20)], present, EngagementResult.LOSS_CLOSE, 10)
+    seen = {}
+
+    def choose(present, enemies, candidates, wins_with, room, wins_at_all=None):
+        seen["tags"], seen["room"] = [u.tag for u in present], room
+
+    monkeypatch.setattr(bot.jobs, "choose_helpers", choose)
+    monkeypatch.setattr(army, "turned_back", lambda *args, **kwargs: None)
+    army.coordinate_help(fake_ai(), [fighting, helper, spare])
+    assert sorted(seen["tags"]) == sorted(u.tag for u in present)  # nobody twice
+    assert seen["room"] == 10  # the fight's room already counts the helper
