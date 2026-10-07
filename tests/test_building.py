@@ -1,4 +1,4 @@
-"""Offline tests for building edge cases (CODE_REVIEW.md 24): no drones left, and spores that can't be placed."""
+"""Offline tests for building edge cases no drones left, and spores that can't be placed."""
 
 import asyncio
 from types import SimpleNamespace

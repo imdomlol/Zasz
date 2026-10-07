@@ -30,7 +30,7 @@ Download them from https://aiarena.net/wiki/maps/.
 
 Developing on Linux (headless SC2, faster benchmarks): see [docs/linux-setup.md](docs/linux-setup.md).
 
-Current state, verified results and open items: see [docs/progress.md](docs/progress.md).
+Milestones and what they measured: [docs/progress.md](docs/progress.md). Open work: [todo.md](todo.md).
 
 ## Run
 

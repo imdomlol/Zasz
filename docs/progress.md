@@ -1,137 +1,21 @@
-# Progress notes
+# Milestones
 
-Where Zasz stands, what's been verified, and what's open. Update this when picking work back up
-or finishing a session, so it travels with the repo.
+What changed in Zasz and what it measured at the time, newest first. One line per milestone; the details are in
+the commits. Open work is in `todo.md`. Results before 2026-10-05 were measured without fixed seeds, so they
+only compare loosely with later ones.
 
-## Current state (branch `squads`, 2026-10-07)
-
-- **Army:** zerglings in squads of about `SQUAD_SIZE` (`SquadBook`, `bot/squads.py`), each with a job
-  (patrol, raid, help, defend, ...), planned in `bot/army.py`: sim-sized raids on enemy sites, help
-  for fights the sim calls losing, strikes on enemies shooting us, routes around armies we can't beat.
-  The single army and `bot/army_plan.py` described below are gone.
-- **Code review fixes:** `CODE_REVIEW.md` (44 findings), fixed in phases 1-5 (all on `squads`); status and
-  measured results in `CLAUDE.md`. `bot/army.py` is split into parts (`bot/jobs.py`, `strikes.py`,
-  `breach.py`, `routes.py`, `avoid.py`, `micro.py`, `combat.py`, ...).
-- **Results (Linux, 21 games vs Hard, `--seed 1`):** 19 wins + 2 ties at `d6e38de`, 10.8 ms of bot time
-  per game loop. Ultralove vs Protoss ties in about half of all runs.
-
-Everything below is the record from 2026-10-01 and earlier: kept as history, not updated. Since
-then the branches it calls unmerged were merged, `STRUCTURE_FILL` became `TARGET_FILL`, and the army
-plan became squads.
-
-## State on 2026-10-01 (`main`; historical)
-
-Pure scripted Zerg bot on ares-sc2. Units: drones, overlords, queens, zerglings only (by choice).
-
-- **Learning interface:** each step is `observe(ai) -> Observation -> decisions.decide(obs) ->
-  Decision -> actions`. Decisions see only the `Observation` (fixed shape, `bot/spaces.py`) and
-  return a `Decision` (fixed action space); actions stay scripted. `ScriptedDecisions` is the
-  rules below; a model plugs in as `ZaszBot(decisions=...)`. `benchmark.py --record` saves
-  (observation, decision) pairs to `data/decisions/` for training. See the README.
-
-- **Economy:** 16 pool, expand whenever drones are within 4 of filling every base (also when patches
-  mine out), up to 70 drones. Just-in-time builder drones.
-- **Upgrades:** wish list in `bot/settings.py` (`SCRIPTED_UPGRADES`): ling speed, melee/armor +1,
-  overlord speed, melee/armor +2. Gas only while the list needs it.
-- **Army** (`bot/army.py`): ares squads; fight while the combat sim predicts at least a tie, retreat
-  on any predicted loss but only until out of known enemy range (constant pressure, no free
-  damage). Enemy units that fight back within 10 are targeted before buildings/workers; siege
-  tanks/lurkers/colossi are dived first. Attack target = least defended known enemy base.
-- **Queens:** one injector per hatchery, 2 creep queens, all queens defend (only anti-air unit).
-- **Scouting:** up to 4 overlords posted next to enemy expansions, kept out of known anti-air.
-- **Defense:** a spore per mineral line once enemy air shows up.
-
-**On branch `damage-efficiency` (not merged yet):** damage-efficiency metric (`bot/efficiency.py`,
-logged at game end and an observation feature), `efficiency_*` scenarios, target slots that spread
-melee attackers over structures and fill from the back (`bot/targeting.py`, `STRUCTURE_FILL`), and a
-scenario-runner watchdog for crashed/frozen StarCraft II. Written to carry over to mutalisks (ranges
-from each unit's own weapon; ranged/air attackers uncapped). Details and open items: todo #13.
-
-**On branch `alternate-targets` (built on `damage-efficiency`, not merged yet):** fixes the army
-freezing in front of the enemy natural for ~30 s at a time (retreat out of range, ares' memory of their
-army pulls it back in, repeat) while a third mined freely.
-- By default the army still moves as one (it wins fastest vs the built-in AI), with 2 scout zerglings
-  running ahead to their natural and expansions.
-- Every 2 s, known enemy groups the whole army can't beat become avoid areas (their spread + range),
-  so we stop *before* walking in; a fight we're turned back from adds one too (45 s).
-- While an avoid area is active, the army plan (`bot/army_plan.py`) takes over: peek at remembered
-  armies from just outside their range (or avoid them if their range beats zergling sight), sim-sized
-  raids on bases away from them (and their main while nothing in it is known), scouts, watchers, the
-  bulk waiting forward on the field, and grouping up only for a fight that needs everyone.
-- Threats only count near their weapon range, so squads can go around an army.
-
-Results: scenario `alternate_target` (fog, unbeatable army at their natural, open base elsewhere): old
-code failed (13/24 zerglings lost); final: 3/3, base killed at 38 s with 24/24 alive. Hard 6/6 (wins in
-7.6-9.2 min). VeryHard 4/6 + 2 ties, no losses (baseline `damage-efficiency`: 5/6; an earlier version
-with the plan *always* on: 2/6, so it's now only used after a turn-back). Both ties lost ~39k vs ~14k
-killed in 20-minute games: likely todo #17 (squads near our bases always fight); worth checking the
-kept replays. Step time in those long games peaked at ~25 ms per game loop (limit 40) with 2 games in
-parallel. Also todo #18 (`safe-build-location`) and #19 (`creep-to-natural`) were added there.
-
-## Verified
-
-| What | Result |
-|---|---|
-| Benchmark vs Medium (`467ba00`, before this branch) | 6/6 |
-| Benchmark vs Medium (`75aba21`, this branch, `--jobs 3` on Windows) | 6/6, no crashes, wins in 6.6-8.8 min game time, ~8 min real time total |
-| Benchmark vs Hard (`9bcfdcb`, `--jobs 6` on Linux) | 6/6, no crashes, wins in 7.1-9.4 min game time, ~4 min real time total. Hard is now the benchmark default |
-| Benchmark vs Hard (`59432bf`, reachability checks) | 6/6, no crashes, wins in 7.5-10.4 min game time |
-| Expansion blockage classifier (debug-spawned walls) | rocks / hostile / walled all identified correctly, blockers listed |
-| Scenario suite (`scripts/run_scenarios.py`, 8 scenarios) | 24/24 over `--repeat 3`. Each deliberate break was caught: skipping the reachability check, empty `DIVE_FIRST`, `FIGHT_AT = 0`, no spores |
-| Step time vs AI Arena limits (`67daf7a`, Hard, `--jobs 1`, 12-min game) | 5.4 ms per game loop (13% of 40 ms), slowest step 85 ms (limit 30 s), startup 0.3 s |
-| Learning interface parity (`learning-interface` branch) | New observe/decide gave the same decision as `main`'s old rules on every one of 22,348 steps (4 games vs Hard): build, upgrades, attack, queens, spores, drone target |
-| Learning interface overhead | observe 0.9-1.4 ms/step avg (max ~48 ms on a fresh-grid recheck), decide 0.01 ms, recording 0.01 ms: ~0.5-0.7 ms per game loop, ~10% of step time |
-| Offline unit tests (`uv run pytest`) | 31 tests, < 1 s. Off-by-one in the pool rule and removing attack hysteresis were both caught |
-| VeryHard Terran games on this branch | 3 wins (`26ce39f` PersephoneAIE_v4, `bed03c7` LeyLinesAIE_v3, `75aba21` MagannathaAIE_v2). Several looked like the AI surrendering (few structures killed) |
-| Sandbox: sieged tank firing from fog | Revealed to the bot as a visible unit at its exact position for ~2 s after each shot; ares memory keeps it afterwards. So squads do know where tanks are |
-
-## Open items / watch list
-
-- **Damage efficiency in real games** reads lower than in scenarios: 45% (blocked 35%) in a VeryHard
-  win after fixing sideways chases counting as blocked (was 32%); see todo #13.
-
-- **`TANK_NEUTRALIZED_BY = 3`** (`bot/settings.py`, `tank_neutralized` in `bot/army.py`): sieged tanks
-  with 3+ of our zerglings inside their minimum range are left out of the combat sim (the sim
-  ignores minimum range). Judgement call — revert (set very high) if it causes big mistakes.
-- **ares combat sim limits:** no minimum range, positions barely matter, assumes clumped units. Keep
-  that in mind when tuning `FIGHT_AT`.
-- **Untested in real games:** spore crawlers (games end before enemy air), overlord scouts
-  surviving under pressure.
-- **Built-in AI surrenders** when it's clearly losing, so a "Victory" can come with few kills. Check
-  killed structure value / game length before reading much into a single win.
-- **Rock breaking** (next step for blocked expansions): `ExpansionAccess.blocked` already lists the
-  rocks per base. Torches' edge bases need a gate broken; also useful for backdoor rocks on LeyLines
-  and Magannatha.
-- **Ideas not done yet:** split attacks (pressure a far base while hitting the main), spine crawlers,
-  more upgrades (+3 needs hive), imitation-learning model in `bot/decisions/`.
-
-- **Torches AIE expedition gates:** 6 destructible gates (2000 HP, 3 armor) wall off the 4 bases
-  along each player's map edge; the game engine agrees they're unreachable until a gate is broken.
-  ares leaves those bases out of `get_own_expansions`, so we never try to take them. Candidate for
-  rock-breaking (one zergling ~8 min per gate after armor, 16 zerglings ~30 s).
-- **CheatMoney crash (2026-09-30):** `find_raw_path` returned `None` in a game that wasn't on Torches.
-  Cause unknown; benchmark crashes now keep a `.log` and replays, so the next one can be traced.
-
-## Gotchas found along the way
-
-- `ExpansionAccess` caches reachability; now that `observe()` asks every step (from step 0), a
-  cache made before a wall went up hid the wall for up to 10 s (the `expansion_hostile` scenario
-  caught it). It now re-checks whenever any structure or rock appears/disappears, on a fresh
-  grid (ares' own ground grid lags up to 8 steps behind new structures).
-
-- AI Arena's time rules aren't on its wiki; they're in its match controller
-  (`aiarena/sc2-ai-match-controller`, `sc2_controller/src/game/game_config.rs` and
-  `websocket/player.rs`): 30 s to answer any request (enforced, a timeout is a loss), games capped
-  at 80,640 loops (60 min), and `max_frame_time: 40` ms configured but not enforced (the average is
-  reported with each result). Re-check there if the limits change.
-- python-sc2's own step timer (`_total_time_in_on_step`) starts after `_prepare_step`, so it misses
-  observation parsing and per-step queries the ladder does count. The benchmark measures the full
-  bot time instead (`BenchmarkZasz` in `scripts/benchmark.py`).
-
-- `mediator.find_raw_path` returns `None` when the target is unreachable; handle it.
-
-- Never use `unit.distance_to(unit)` with enemy units: ares memory units (last seen in fog) aren't in
-  python-sc2's per-frame distance cache and it crashes. Use `a.position.distance_to(b.position)`.
-- ares `AMove` does nothing within 7 of its target by default (`success_at_distance`).
-- ares `ShootTargetInRange` only considers targets already in weapon range.
-- Debug-spawning `SIEGETANKSIEGED` directly fails silently; spawn `SIEGETANK` and siege it.
+| Date | Milestone | Code | Measured |
+|---|---|---|---|
+| 2026-10-07 | `bot/army.py` split into parts (`jobs`, `strikes`, `breach`, `routes`, `avoid`, `micro`, `combat`, ...); order logs (`--order-log`, `scripts/compare_orders.py`) to prove a refactor changes no command | `679b123` | 21 vs Hard (`--seed 1`): 19 wins + 2 ties, 91.7k lost, 9.6 ms per game loop |
+| 2026-10-07 | Code review phase 5: recordings checked and streamed, decisions validated (+ `attacking` feature), efficiency rows with side/seed/status, ladder zip with only the ladder's binaries, one import-path setup | `8157e61` | scenarios unchanged; 6 vs Hard: 5 wins + 1 tie |
+| 2026-10-06 | Code review phase 4: route maps per squad strength, no push when nowhere is safe, per-attacker slot accounting, area maps per squad, one `combat_estimate`, stable injector pairs, efficiency metric fix | `d6e38de` | 21 vs Hard: 19 wins + 2 ties, 101k lost (-22%), 10.8 ms per game loop |
+| 2026-10-05 | Code review phases 1-3: run labels (commit, build, run id), seeded benchmarks (`--seed`), tests on the risky code, step-time cuts with identical scenarios | `9bf51ae` | 21 vs Hard: 20 wins + 1 tie, 128k lost, 8.8 ms per game loop |
+| 2026-10-03 | Squads: lasting squads with jobs (patrol, raid, help, defend) replace the single army; help coalitions, rallies, strikes, breaches and widening, routes around danger, squad scouts; debug overlay | `squads` | every scenario passes but `wall_bunker` (expected) |
+| 2026-10-02 | Blocked zerglings: reach maps, stepping out of plugged gaps, costed breaches, packed-base and wall scenarios; fixed scenario seeds per side, resources-lost tracking | `blocked-zerglings`, `scenario-seeds` | `efficiency_cramped_main` 25/25 |
+| 2026-10-01 | Damage efficiency metric and scenarios, target slots (fill from the back); avoid areas for armies we can't beat | `damage-efficiency`, `alternate-targets` | Hard 6/6; VeryHard 4/6 + 2 ties |
+| 2026-10-01 | Learning interface: observe -> decide -> act, fixed observation/decision shapes, recording | `1cc08d0` | Hard 6/6, same decisions as before on 22,348 steps |
+| 2026-10-01 | Expansions we can't walk to are skipped, with the reason (rocks, hostile, walled) | `59432bf` | Hard 6/6 |
+| 2026-10-01 | Scenario suite; step time measured like the ladder; Hard becomes the benchmark default | `9bcfdcb` | Hard 6/6; 5.4 ms per game loop in a 12-min game |
+| 2026-10-01 | Overlord scouting, sieged-tank dives, fighters before buildings | `75aba21` | Medium 6/6 |
+| 2026-09-30 | Squad army with the combat sim, per-unit targeting, upgrades, creep, queens, spores; parallel benchmark | `467ba00` | Medium 6/6; difficulty sweep: 6/6 up to Hard, Harder 3/6, VeryHard 4/6 |
+| 2026-09-30 | First version: 16 pool, expand, mass zerglings, one-point attacks | `12faa25` | Medium 4/6 |

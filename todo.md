@@ -1,508 +1,310 @@
 # Zasz todo
 
-Each section is one **potential branch**: one idea, scoped so it can be reviewed and merged on its
-own. Branch off `main` with the name given; nothing is committed to `main` directly. Merge a branch
-into `main` when it's done (benchmark + `scripts/run_scenarios.py` passing), then remove its section
-here on that branch.
+The one list of open work. Each `##` section is a **potential branch**: one idea, scoped so it can be
+reviewed and merged on its own. Branch off `squads` with the name given (never commit to `main`). When a
+branch is done (scenarios + benchmark judged as in CLAUDE.md), remove its section here, or the items it
+finished, and add a line to `docs/progress.md` if it's a milestone.
 
-Numbers are fixed IDs (sections refer to each other by them), so finished items leave gaps.
-~~Struck through~~ = done; **(partly done)** = some of it is covered, the rest is still open.
-
-Impact is rated against where Zasz is now: 6/6 up to Hard, about 50% from Harder upward (difficulty
-sweep at `931c39e`), zergling-only. **High** = likely to move win rates at Harder+ or unblock the
-learning work; **Medium** = clear benefit, but narrow or indirect; **Low** = nice to have / tooling.
+Numbers are fixed IDs (sections refer to each other by them), so finished items leave gaps. Impact is
+rated against where Zasz is now (zergling-only; 19-21 of 21 vs Hard, Protoss ties the usual non-win):
+**High** = likely to move win rates at Harder+ or unblock the learning work; **Medium** = clear benefit,
+but narrow or indirect; **Low** = nice to have / tooling.
 
 ## Branches, in suggested order
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
-| 20 | `squads` | **In progress.** Finish and merge squads (patrol / raid / push / help / strike, breach, overlay) | High | - |
-| 21 | `combat-estimates` | Fix the sim's blind spots: approach under fire, sieged tanks, chokes, fog, bunkers | High | `squads` |
-| 22 | `army-cpu` | Keep the army's step time in budget in long games with big armies | High | `squads` |
+| 20 | `squads-polish` | Open squad behaviors: help flip-flop, raids that leave, pushes into the unknown, strike sizing | High | - |
+| 21 | `combat-estimates` | Fix the sim's blind spots: approach under fire, chokes, fog, bunkers; enemy groups | High | - |
+| 24 | `protoss-ties` | Find out why games vs Protoss (Ultralove, Magannatha) tie at 20 minutes | High | - |
+| 22 | `army-cpu` | Keep the army's step time in budget in long games with big armies | High | - |
 | 18 | `safe-build-location` | Build at a safe base, not always the main (rebuilding into a lost main) | High | - |
 | 19 | `creep-to-natural` | Connect main and natural creep down the ramp (queen movement) | Medium | - |
-| 13 | `damage-efficiency` | **(partly done)** ~~metric, scenarios, target slots~~, ~~packed bases / gateway grid~~ (on `blocked-zerglings` / `squads`); ramp throughput and the mutalisk cap still open | High | - |
+| 13 | `damage-efficiency` | Ramp throughput, a better idle signal, the mutalisk cap | Medium | - |
 | 15 | `external-opponents` | Play against other people's bots | High | - |
+| 23 | `run-robustness` | Benchmark/scenario runner: replay-save crash, a watchdog that really fires | Low | - |
 | 8 | `trade-tracking` | Ally vs enemy losses (resource trades) | Medium | - |
 | 9 | `mining-rate` | Mining rate per drone | Low | - |
 | 10 | `army-value` | Army value: ours vs the enemy's | Medium | - |
-| 14 | `supply-targeting` | Target supply buildings when the enemy is near its supply cap | Medium | `army-value`, `damage-efficiency` |
-| 2 | `army-variety` | More unit types + army composition logic | High | - (`damage-efficiency` helps tune ranged/air control) |
+| 14 | `supply-targeting` | Target supply buildings when the enemy is near its supply cap | Medium | `army-value` |
+| 2 | `army-variety` | More unit types + army composition logic | High | - |
 | 3 | `army-upgrading` | Upgrades tied to army composition | Medium | `army-variety` |
-| 11 | `decision-explanations` | **(partly done)** Explain decisions in chat; ~~drawn in the game window~~ (`bot/overlay.py`) | Medium | `trade-tracking` (for outcomes) |
-| 12 | `mutalisk-harass` | Mutalisk worker harass, decided by expected value | Medium-High | `army-variety` (spire tech), `army-value` |
+| 11 | `decision-explanations` | Explain decisions in chat (the in-game overlay exists) | Medium | `trade-tracking` |
+| 12 | `mutalisk-harass` | Mutalisk worker harass, decided by expected value | Medium-High | `army-variety`, `army-value` |
 | 1 | `replay-summary` | Watch replays on Linux | Low | - |
 | 6 | `static-defense-placement` | Better spore / spine placement | Low-Medium | - |
 | 7 | `drone-escape-building` | Drone saves itself by starting a building | Low-Medium | - |
 
-Why this order: `damage-efficiency` builds directly on the scenario suite and the bot is all melee
-today, so it's likely the biggest win-rate lever before new units. `external-opponents` next,
-because everything after it should be judged against real bots, not just the built-in AI (which
-Zasz now beats 6/6 up to Hard). `trade-tracking`, `mining-rate` and `army-value` are small and
-land as features in `bot/observation.py` (the learning interface is done: observe -> decide -> act,
-see the README), rather than as scattered helpers. `static-defense-placement` and `drone-escape-building` wait until harass
-shows up in losses (check kept replays, summarised by `replay-summary`).
+## Watch list (not branches)
 
-## `squads` (#20): Finish and merge squads
+- **`wall_bunker` fails, expected**: a tight race even played optimally. Ideas for it are under #20.
+- **`efficiency_open_army_free` fails now and then on any code** (about 1 run in 6: the squad leaves the
+  fight). Compare fail rates over ~18 runs, not single runs.
+- **`TANK_NEUTRALIZED_BY = 3`** (`bot/settings.py`): sieged tanks with 3+ zerglings inside their minimum
+  range are left out of the sim (which ignores minimum range). A judgement call; revert if it misleads.
+- **ares' combat sim**: no minimum range, positions barely matter, assumes clumped units. Keep in mind
+  when tuning `FIGHT_AT` (see #21).
+- **The built-in AI surrenders** when clearly losing, so a win can come with few kills.
+- **Untested in real games**: spore crawlers (games end before enemy air), overlord scouts under pressure.
+- **Torches' expedition gates** (2000 HP, 3 armor) wall off 4 edge bases per side; ares leaves them out of
+  our expansions. Rock/gate breaking (`ExpansionAccess.blocked` lists the rocks per base) would open them,
+  and backdoor rocks on LeyLines and Magannatha.
 
-**Status:** in progress on branch `squads`. See notes.md sections 18-30 (30: the latest state and next steps).
+## `squads-polish` (#20): Open squad behaviors
 
-**Done:**
-- ~~Squads with jobs (patrol / raid / push / help / gather / engage / defend), replacing the single army
-  and `ArmyPlan`~~
-- ~~Help coalitions (the fewest squads that win together), rallies (gather out of reach, go in
-  together), strikes (enemies shooting us that we can walk to)~~
-- ~~Back off just past the real weapon range; hold outside it for 4 s; engage at VICTORY_MARGINAL, leave
-  at LOSS_DECISIVE~~
-- ~~No idle squads (raids / pushes, one patrol at most with 4+ squads); cornered squads fight;
-  destinations must be walkable (mineral walls)~~
-- ~~Spread out into the unknown; unseen fire; partly seen positions with overlord scout requests~~
-- ~~Bunkers count as threats; structures count as near by their edge~~
-- ~~Debug overlay; `run_scenarios.py --seeds N`; no reinforcements in combat scenarios~~
-- ~~Group decisions over per-zergling limits: the 10-tile fighter rule removed; fights judged with their
-  actual members (`Army.members`); threat lookup out to a sieged tank's reach~~
-- ~~Unseen fire only on sustained unexplained damage (cloaked/burrowed); plugs only when blocking and
-  harmless; choke fights by cost (melee units with 1-2 open sides)~~
-- ~~Nothing inside enemy range except the breach; one committed breach per fight, priced once for the
-  army with enemy range measured to the attack cells~~
+**Idea:** The squad army (jobs, help, rallies, strikes, routes, breaches) is in and benchmarked. These are
+the behaviors still seen going wrong in scenarios and games.
 
-**Before merging:**
-- **Benchmark the latest commit** headless on Linux (12+ games vs Hard, `--jobs 2`): it should match
-  `main` (12/12, about 525 s, about 1,960 value lost) with no 20-minute ties, and stay well under the
-  step-time limit. The last Windows run (before the final fixes) had 2 ties and 12,092 lost on average.
-- Rerun the seven-scenario comparison (`--seeds 4`) on the latest commit.
-
-**Still open:**
-- ~~`efficiency_cramped_more_zealots` top regressed~~: passes again (105 s, 23 lost) with safe cells,
-  active-enemy breach acceptance and "open chokes up first" (notes 29). Run the regression set.
-- ~~Breach acceptability flickers~~ (judged against active enemies now)
-- Help sends and frees a squad repeatedly while the verdict hovers around the help bar.
-- A squad freed by "leave" turns into a patrol inside the raid's site and marks "no help possible"
-  avoid areas. Proposed: raid squads stay on their raid; patrols fighting at a raid's site join it.
-- ~~`tank_dive` bottom: overfills the tank while a marine has room~~ (persistent assignments, notes 30)
-- **(partly done)** `efficiency_open_army_free`: chasing an army up a ramp held by zealots still costs
-  ~30 zerglings. Needs #21's choke estimate, or a rule not to follow an army up its ramp.
-- `wall_bunker` fails: zerglings that don't fit around the full bunker hit the bays beside it, under its
-  fire. Saved ideas in `experiments/free-hits-two-pass-unit-breach.patch`: overflow only takes free hits
-  (outside every enemy's reach), two-pass target assignment (idle zerglings first), and breaching
-  through a unit (a marine plugging a gap) as well as a building.
-- **(partly done)** Pushes into the unknown: they spread out now, but still walk the whole army into a
-  defended position. Idea: a vanguard (one squad a few tiles ahead) or stopping at the edge of vision
-  until something has looked.
-- Strikes size for the fewest zerglings that win, which sent 2, then 6, then 12 into a defended
-  natural. Add a minimum (a full squad) or a margin; see #21 for the estimate itself.
-- The mineral-wall map from the benchmark (Magannatha or Ley Lines): identify it and add a scenario.
-- `Army.committed` (scenario-only "fight no matter what") is still used by
+- **Help flip-flop:** help sends and frees a squad repeatedly while the verdict hovers around the help bar.
+- **Raids that leave:** a squad freed by "leave" turns into a patrol inside the raid's site and marks
+  "no help possible" avoid areas. Proposed: raid squads stay on their raid; patrols fighting at a raid's
+  site join it.
+- **Chasing up a ramp:** `efficiency_open_army_free` still loses ~30 zerglings chasing an army up a ramp
+  held by zealots. Needs #21's choke estimate, or a rule not to follow an army up its ramp.
+- **`wall_bunker`:** zerglings that don't fit around the full bunker hit the bays beside it, under its
+  fire. Saved ideas in `experiments/free-hits-two-pass-unit-breach.patch`: overflow only takes free hits,
+  two-pass target assignment (idle zerglings first), breaching through a unit as well as a building.
+- **Pushes into the unknown** spread out but still walk the whole army into a defended position. Ideas:
+  a vanguard (one squad a few tiles ahead), or stopping at the edge of vision until something has looked.
+  Related: a travelling squad with no route around danger falls back to ares' path (danger only a cost);
+  it could hold or back off instead.
+- **Strike sizing:** strikes send the fewest zerglings that win, which sent 2, then 6, then 12 into a
+  defended natural. Add a minimum (a full squad) or a margin.
+- **Squad scouts** with no overlord coming have no limit beyond 60 s; check real games.
+- **A mineral-wall map** from the benchmark (Magannatha or Ley Lines): identify it and add a scenario.
+- **`Army.committed`** (scenario-only "fight no matter what") is still used by
   `efficiency_cramped_more_zealots`; revisit once #21 makes the sim's verdict on that fight better.
-- Saved and dropped experiments, kept for reference: `experiments/breach-plan.patch`,
-  `experiments/strikes-v2-full.patch`.
+
+**Impact:** High: these are where zerglings die for nothing. **Blockers:** each needs its scenario; judge
+on the regression set (`--repeat 3`) and a 21-game benchmark.
 
 ## `combat-estimates` (#21): Fix the combat sim's blind spots
 
 **Idea:** Many bad commits trace back to the sim's verdict being wrong for melee units, not to the
-decision logic. Correct the verdict where we can estimate better, the way the breach and bunker
-estimates already do.
+decision logic. Every fight, strike, raid and help judgement goes through one `combat_estimate`
+(`bot/combat.py`: tank neutralization and the bunker path); correct it further where we can estimate better.
 
-**Depends on:** `squads`
-
-**Revision:**
 - **Approach under fire:** the sim assumes everyone fights at once. Melee units first cross the ranged
   enemies' range: estimate the damage taken on the way (time to cross x their dps) and take those
-  zerglings off before judging the fight. The sim called 2 zerglings vs 2 sieged tanks
-  VICTORY_EMPHATIC.
-- **Sieged tanks:** splash and the long approach; check what ares' sim does with minimum range
-  (`tank_neutralized` already removes tanks we're inside of).
-- **Chokes:** only as many zerglings as fit around the reachable enemies fight at once (ramp held by
-  zealots). A first try (notes section 20) broke the gateway grid by calling sealed fights hopeless;
-  it must leave free work and breaches alone, and only judge *entering* a choke. **(partly done)**
-  Per target: `choke_worth` refuses melee units with 1-2 open sides when killing them costs more than
-  they're worth. The squad's fight verdict itself still ignores chokes.
-- **Fog:** enemies revealed by firing are only part of a position (strikes saw the tanks, not the
-  marines). The partly-seen rule holds back now; the estimate could also assume unseen support.
+  zerglings off before judging. The sim called 2 zerglings vs 2 sieged tanks VICTORY_EMPHATIC.
+- **Sieged tanks:** splash and the long approach.
+- **Chokes:** only as many zerglings as fit around the reachable enemies fight at once (a ramp held by
+  zealots). A first try broke the gateway grid by calling sealed fights hopeless: leave free work and
+  breaches alone, and only judge *entering* a choke. Per target, `choke_worth` already refuses melee units
+  with 1-2 open sides when they cost more than they're worth; the squad's verdict still ignores chokes.
+- **Fog:** enemies revealed by firing are only part of a position. The partly-seen rule holds back now;
+  the estimate could also assume unseen support.
 - **Bunkers:** calibrate the two-step estimate (assumes 4 marines inside).
+- **Shared arithmetic (no behavior change):** `evaluate_breach`, `widen_plan`, `choke_worth` and
+  `through_bunkers` each compute "seconds to kill x covering DPS / health"; one helper would do.
+- **Enemy groups:** `cluster` (`bot/squads.py`) adds a unit to the first cluster it touches and never
+  merges clusters, so a chain of enemies can be judged as two halves, and the split can flip between
+  steps. Connected components fix it, but a try made `efficiency_open_army_free`'s army leave ~40% of
+  runs (0 of 15 before; full games were fine). Understand that first.
+- **Reach-map regions:** `set_danger`, `breaches` and `widen_plan` label regions with plain 8-adjacency,
+  while the reach search refuses a diagonal step next to an enemy unit. A pocket touching our side only
+  through such a diagonal counts as reached, so its breach is missed. Narrow geometry; one labelling
+  helper with the search's adjacency would fix it.
 
-**Impact:** **High.** It feeds every fight decision (squads, raids, help, strikes), and wrong
-verdicts were behind most of the feeding seen in benchmarks.
-**Blockers:** Estimates that are too pessimistic make the army passive (the choke try did). Measure
-every change on the seeded scenarios *and* a Hard benchmark.
+**Impact:** **High.** It feeds every fight decision. **Blockers:** estimates that are too pessimistic make
+the army passive (the choke try did). Measure every change on the seeded scenarios *and* a benchmark.
+
+## `protoss-ties` (#24): Games vs Protoss that tie at 20 minutes
+
+**Idea:** The recurring non-win: Ultralove vs Protoss ties in about half of all 21-game runs on every
+version, Magannatha vs Protoss sometimes, losing 15-35k resources over 20 minutes. Watch the kept
+replays (`replays/benchmarks/<run>/`, on Windows) and find what the army does wrong: likely feeding into
+a defended position the sim misjudges (#21), or not finishing a base.
+
+**Impact:** High: it's the main gap to 21/21 vs Hard. **Blockers:** needs watching replays (Windows) or
+#1's summaries.
 
 ## `army-cpu` (#22): Keep the army's step time in budget
 
-**Idea:** A 20-minute game with a big army used 29 ms per game loop alone (73% of AI Arena's 40 ms),
-and about 98% with 3 games in parallel. Short games use ~9 ms. Find what grows with army size and
-cache or trim it.
+**Idea:** 21 games vs Hard average 9.6 ms per game loop (24% of AI Arena's 40 ms), but a 20-minute game
+with a big army reaches ~20 ms with 6 games in parallel, and single steps up to ~0.5-0.9 s. Find what
+grows with army size and cache or trim it.
 
-**Depends on:** `squads`
-
-**Revision:** Profile a long game (`--jobs 1`, headless): per-squad reach maps (`ReachMap`, rebuilt
-every second per area), approach and group fields (Dijkstra per target), strikes (a reach map per
-enemy group every 0.5 s), region labels, patrol vision checks, `fight_result` sims per squad. Likely
-wins: one reach map per fight area shared by its squads, fewer sims (cache per enemy group per step),
-spreading heavy work over steps.
-**Impact:** **High** for the ladder: a step over the limit loses games outright.
-**Blockers:** None, beyond keeping behavior identical (compare seeded scenarios before and after).
-
-## `damage-efficiency` (#13): Damage efficiency: how much of the army's damage actually lands
-
-**Status (branch `damage-efficiency`):** metric, scenarios and a first fix are in; the ramp is still
-open.
-
-**Done:**
-- `bot/efficiency.py`: per committed unit (same target >= 1 s, not travelling, not chasing a fleeing
-  unit), potential DPS (`calculate_dps_vs_target`) split into delivered / blocked / idle, plus damage
-  dealt/taken and dmg/s. Not melee-specific: ranges come from each unit's own ground/air weapon, so
-  it carries over to mutalisks (their bounce isn't counted as potential). Logged at game end ("Army
-  damage: ..."); the 10 s rolling efficiency is the `damage_efficiency` observation feature.
-- `scenarios/efficiency.py`: `efficiency_open_field`, `efficiency_deep_base`, `efficiency_ramp`
-  (30 zerglings vs engineering bays; results appended to `benchmarks/efficiency.csv`).
-- `bot/targeting.py`: target slots. A structure takes only as many melee attackers as fit around
-  it; with `STRUCTURE_FILL = "back"` the first attackers in go deepest and later ones fill toward the
-  front. Ranged/air attackers and unit targets aren't capped (`attack_capacity` is where a mutalisk
-  overkill cap would go).
-
-**Results** (kill time, 2-3 runs each): open field off 31-32s / back 30s; deep base 64-65s / 59-62s;
-ramp 35-36s / 34-38s. Slots cut blocking where there's room to spread out; target choice makes no
-difference on the ramp.
-
-**Done since (branches `blocked-zerglings`, `squads`; see notes.md):**
-- ~~Packed bases: zerglings jammed in 1-tile lanes and tunnelled on one building.~~ Shared target
-  slots across squads, walking around enemy units to reach them (`ReachMap.approach_step`), stepping
-  out of reach of a zealot plugging a gap, and breaking the building that opens a way to sealed-off
-  units (`ReachMap.breaches`, costed). `efficiency_cramped_main` 25/25 on the old army; passes on
-  squads too.
-- ~~Unit fights in the open are inefficient (stalkers dove one at a time by ~20 zerglings).~~ Slots
-  shared across squads: blocked 38% -> 14% in `efficiency_open_army`.
-- New scenarios: `efficiency_cramped_main`, `efficiency_cramped_more_zealots`, `efficiency_open_army`,
-  `efficiency_open_army_free`, `wall_techlab`, `wall_bunker`, `wall_bays`.
-
-**Still open:**
-- **Ramp throughput** (~15% blocked): it's traffic on the ramp itself, not target choice. Ideas: hold
-  the back of the army out of range (or keep it moving to a second ramp/flank) instead of queueing;
-  only send as many up as the top can use. Measure with `efficiency_ramp`.
-- **Idle ~24% everywhere** is mostly the melee wind-up (cooldown hits 0 before the next hit lands);
-  a better "swinging" signal would make this number meaningful.
-- **Stutter step during cooldown**: not tried; the metric can decide.
-- **Mutalisks** (#12): add an overkill cap for ranged attackers in `attack_capacity`, and a
-  scenario (mutalisks vs workers/structures) to measure bounce and spread.
-- **Real games are noisy** (queens, regeneration, repair, vision): compare in scenarios.
-- **Real games read lower than scenarios:** a VeryHard win at `4ec2259` logged efficiency 32%
-  (blocked 51%). Zerglings chasing a unit moving *sideways* counted as blocked; fixed in `6a51dd5`
-  (chasing any moving target isn't blocked), after which a VeryHard win read 45% (blocked 35%). The
-  rest of the gap to 60-70% may be real congestion in messy fights: worth a scenario with enemy
-  *units* (e.g. zerglings vs a marine ball) next. The game-end dmg/s is averaged over the whole
-  game, so it only means something in scenarios.
-
-## `external-opponents` (#15): Play against other people's bots
-
-**Idea:** Figure out how to enable battling other models that other people have put forth.
-
-**Depends on:** -
-
-**Revision:** Two levels, cheapest first:
-1. **Ladder:** upload Zasz to AI Arena (aiarena.net) and let it play the ranked ladder against
-   everyone's bots. The pieces exist (`scripts/create_ladder_zip.py`, `ladder.py`,
-   `ladderbots.json`); this is mostly checking the zip runs and setting up an account and bot
-   entry. Results come back as match history and replays (4.10, so they play here headless and
-   feed `replay-summary` #1 and training data in the same format as `benchmark.py --record`).
-2. **Local bot-vs-bot:** add `--opponent <bot folder>` to `scripts/benchmark.py`. python-sc2's
-   `BotProcess` already launches any bot that speaks the standard ladder protocol (`--LadderServer`,
-   `--GamePort`, `--StartPort`), in any language, which every AI Arena bot does. Opponents come from
-   AI Arena bots whose authors made them downloadable, or open-source bots on GitHub, kept in an
-   `opponents/` folder (gitignored) with their `ladderbots.json` read for the launch command and
-   race. The rest of the benchmark (parallel jobs, crash handling, kept replays, results.csv) works
-   as is, with the opponent's name in place of the difficulty. For bots with heavy dependencies,
-   AI Arena's local-play setup (Docker, `aiarena/arenaclient-sc2-base` / sc2-ai-match-controller)
-   runs them the same way the ladder does.
-
-**Impact:** **High.** The built-in AI is a narrow and predictable opponent (and the harder levels
-cheat); tuning only against it risks overfitting. Real bots punish different weaknesses (early
-rushes, cannon/bunker rushes, mass air, proxy builds), and the ladder gives a rating to track over
-time. It also gives the most realistic training data for a learned `Decisions` model.
-**Blockers:**
-- **Getting opponents:** only bots their authors mark downloadable on AI Arena can be fetched, and
-  some need an AI Arena account. Respect each bot's license; don't redistribute them (keep
-  `opponents/` out of git).
-- **Running them:** each bot brings its own runtime (Python version and packages, .NET, Java, C++
-  binaries, sometimes PyTorch/GPU for ML bots). Linux binaries are fine here (AI Arena runs
-  Linux); Python bots can conflict with our venv, so give each its own (or use the Docker setup).
-- **Two bots = two SC2 instances per game:** roughly double the CPU/RAM of a vs-AI game, so fewer
-  parallel `--jobs` on this machine (8 cores, 30 GB).
-- **Ladder rules:** ares `Debug: False` for uploads (already noted in `config.yml`); the ladder's
-  map pool and Python version (3.12) have to match; chat that other bots can read (#11).
-- **Timing:** AI Arena enforces per-step time limits; a slow `on_step` (e.g. lots of pathfinding,
-  #13 metrics) can lose games by timeout on the ladder even when it wins locally. The benchmark
-  measures step time against the ladder limits (done), so check it for bot-vs-bot games too.
-
-## `trade-tracking` (#8): Ally vs enemy losses (resource trades)
-
-**Idea:** Implement logic to determine total ally losses vs enemy losses, which helps us understand wasted resources better. When we train a model, this will be useful.
-
-**Depends on:** - (add it as `Observation` fields in `bot/observation.py`)
-
-**Revision:** Mostly already available: `state.score` has killed and lost values by category (the
-benchmark already records `killed_value` and `lost_value`). What's missing is *per-engagement*
-trades: snapshot the values when a squad engages and when it disengages. That gives "this fight
-cost X and killed Y", which #11 and the model can use.
-**Impact:** Medium (a good model feature and a good benchmark metric; no win rate on its own).
-**Blockers:** Defining where an engagement starts and ends. Enemy losses in the fog aren't
-reported.
-
-## `mining-rate` (#9): Mining rate per drone
-
-**Idea:** Implement logic to determine the number of resources mined per drone, like the rate we are gathering, so the model will be able to better understand and plan around incoming minerals (unless we already do this somehow?)
-
-**Depends on:** - (add it as `Observation` fields in `bot/observation.py`)
-
-**Revision:** Partly there: `state.score.collection_rate_minerals/vespene` is the game's own income
-rate (`affordable_on_arrival` already uses it). Per drone = rate / mining drones. Add the
-"expected" rate from patch saturation (ares' `Mining` knows assignments), so the gap shows
-oversaturation, long-distance mining or harass.
-**Impact:** Low (cheap model feature; small decision value for scripted rules).
-**Blockers:** None significant. The game's collection rate lags (it's averaged), so it reacts slowly.
-
-## `army-value` (#10): Army value: ours vs the enemy's
-
-**Idea:** Implement logic to understand enemy army value vs ally army value to give model more information when deciding to attack or not (we will also adjust the ares packages that do this to advice the model similarly)
-
-**Depends on:** - (add it as `Observation` fields in `bot/observation.py`)
-
-**Revision:** ares already does this in the combat simulator (`FIGHT_AT` uses it per fight). A
-whole-map value is easy to add (cost of our army vs cost of known enemy units, from ares' unit
-memory) and is a natural `Observation` feature for the attack decision.
-**Impact:** Medium. It improves the attack/defend decision, especially once there's more than one
-unit type (#2).
-**Blockers:** **Fog.** The enemy value is only what we've seen (plus memory), so it undercounts
-whatever we haven't scouted; it needs a "last seen" age or a scouting confidence. Changing ares'
-own advice means forking or wrapping ares code (it's a pinned submodule).
-
-## `supply-targeting` (#14): Target supply buildings when the enemy is near its supply cap
-
-**Idea:** Estimate the enemy's current supply, so when attacking an enemy base we can decide whether supply buildings are better targets than production. If the enemy uses 50 supply and we see 51 supply worth of supply buildings, killing one of them cuts off all future production and effectively disables many more buildings quickly.
-
-**Depends on:** `army-value`, `damage-efficiency`
-
-**Revision:** Estimate the enemy's supply **used** and supply **cap**, and when the margin is
-smaller than what one supply building provides, put that building type ahead of production in the
-target priority. Today the priority is fixed (`PRIORITY_STRUCTURES` in `bot/army.py`: townhalls,
-pylons, spawning pool), so this makes it dynamic.
-- **Cap:** sum the supply of known enemy providers (max 200), townhalls included:
-  - supply depot / pylon / overlord: 8
-  - townhalls: command center / orbital command / planetary fortress 15, nexus 15,
-    hatchery / lair / hive 6
-
-  Townhalls count toward the cap like any provider, so killing one also takes away its supply
-  (on top of its economy). It can be the thing that supply-blocks them, which makes townhalls
-  (already in `PRIORITY_STRUCTURES`) even better targets near the cap. ares' unit memory keeps
-  structures we've seen in the fog.
-- **Used:** supply cost of every known enemy unit (memory included), plus an estimate for workers
-  we haven't seen (e.g. from the number of bases and the game time).
-- **Rule:** if `cap - used < 8`, killing one provider supply-blocks them, so add the provider type
-  to the front of the priority (a capped number of zerglings, see #13, so the rest still hit other
-  targets). Re-check each step: once they're blocked, killing a second one adds little.
-- **Protoss is the strong case:** a pylon also powers nearby buildings, so killing one can switch
-  off production *and* supply at once. Pylons are already a priority; this would rank the pylons
-  powering the most production first.
-
-**Impact:** Medium. Strongest against Protoss (pylon power) and when we're already in the enemy
-base; small otherwise, because a supply block only stops *new* units (units already in production
-finish), and the built-in AI rebuilds supply quickly.
-**Blockers:**
-- **Fog makes both numbers uncertain:** we rarely see all their units or all their supply
-  buildings. Missing units make the margin look bigger than it is (we skip a good target);
-  missing supply buildings make it look smaller (we kill one that doesn't block anything). Needs
-  a confidence measure (how recently and how much of the base we've scouted), and should only act
-  when the estimate is clearly close to the cap.
-- **Zerg supply is overlords:** zerglings can't hit air, so against Zerg this only works with
-  anti-air units (#2) or by sniping hatcheries.
-- **Terran depots are often in a wall** (lowered/raised at the ramp): killing one also opens the
-  way in, which is a separate value worth weighing.
-- Fits naturally with #10 (enemy army value: the same "known enemy units" estimate) and the learning interface (supply
-  margin is a good model feature).
-
-## `army-variety` (#2): More unit types + army composition logic
-
-**Idea:** Allow more units to be utilized and create army composition logic
-
-**Depends on:** - (`damage-efficiency` helps tune ranged/air control)
-
-**Revision:** Move from zergling-only to a composition that answers what we've scouted (e.g.
-roach/ravager vs ground, hydra/queen vs air, banelings vs light units). ares' `SpawnController`
-already takes a composition dict, and the learning interface already carries it: add the units to
-`bot/spaces.py` (`ARMY_UNITS`, `OWN_UNIT_TYPES`) and have `decide` set `Decision.army` from what
-`Observation` says we've scouted (add enemy unit counts there if needed). The real work is around it: tech path (lair, roach warren, hydra den), gas
-timings, and army control that copes with ranged units (squads assume melee today).
-**Impact:** **High.** It's the clearest gap: zerglings alone stall against Harder+ (ties at the
-20-minute limit, losses to siege tanks and air), and queens + spores are the only anti-air.
-**Blockers:** `bot/army.py` targeting/retreat logic is tuned for melee and needs ranged micro;
-`upgrades.py` currently only takes gas for upgrades; tech timing has to fit the expansion logic.
-Big enough to split into stages (mutalisks first since zergling/mutalisk is a strong combo).
-Scope: this branch builds the tech and adds the units to the army; the harass *decision* for
-mutalisks is `mutalisk-harass` (#12), and their upgrades are `army-upgrading` (#3).
-
-## `army-upgrading` (#3): Upgrades tied to army composition
-
-**Idea:** Ensure upgrade logic is tied to army composition
-
-**Depends on:** `army-variety`
-
-**Revision:** Derive the upgrade list from the composition (melee vs missile vs flyer, plus unit
-upgrades like roach speed or hydra range). `Decision.upgrades` is already a wish list that
-`actions.upgrades` turns into gas, tech and research, so this is mostly a mapping table once #2
-exists (new upgrades go in `bot/spaces.py` `UPGRADES`).
-**Impact:** Medium (it multiplies #2's impact; little on its own while we're zergling-only).
-**Blockers:** Depends on #2. Some upgrades need hive tech (+3 needs hive), which nothing builds yet.
-
-## `decision-explanations` (#11): Explain decisions in chat
-
-**Idea:** Implement vocalization of decisions in chat as well as reasoning (eg deciding to attack because army value is higher and success is high, or expanding because drones = 16, or skipping expansion because rocks are blocking, or skipping expansion because hostile controlled, or focusing attack onto enemy expansion because enemy army value is low nearby area, or deciding to attack with mutalisk for xyz as well as the outcome of that decision like lost 100 minerals but cost enemy 145 minerals and 55 potential minerals)
-
-**Depends on:** `trade-tracking` (for outcomes)
-
-**Partly done:** ~~a visual version~~: `bot/overlay.py` (`--overlay` on the benchmark and scenarios)
-draws squads and their jobs, raids, strikes, the breach target, avoid areas with their reasons, back-off
-lines and scout requests in the game window, for local games. The army's debug log
-(`Army.debug`, on in scenarios) logs the counts behind each decision. Chat and outcomes are still open.
-
-**Revision:** A small `explain(event, reason, outcome)` logger: always write to the log file
-(benchmarks keep logs for crashes), and send a short in-game chat line for key decisions only
-(attack, expand / skip expansion with the blockage reason, harass). Chat lines are saved in the
-replay, so this pairs well with #1. Close the loop for decisions that have an outcome by using
-the trade numbers from #8.
-**Impact:** Medium as a debugging tool, especially with replays and when the model starts making
-decisions; none on win rate.
-**Blockers:** Chat spam (rate-limit it; keep it opt-in, like ares' `Debug`/`ChatDebug`). Opponent
-bots can read chat on the ladder. "Outcome" attribution (which losses came from which decision)
-is the hard part, and needs #8's engagement tracking.
-
-## `mutalisk-harass` (#12): Mutalisk worker harass, decided by expected value
-
-**Idea:** Implement a mutalisk worker-harass decision that takes into account the value of an individual worker (including training cost AND potential minerals lost while retraining workers), the value of a mutalisk, expected losses (from base defence like spore crawlers or a reacting army), the time it would take known army locations to move to respond, etc. Essentially harass the enemy economy when it would cause more damage to the enemy than ally.
-
-**Depends on:** `army-variety` (spire tech), `army-value`
-
-**Revision:** Harass when expected enemy loss > expected own loss. Enemy loss = workers killed ×
-(50 + mining lost while rebuilding) + supply/production lost; own loss = mutas expected to die vs
-known anti-air (spores, turrets, cannons, army) and the time until the enemy army can respond
-(path distance from known army positions). ares' air grid and `KeepUnitSafe` (already used for
-overlords) handle the avoidance part.
-**Impact:** Medium-High against the built-in AI at Harder+, which tends to defend harass poorly;
-it also forces the enemy to spread out. But it's a big tech switch.
-**Blockers:** **Needs a Spire** (lair, then spire, then heavy gas), which is #2/#3 tech work first.
-Muta micro (clumping, magic box vs thor/archon splash) is its own project. The value estimate
-inherits #10's fog problem.
-
-## `replay-summary` (#1): Watch replays on Linux
-
-**Idea:** Figure out how to watch replays on linux
-
-**Depends on:** -
-
-**Revision:** Watching isn't possible with the headless build (no renderer). Options: watch on
-Windows (benchmarks now keep notable replays in `replays/benchmarks/<run>/`), or run the Windows
-client through Wine/Proton. More useful day to day: a `scripts/replay_summary.py` (sc2reader) that
-prints build timings, army supply over time and engagements, so most replays never need watching.
-**Impact:** Low directly, Medium as an enabler (faster diagnosis of losses).
-**Blockers:** Wine needs a Battle.net account and the 4.10 version download, which can be finicky.
-sc2reader gives events, not full game state, so it can't answer everything.
-
-## `static-defense-placement` (#6): Better spore / spine placement
-
-**Idea:** Implement logic to determine optimal locations for spore / spine crawlers (near minerals, etc)
-
-**Depends on:** -
-
-**Revision:** Spores already go between the hatchery and the minerals (`defense.py`). Improve: put
-each spore where it covers the most mineral patches and the queen/injection area; place spines on
-creep facing the likeliest attack path (ares can give the path from the enemy base), and only
-build them when scouting shows pressure.
-**Impact:** Low-Medium (matters against air/drops and early aggression; games vs the built-in AI
-rarely last long enough to need spores today).
-**Blockers:** Spines and spores need creep, so placement depends on creep spread. Spine
-crawlers aren't built at all yet, so the "when" logic is new.
-
-## `drone-escape-building` (#7): Drone saves itself by starting a building
-
-**Idea:** Implement logic to use a drone to build something when it is being attacked and may die, with the intention of salvaging it later to save the drone. This must take into account building cost to make sure it financially makes sense to build the item when compared to just making a drone. Furthermore, in the case that the drone would still not be safe when the building would complete, we should ensure that we choose a building like spine or spore crawlers that would help the situation after it was done. For example, reapers in the mineral line might lead to a drone saving itself by making a spore crawler, but if the reapers are still in the base when the spore crawler finishes, we lose a drone, get no refund on the building, and the building doesn't help our situation. Ideally the drone builds a spine crawler (unless its too expensive to be worth, im unsure).
-
-**Depends on:** -
-
-**Revision:** When a drone is about to die, morph it into a building and cancel later. Cancelling a
-Zerg building in progress returns the drone and 75% of the cost, so the price of a save is 25% of
-the building (~19-25 minerals for a spore/spine) versus 50 minerals plus lost mining for a new
-drone. Pick the structure by what helps if the threat stays: a spine vs ground (reapers, lings), a
-spore vs air; an extractor on a free geyser is the cheapest option when one is in reach. If the
-building would die anyway, don't do it.
-**Impact:** Low-Medium. Real but small: usually 1-3 drones per harass, and only in games with
-harass.
-**Blockers:** **A morphing building starts with low HP and grows as it builds**, so a building
-started under fire often dies too: we lose the drone *and* the full cost. Needs a reliable "will
-this building survive" estimate (incoming DPS vs HP over time). Spine/spore also need creep and a
-Spawning Pool; the extractor needs a free geyser close by. The timing of the cancel needs
-tracking.
+**Revision:** Profile a long game (`--jobs 1`, headless): per-squad reach maps, approach and group fields
+(Dijkstra per target), strikes (a reach map per enemy group every 0.5 s), region labels, patrol vision
+checks, `fight_result` sims per squad. Ideas: spread heavy work over steps; one reach map per fight area
+(a try shared per walled-off region cut army time 12% but broke `efficiency_open_army_free`).
+**Impact:** **High** for the ladder: a step over 30 s loses outright, and the 40 ms average is reported.
+**Blockers:** keep behavior identical: the order logs must match (see CLAUDE.md).
 
 ## `safe-build-location` (#18): Build at a safe base, not always the main
 
-**Idea:** Zasz builds everything in its starting main. If the main is lost (or under attack), even
-when the game is still recoverable, it keeps sending drones into the main to rebuild things like the
-spawning pool, where they die, instead of building at a safer base.
+**Idea:** Zasz builds everything in its starting main. If the main is lost (or under attack), even when
+the game is still recoverable, it keeps sending drones into the main to rebuild things like the spawning
+pool, where they die. Seen in VeryHard games where the main fell.
 
-**Depends on:** -
-
-**Observed:** VeryHard games where the main fell: drones kept walking into the main to rebuild the
-spawning pool (and other tech) while the enemy was there.
-
-**Cause:** placement is tied to `ai.start_location`:
-- spawning pool: `bot/actions/macro.py` (`pool_spot = ai.start_location.towards(...)` and
-  `BuildStructure(base_location=ai.start_location, ...)`)
-- tech buildings for upgrades (evolution chamber, lair, ...): `UpgradeController(...,
-  base_location=ai.start_location)` in `bot/actions/upgrades.py`
-- supply (`AutoSupply(base_location=ai.start_location)`) is overlords for Zerg, so it doesn't matter
-  there, but uses the same pattern
+**Cause:** placement is tied to `ai.start_location`: the pool (`bot/actions/macro.py`), tech buildings for
+upgrades (`UpgradeController(..., base_location=ai.start_location)` in `bot/actions/upgrades.py`), and
+`AutoSupply` (harmless for Zerg).
 
 **Fix ideas:**
-- One helper, e.g. `build_base(ai)`, that picks where to build: our *ready* hatchery that's safest
-  (no known enemies nearby on ares' ground grid, farthest from the known enemy army), preferring the
-  main only when it's safe. Use it for the pool, tech buildings and spores/spines.
-- Don't send a builder drone through danger: skip (or delay) a build if the path from the chosen
-  drone to the spot crosses known enemy fire, rather than feeding drones.
-- If the pool died and every base is unsafe, wait (save the money) instead of rebuilding into the
-  enemy.
-- Also check queens/injects and drone rallies don't keep walking into the lost main.
+- One helper, e.g. `build_base(ai)`: our *ready* hatchery that's safest (no known enemies nearby, farthest
+  from the known enemy army), preferring the main only when it's safe. Use it for the pool, tech and
+  spores/spines.
+- Don't send a builder drone through danger: skip or delay a build whose path crosses known enemy fire.
+- If the pool died and every base is unsafe, wait (save the money) instead of rebuilding into the enemy.
+- Check queens/injects and drone rallies don't keep walking into the lost main.
 
-**Impact:** High in the games it happens: losing the pool again (or the drones sent to rebuild it)
-usually ends a game that was still recoverable.
-**Blockers:** ares' `BuildStructure` for Zerg places near `base_location` towards the map center
-(`_do_zerg_build_placement`), so a non-main base needs a placement that stays on that base's creep
-and out of mineral lines; verify placements on each map (a scenario: kill our main's buildings,
-leave the natural, check where the pool gets rebuilt).
+**Impact:** High in the games it happens. **Blockers:** ares' `BuildStructure` for Zerg places near
+`base_location` towards the map center, so a non-main base needs a placement on that base's creep and
+out of the mineral line; a scenario: kill our main's buildings, leave the natural, see where the pool goes.
 
 ## `creep-to-natural` (#19): Connect main and natural creep down the ramp
 
-**Idea:** Make sure creep from the main runs down the ramp and joins the natural's creep, so queens
-(slow off creep) can move between the two bases quickly to defend and inject. It usually takes about
-one creep tumor, but it's consistently missed.
+**Idea:** Make sure creep from the main runs down the ramp and joins the natural's, so queens (slow off
+creep) move between the two bases quickly. Usually one tumor, but consistently missed: creep queens use
+ares' `QueenSpreadCreep` (`bot/actions/queens.py`) toward the *enemy*, nothing aims at our own gap.
 
-**Depends on:** -
+**Fix ideas:** before other spreading, walk the ground path main -> natural (ares `find_raw_path`), find
+the first point without creep, and have a queen (the main's injector, or the first creep queen) place a
+tumor at the last creep point before it; repeat until the path is on creep. Later: natural to third.
+**Impact:** Medium, cheap. **Blockers:** tumors need creep and an unblocked spot (don't block the ramp). A
+scenario can check every point on the path has creep after N minutes.
 
-**Observed:** In games the main's and natural's creep stay separate at the ramp, so queens crawl
-between them off creep.
+## `damage-efficiency` (#13): How much of the army's damage actually lands
 
-**Cause:** creep queens use ares' `QueenSpreadCreep` (`bot/actions/queens.py`), which puts tumors at
-the nearest creep edge or along a path toward the *enemy's* natural, and tumors spread toward the
-enemy main (`TumorSpreadCreep(target=ai.enemy_start_locations[0])`). Nothing aims at the gap between
-our own main and natural.
+**Idea:** `bot/efficiency.py` measures delivered / blocked / idle damage potential (logged at game end; the
+`efficiency_*` scenarios measure it per layout). Open:
 
-**Fix ideas:**
-- Before any other creep spread: walk the ground path from the main hatchery to the natural
-  hatchery (ares `find_raw_path`), find the first point without creep (`ai.has_creep`), and have a
-  queen place a tumor at the last creep point before it (a creep tumor must go on creep). Repeat
-  until the whole path is on creep, then go back to normal spreading.
-- Prefer the injecting queen of the main (it's right there) or the first creep queen; it's one or
-  two tumors, so it shouldn't cost much injection time.
-- The same check could connect later bases too (natural to third), lower priority.
+- **Ramp throughput** (~15% blocked): traffic on the ramp, not target choice. Ideas: hold the back of the
+  army out of range instead of queueing; send only as many up as the top can use. Measure with
+  `efficiency_ramp`.
+- **Idle ~24% everywhere** is mostly the melee wind-up; a better "swinging" signal would make it meaningful.
+- **Stutter step during cooldown**: not tried; the metric can decide.
+- **Mutalisks** (#12): an overkill cap for ranged attackers in `attack_capacity`, and a scenario
+  (mutalisks vs workers/structures) to measure bounce and spread.
+- **Real games read lower than scenarios** (45% vs 60-70%): maybe real congestion in messy fights; worth a
+  scenario with enemy *units* (zerglings vs a marine ball).
 
-**Impact:** Medium. Queens defend the natural (they're the only anti-air) and reinforce between
-bases much faster on creep; cheap to do.
-**Blockers:** Tumor placement needs creep and a spot that isn't blocked (ramps are narrow; don't
-block the ramp itself). Creep edge positions from ares (`find_nearby_creep_edge_position`) may help.
-A scenario can check it: after N minutes, every point on the main-to-natural path has creep.
+**Impact:** Medium. **Blockers:** real games are noisy (queens, regeneration, repair); compare in scenarios.
+
+## `external-opponents` (#15): Play against other people's bots
+
+**Idea:** Stop tuning only against the built-in AI. Two levels, cheapest first:
+1. **Ladder:** upload Zasz to AI Arena and let it play the ranked ladder. The pieces exist
+   (`scripts/create_ladder_zip.py`, `ladder.py`, `ladderbots.json`): check the zip runs there, set up an
+   account and bot entry. Results come back as match history and replays.
+2. **Local bot-vs-bot:** `--opponent <bot folder>` in `scripts/benchmark.py`. python-sc2's `BotProcess`
+   launches any bot that speaks the ladder protocol; opponents from AI Arena (downloadable ones) or GitHub,
+   kept in a gitignored `opponents/` folder, launched from their `ladderbots.json`.
+
+**Impact:** **High.** Real bots punish different weaknesses (rushes, cannon/bunker rushes, mass air), the
+ladder gives a rating over time, and the most realistic training data. **Blockers:** only downloadable
+bots, respect licenses (never commit them); each bot brings its own runtime (give each its own venv, or
+AI Arena's Docker setup); two SC2 instances per game (fewer `--jobs`); the ladder's map pool, Python 3.12,
+`Debug: False`; check step time in bot-vs-bot games too.
+
+## `run-robustness` (#23): Benchmark and scenario runner robustness
+
+- **Replay save crash:** a 20-minute tie makes a replay over python-sc2's 4 MB websocket limit (4.6-5.3 MB),
+  so saving it fails and the game is logged as "Crash" though the bot was fine. Raise the client's
+  message limit, or record the result before saving and treat a failed save as a warning.
+- **Watchdog:** `run_scenario`'s timer calls `_thread.interrupt_main()`, which may not wake a main thread
+  blocked on a socket; it has never fired. The parent waits on `future.result()` with no timeout, and
+  `benchmark.run_matchups` and `seeds.probe` have no wall-clock limit. One worker dying fails the whole
+  pool (every pending run recorded as ERROR). Proposed: a parent-side deadline that kills the worker's
+  process tree, and one subprocess per game. Test with a fake worker that sleeps forever.
+
+**Impact:** Low (tooling), but a hung run wastes a night.
+
+## `trade-tracking` (#8): Ally vs enemy losses (resource trades)
+
+**Idea:** Total ally vs enemy losses, to understand wasted resources, and as a model feature.
+
+**Revision:** `state.score` already has killed and lost values by category (the benchmark records
+`killed_value` and `lost_value`). Missing: *per-engagement* trades, by snapshotting the values when a squad
+engages and disengages ("this fight cost X and killed Y"), for #11 and the model. Add as `Observation`
+fields. **Impact:** Medium. **Blockers:** where an engagement starts and ends; enemy losses in the fog
+aren't reported.
+
+## `mining-rate` (#9): Mining rate per drone
+
+**Idea:** Resources mined per drone, so a model can plan around income. `collection_rate_minerals/vespene`
+is the game's income rate (used by `affordable_on_arrival`); per drone = rate / mining drones. Add the
+"expected" rate from patch saturation (ares' `Mining` knows assignments), so the gap shows oversaturation,
+long-distance mining or harass. **Impact:** Low (cheap model feature). **Blockers:** the game's rate lags.
+
+## `army-value` (#10): Army value: ours vs the enemy's
+
+**Idea:** Our army's value vs the enemy's known army, as an `Observation` feature for the attack decision
+(ares' combat sim already does this per fight). **Impact:** Medium, more once there's more than one unit
+type (#2). **Blockers:** **fog**: the enemy value undercounts what we haven't scouted; needs a "last seen"
+age or scouting confidence. Changing ares' own advice means wrapping ares code (a pinned submodule).
+
+## `supply-targeting` (#14): Target supply buildings when the enemy is near its supply cap
+
+**Idea:** Estimate the enemy's supply used and cap; when the margin is under what one supply building gives,
+put that building type ahead of production in the target priority (today fixed: `PRIORITY_STRUCTURES` in
+`bot/micro.py`).
+- **Cap:** sum known providers (max 200): depot / pylon / overlord 8; command center / orbital / planetary
+  15, nexus 15, hatchery / lair / hive 6 (townhalls count, which makes them even better targets near the
+  cap). ares' memory keeps structures seen in the fog.
+- **Used:** supply of every known enemy unit plus an estimate for unseen workers.
+- **Rule:** if `cap - used < 8`, add the provider type to the front (a capped number of zerglings).
+  Strongest vs Protoss: a pylon also powers production; rank pylons by the production they power.
+
+**Impact:** Medium. **Blockers:** fog makes both numbers uncertain (needs confidence); Zerg supply is
+overlords (zerglings can't hit air); Terran depots in a wall also open the way in.
+
+## `army-variety` (#2): More unit types + army composition logic
+
+**Idea:** From zergling-only to a composition that answers what we've scouted (roach/ravager vs ground,
+hydra/queen vs air, banelings vs light units). `SpawnController` takes a composition dict and
+`Decision.army` carries it: add units to `bot/spaces.py` (`ARMY_UNITS`, `OWN_UNIT_TYPES`) and have `decide`
+set `Decision.army` from the observation. The real work: tech path (lair, roach warren, hydra den), gas
+timings, and army control that copes with ranged units (squads assume melee).
+**Impact:** **High**: zerglings alone stall against Harder+ (ties, losses to tanks and air). **Blockers:**
+`bot/micro.py` targeting is tuned for melee; `upgrades.py` only takes gas for upgrades. Split into stages
+(mutalisks first). The harass *decision* is #12, their upgrades #3.
+
+## `army-upgrading` (#3): Upgrades tied to army composition
+
+**Idea:** Derive the upgrade wish list from the composition (melee / missile / flyer, plus unit upgrades).
+`Decision.upgrades` already drives gas, tech and research, so this is mostly a mapping table once #2
+exists (new upgrades go in `bot/spaces.py` `UPGRADES`). **Impact:** Medium. **Blockers:** #2; +3 needs hive.
+
+## `decision-explanations` (#11): Explain decisions in chat
+
+**Idea:** Say key decisions and their reasons in chat (attack because army value is higher; expand at 16
+drones; skip an expansion because rocks block it; harass because ...) and their outcomes (lost 100, cost
+the enemy 145 + mining). The visual version exists: `bot/overlay.py` (`--overlay`) draws squads, jobs,
+raids, strikes, breaches, avoid areas and back-off lines; `Army.debug` logs the counts behind decisions.
+
+**Revision:** a small `explain(event, reason, outcome)`: always to the log, a short chat line for key
+decisions only (saved in the replay). Outcomes from #8's trades. **Impact:** Medium as a debugging tool.
+**Blockers:** chat spam (rate-limit, opt-in); opponents read chat on the ladder; attributing outcomes.
+
+## `mutalisk-harass` (#12): Mutalisk worker harass, decided by expected value
+
+**Idea:** Harass when expected enemy loss > expected own loss. Enemy loss = workers killed x (50 + mining
+lost while rebuilding) + supply/production lost; own loss = mutas expected to die vs known anti-air
+(spores, turrets, cannons, army) within the time the enemy army needs to respond. ares' air grid and
+`KeepUnitSafe` handle avoidance. **Impact:** Medium-High at Harder+. **Blockers:** needs a spire (#2/#3);
+muta micro (clumping, magic box) is its own project; #10's fog problem.
+
+## `replay-summary` (#1): Watch replays on Linux
+
+**Idea:** The headless build can't render. Watch on Windows (benchmarks keep notable replays), or Wine.
+More useful: `scripts/replay_summary.py` (sc2reader) printing build timings, army supply over time and
+engagements, so most replays never need watching. **Impact:** Low directly, Medium as an enabler (#24).
+**Blockers:** sc2reader gives events, not full game state.
+
+## `static-defense-placement` (#6): Better spore / spine placement
+
+**Idea:** Spores go between hatchery and minerals (`bot/actions/defense.py`). Place each where it covers
+the most patches and the queens; spines on creep facing the likeliest attack path, built only when
+scouting shows pressure. **Impact:** Low-Medium. **Blockers:** needs creep; spines aren't built at all yet.
+
+## `drone-escape-building` (#7): Drone saves itself by starting a building
+
+**Idea:** A drone about to die morphs into a building, cancelled later: cancelling returns the drone and
+75% of the cost, so a save costs ~19-25 minerals vs 50 + lost mining for a new drone. Pick what helps if the
+threat stays (spine vs ground, spore vs air; an extractor is cheapest when a geyser is in reach).
+**Impact:** Low-Medium (1-3 drones per harass). **Blockers:** a morphing building starts with low HP, so
+under fire it often dies too (drone *and* full cost): needs a "will it survive" estimate; spine/spore need
+creep and a pool; the cancel needs tracking.

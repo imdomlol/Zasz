@@ -1,8 +1,5 @@
 """Offline tests for `Army` state shared between squads: the map-wide route cache (`route_map`) and squad
 scouting plans (`send_squad_scout`). The bot is a stand-in with only what the code reads.
-
-Tests marked xfail pin down known bugs from CODE_REVIEW.md (strict: a fix makes them fail until the mark
-is removed).
 """
 
 from types import SimpleNamespace
@@ -50,7 +47,7 @@ def blocked_at(routes, p: Point2) -> bool:
     return not routes.open[int(p.x), int(p.y)]
 
 
-# --- route cache (CODE_REVIEW.md 03) ---
+# --- route cache ---
 
 
 def test_a_weak_squad_routes_around_a_group_it_cant_beat_and_a_strong_one_doesnt(enemy_group):
@@ -87,7 +84,7 @@ def test_squads_that_lose_to_the_same_groups_share_a_route_map(enemy_group):
     assert army.route_map(ai, lings(STRONG)) is not weak
 
 
-# --- pushes with nowhere safe to go (CODE_REVIEW.md 04) ---
+# --- pushes with nowhere safe to go ---
 
 
 def test_a_push_with_nowhere_safe_to_go_has_no_target(monkeypatch):
@@ -103,7 +100,7 @@ def test_a_push_with_nowhere_safe_to_go_has_no_target(monkeypatch):
     assert army.push_target(ai, lings(4)) == Point2((35, 35))  # the main, once it's safe
 
 
-# --- area reach maps (CODE_REVIEW.md 05) ---
+# --- area reach maps ---
 
 
 def walled_ai():
@@ -145,7 +142,7 @@ def test_open_sides_depend_on_the_attackers_size():
     assert reach.open_sides(left_marine, 1.0) != small and reach.open_sides(left_marine, 0.375) == small
 
 
-# --- squad scouts (CODE_REVIEW.md 02) ---
+# --- squad scouts ---
 
 SPOT = (30.5, 5.5)  # the one enemy expansion to look at
 
@@ -192,7 +189,7 @@ def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
     assert other.job == "scout"
 
 
-# --- diagnostics (CODE_REVIEW.md 01, 23) ---
+# --- diagnostics ---
 
 
 def test_normal_games_dont_keep_debug_counts_or_timings():
@@ -219,7 +216,7 @@ def test_a_new_game_starts_with_no_counts_left():
     assert not COUNTS and not REACH_DUMPED
 
 
-# --- avoid areas (CODE_REVIEW.md 18) ---
+# --- avoid areas ---
 
 
 def test_avoid_areas_expire_and_take_their_reasons_with_them():
@@ -241,7 +238,7 @@ def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
     assert army.avoid_reasons == {Point2((21, 20)): "unseen fire"}
 
 
-# --- one combat estimate (CODE_REVIEW.md 21) ---
+# --- one combat estimate ---
 
 
 def test_raid_sizing_knows_a_sieged_tank_we_are_on_top_of_cant_shoot():

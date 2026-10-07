@@ -67,7 +67,7 @@ def pair_injectors(ai: AresBot, queens: list[Unit]) -> dict[int, Unit]:
 
 
 def note_injector_switches(ai: AresBot, queens: list[Unit], injectors: dict[int, Unit]) -> None:
-    """Log a hatchery's injector changing while its old one is still alive (CODE_REVIEW.md 25: the pairing
+    """Log a hatchery's injector changing while its old one is still alive (the pairing
     used to churn every step; this should now stay silent)."""
     previous: dict[int, int] = ai.__dict__.setdefault("injector_of", {})  # hatchery tag -> queen tag
     alive = {q.tag for q in queens}

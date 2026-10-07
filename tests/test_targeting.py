@@ -1,8 +1,5 @@
 """Offline tests for target choice as `fight()` makes it (`bot.targeting.pick_tiered`) and the slot accounting
 behind it (`TargetSlots`, `Assignments`).
-
-Tests marked xfail pin down known bugs from CODE_REVIEW.md: they fail now and should pass once the finding
-is fixed (strict, so a fix that makes one pass shows up as a failure to remove the mark).
 """
 
 import pytest

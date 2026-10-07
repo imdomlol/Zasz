@@ -1,4 +1,4 @@
-"""Offline tests for injector pairing (`bot.actions.queens.pair_injectors`, CODE_REVIEW.md 25)."""
+"""Offline tests for injector pairing (`bot.actions.queens.pair_injectors`)."""
 
 from types import SimpleNamespace
 
