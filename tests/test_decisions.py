@@ -217,3 +217,27 @@ def test_older_recorded_decisions_missing_fields_still_load():
     assert Decision.from_dict(d) == Decision(build=Build.POOL, drone_target=20, attack=True)
     with pytest.raises(ValueError, match="renamed"):
         Decision.from_dict({**d, "renamed": 1})
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"build": "pool"},
+        {"attack": "false"},
+        {"attack": 1},
+        {"drone_target": float("nan")},
+        {"drone_target": 2.7},
+        {"queens": -1},
+        {"queens": True},
+        {"spores_per_base": "3"},
+    ],
+)
+def test_every_field_is_checked(bad):
+    with pytest.raises(ValueError, match=next(iter(bad))):
+        Decision(**bad)
+
+
+def test_recorded_decisions_are_checked_too():
+    for field, value in (("attack", "false"), ("queens", "3"), ("drone_target", -5)):
+        with pytest.raises(ValueError, match=field):
+            Decision.from_dict(Decision().to_dict() | {field: value})
