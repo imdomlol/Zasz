@@ -243,3 +243,19 @@ def test_slow_wins_are_judged_per_matchup_with_a_race_fallback():
     assert not is_notable(protoss, usual_win_times(times, protoss))  # usual for Protoss (pooled: over 900)
     zerg = {**protoss, "opponent_race": "Zerg", "map": "Other", "game_time": 700}  # new map: per race
     assert is_notable(zerg, usual_win_times(times, zerg))
+
+
+def test_a_game_that_ended_keeps_its_result_when_saving_the_replay_fails(monkeypatch):
+    from sc2.data import Result
+
+    import scripts.benchmark as benchmark
+
+    def run_game(map_settings, players, **kwargs):
+        players[0].ai.game_result = Result.Tie  # on_end ran: the game is over
+        raise ConnectionError("Message size 4589430 exceeds limit 4194304")  # then the replay save fails
+
+    monkeypatch.setattr(benchmark, "run_game", run_game)
+    monkeypatch.setattr(benchmark.maps, "get", lambda name: name)
+    labels = {"commit": "abc", "sc2_build": "1", "run_id": "r"}
+    row, _, _ = benchmark.play_game("Map", "Protoss", "Hard", 1200, labels, 3, None, "replay.SC2Replay")
+    assert row["result"] == "Tie" and row["error"].startswith("after the game")

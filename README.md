@@ -55,8 +55,9 @@ uv run python scripts/benchmark.py --games 30 --jobs 6  # 6 games at a time (~1 
 uv run python scripts/benchmark.py --record             # also save (observation, decision) pairs
 ```
 
-With `--jobs`, games run in parallel, but logs and results are still reported in matchup order, the same
-as a sequential run. Bot behavior doesn't depend on wall-clock speed (games aren't realtime), so results
+With `--jobs`, games run in parallel; each is reported as it finishes, labelled with its matchup number.
+A game still running far past its time limit (StarCraft II froze) is killed and recorded as a crash. Bot
+behavior doesn't depend on wall-clock speed (games aren't realtime), so results
 are comparable either way.
 
 Every game is appended to `benchmarks/results.csv` with the git commit, so you can compare versions.
@@ -133,9 +134,9 @@ uv run python scripts/run_scenarios.py efficiency_cramped_main --side bottom --r
 
 Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`); see
 `scenarios/__init__.py` for how to write one and the debug quirks to watch for. Replays of failed
-scenarios are kept in `replays/scenarios/`. A watchdog is meant to report a scenario stuck on a
-crashed or frozen StarCraft II as an ERROR (`--watchdog SECONDS`), but it can't interrupt a game
-waiting on the game's connection: a frozen game can still hang the run (`todo.md`, review R12).
+scenarios are kept in `replays/scenarios/`. A scenario stuck on a crashed or frozen StarCraft II is
+killed (with its game) after far more real time than it could need, reported as an ERROR, and the run
+carries on (`--watchdog SECONDS` to change the limit).
 
 **Damage efficiency** (`efficiency_*` scenarios): 30 zerglings vs structures on open ground, in a
 4-deep base and up the enemy's main ramp. They pass when everything is dead and report kill time,

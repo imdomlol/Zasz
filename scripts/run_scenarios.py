@@ -19,20 +19,16 @@ Exits with 1 if any scenario fails, so it can gate a commit. Replays of failed s
 replays/scenarios/<run>/ (--replays all keeps every one).
 """
 
-import _thread
 import argparse
 import csv
 import io
 import json
-import multiprocessing
 import os
 import statistics
 import sys
-import threading
 import time
 import traceback
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -50,7 +46,7 @@ from sc2.main import run_game
 from sc2.player import Bot, Computer
 
 from scenarios import ALL, ScenarioBot, efficiency, seeds
-from scripts import run_meta
+from scripts import run_meta, supervise
 
 REPLAYS_DIR = ROOT / "replays" / "scenarios"
 RESULTS_FILE = ROOT / "benchmarks" / "scenarios.csv"
@@ -90,12 +86,12 @@ class Report:
 def run_scenario(
     name: str,
     replay: str,
-    watchdog: float | None = None,
     seed: int | None = None,
     realtime: bool = False,
     order_log: str | None = None,
 ) -> Report:
-    """Play one scenario in this process (a worker); its log is captured, not printed."""
+    """Play one scenario in this process (a worker); its log is captured, not printed. A game that
+    never ends (StarCraft II crashed or froze) is killed from outside, at its deadline (`scripts.supervise`)."""
     if order_log:
         os.environ["ZASZ_ORDER_LOG"] = order_log  # read by ScenarioBot (this worker only)
     if seed is not None:
@@ -106,19 +102,6 @@ def run_scenario(
     scenario = next(s for s in ALL if s.name == name)()
     bot = ScenarioBot(scenario)
     started = time.monotonic()
-    # If StarCraft II crashes mid-game, python-sc2 waits on the dead connection forever and the
-    # whole run hangs. A watchdog interrupts this worker after far more real time than the
-    # scenario could need, so it's reported as an ERROR and the run carries on.
-    deadline = watchdog or scenario.time_limit * WATCHDOG_FACTOR + WATCHDOG_MARGIN
-    fired = threading.Event()
-
-    def bark() -> None:
-        fired.set()
-        _thread.interrupt_main()
-
-    watchdog = threading.Timer(deadline, bark)
-    watchdog.daemon = True
-    watchdog.start()
     try:
         run_game(
             maps.get(scenario.map),
@@ -131,16 +114,9 @@ def run_scenario(
             status, message = "ERROR", "the game ended before the scenario was decided"
         else:
             status, message = ("PASS" if bot.outcome.passed else "FAIL"), bot.outcome.message
-    except (KeyboardInterrupt, Exception) as e:
+    except Exception as e:
         status, message = "ERROR", f"{type(e).__name__}: {e}"
         logger.error(traceback.format_exc())
-    finally:
-        watchdog.cancel()
-    if fired.is_set():
-        # python-sc2 turns the interrupt into other errors (e.g. ConnectionAlreadyClosed)
-        status = "ERROR"
-        message = f"no result after {deadline:.0f}s real time (StarCraft II probably crashed or hung)"
-        logger.error(message)
     game_time = bot.time if getattr(bot, "state", None) else 0.0
     real_time = time.monotonic() - started
     efficiency_row = getattr(scenario, "result_row", None)
@@ -243,7 +219,7 @@ def main() -> None:
         "--watchdog",
         type=float,
         default=None,
-        help="Real seconds before a stuck scenario (e.g. StarCraft II crashed) is reported as an ERROR "
+        help="Real seconds before a stuck scenario (e.g. StarCraft II crashed) is killed and reported as an ERROR "
         f"(default: time limit x {WATCHDOG_FACTOR} + {WATCHDOG_MARGIN})",
     )
     parser.add_argument(
@@ -314,78 +290,81 @@ def main() -> None:
 
     jobs = 1 if args.realtime else max(1, min(args.jobs, len(runs)))
     run_meta.repeatable_workers()
-    # One fresh process per scenario (python-sc2 keeps per-process state); reported in order
-    with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
-        futures = {
-            run: pool.submit(
-                run_scenario,
-                run[0][0],
-                str(replays[run]),
-                args.watchdog,
-                run[0][2],
-                args.realtime,
-                str(args.order_log / f"{label(run)}.orders") if args.order_log else None,
-            )
-            for run in runs
+    # One fresh process per scenario (python-sc2 keeps per-process state), each under a real-time deadline
+    # enforced from here; results are handled as scenarios finish
+    tasks = [
+        (
+            run[0][0],
+            str(replays[run]),
+            run[0][2],
+            args.realtime,
+            str(args.order_log / f"{label(run)}.orders") if args.order_log else None,
+        )
+        for run in runs
+    ]
+
+    def deadline(index: int) -> float:
+        return args.watchdog or by_name[runs[index][0][0]].time_limit * WATCHDOG_FACTOR + WATCHDOG_MARGIN
+
+    statuses: dict[int, str] = {}
+    for outcome in supervise.run(run_scenario, tasks, jobs, deadline):
+        run = runs[outcome.index]
+        (name, side, seed), _ = run
+        report = outcome.result
+        if report is None:  # killed at its deadline, or the worker itself died
+            message = outcome.error.strip().splitlines()[-1]
+            report = Report(name, "ERROR", message, 0, outcome.real_time, outcome.error)
+        statuses[outcome.index] = report.status
+        reports.append(report)
+        if args.verbose or report.status != "PASS":
+            sys.stdout.write(report.log)
+        report.log = ""
+        stats = report.stats or {}
+        cost = (
+            f"; lost {stats['units_lost']} units ({stats['army_lost']} resources), damage taken {stats['damage_taken']}"
+            if stats
+            else ""
+        )
+        print(
+            f"{report.status:<5} {label(run):<34} {report.message} "
+            f"({report.game_time:.0f}s game, {report.real_time:.0f}s real{cost})",
+            flush=True,
+        )
+        row = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "commit": meta["commit"],
+            "scenario": name,
+            "side": side,
+            "seed": seed if seed is not None else "",
+            "sc2_build": meta["sc2_build"],
+            "status": report.status,
+            "game_time": round(report.game_time, 1),
+            "message": report.message,
+            "run_id": meta["run_id"],
+            **stats,
         }
-        for run in list(futures):
-            (name, side, seed), _ = run
-            future = futures.pop(run)  # a reported scenario's log isn't kept around
-            try:
-                report = future.result()
-            except Exception as e:  # the worker process itself died
-                report = Report(name, "ERROR", f"worker died: {type(e).__name__}: {e}", 0, 0, traceback.format_exc())
-            reports.append(report)
-            if args.verbose or report.status != "PASS":
-                sys.stdout.write(report.log)
-            report.log = ""
-            stats = report.stats or {}
-            cost = (
-                f"; lost {stats['units_lost']} units ({stats['army_lost']} resources), "
-                f"damage taken {stats['damage_taken']}"
-                if stats
-                else ""
+        if line := compare({k: str(v) for k, v in row.items()}, history):
+            print(line, flush=True)
+        append_result(row)
+        if report.efficiency:
+            append_result(
+                {
+                    "timestamp": row["timestamp"],
+                    "commit": meta["commit"],
+                    **report.efficiency,
+                    "sc2_build": meta["sc2_build"],
+                    "run_id": meta["run_id"],
+                    "seed": row["seed"],
+                    "status": report.status,
+                },
+                efficiency.RESULTS_FILE,
+                efficiency.FIELDS,
             )
-            print(
-                f"{report.status:<5} {label(run):<34} {report.message} "
-                f"({report.game_time:.0f}s game, {report.real_time:.0f}s real{cost})",
-                flush=True,
-            )
-            row = {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "commit": meta["commit"],
-                "scenario": name,
-                "side": side,
-                "seed": seed if seed is not None else "",
-                "sc2_build": meta["sc2_build"],
-                "status": report.status,
-                "game_time": round(report.game_time, 1),
-                "message": report.message,
-                "run_id": meta["run_id"],
-                **stats,
-            }
-            if line := compare({k: str(v) for k, v in row.items()}, history):
-                print(line, flush=True)
-            append_result(row)
-            if report.efficiency:
-                append_result(
-                    {
-                        "timestamp": row["timestamp"],
-                        "commit": meta["commit"],
-                        **report.efficiency,
-                        "sc2_build": meta["sc2_build"],
-                        "run_id": meta["run_id"],
-                        "seed": row["seed"],
-                        "status": report.status,
-                    },
-                    efficiency.RESULTS_FILE,
-                    efficiency.FIELDS,
-                )
-            if args.replays == "none" or (args.replays == "failed" and report.status == "PASS"):
-                replays[run].unlink(missing_ok=True)
+        if args.replays == "none" or (args.replays == "failed" and report.status == "PASS"):
+            replays[run].unlink(missing_ok=True)
 
     if args.order_log:
-        write_manifest(args.order_log, meta, [(label(run), r.status) for run, r in zip(runs, reports, strict=True)])
+        write_manifest(args.order_log, meta, [(label(run), statuses[i]) for i, run in enumerate(runs)])
     if not any(run_dir.iterdir()):
         run_dir.rmdir()
     failures = [r for r in reports if r.status != "PASS"]
