@@ -23,7 +23,7 @@ class ArmyDebug:
         for memory in (self.last_damaged, self.enemy_state, self.enemy_moved, self.most_hitting, self.hitting_now):
             memory.pop(tag, None)
         self.breach_notes.pop(tag, None)
-        self.widen_given_up.pop(tag, None)
+        self.breach_state.given_up.pop(tag, None)
         if not self.debug:
             self.last_note.pop(tag, None)
             return

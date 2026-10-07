@@ -1,6 +1,7 @@
 """Breaches: the building worth breaking to get at enemies we can't reach (`breach_caps`), or to open more sides of one
 we can only reach from part of its ring (`widen_plan`)."""
 
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import numpy as np
@@ -38,6 +39,16 @@ class WidenPlan(NamedTuple):
     seen: float
 
 
+@dataclass
+class BreachState:
+    """What `Breaches` keeps between steps (owned by `Army` as `breach_state`)."""
+
+    kept: dict[int, float] = field(default_factory=dict)  # breach targets we're committed to -> last confirmed
+    evals: dict[tuple[int, int], tuple[float, dict[int, int]]] = field(default_factory=dict)  # area -> (when, caps)
+    widening: dict[int, WidenPlan] = field(default_factory=dict)  # target tag -> its plan (`widen_plan`)
+    given_up: dict[int, float] = field(default_factory=dict)  # target tag -> no widening plan until then
+
+
 class Breaches:
     """Breach and widening plans (part of `bot.army.Army`)."""
 
@@ -66,11 +77,11 @@ class Breaches:
             return {}
         center = center_of(sealed)
         key = (round(center.x / BREACH_VIEW_CELL), round(center.y / BREACH_VIEW_CELL))
-        cached = self.breach_evals.get(key)
+        cached = self.breach_state.evals.get(key)
         if cached is not None and ai.time - cached[0] < REACH_SECONDS:
             return cached[1]
         caps = self.evaluate_breach(ai, center, key)
-        self.breach_evals[key] = (ai.time, caps)
+        self.breach_state.evals[key] = (ai.time, caps)
         return caps
 
     def evaluate_breach(self, ai: AresBot, center: Point2, area: tuple | None = None) -> dict[int, int]:
@@ -128,7 +139,7 @@ class Breaches:
         # Stick with the army's breach while it's still acceptable: switching walks the zerglings
         # through the enemy's fire and throws away the damage done. Only an option more than
         # BREACH_SWITCH_SAVING cheaper is worth it (finishing a half-broken one gets cheaper anyway)
-        kept = next((acceptable[t] for t in self.breach_kept if t in acceptable), None)
+        kept = next((acceptable[t] for t in self.breach_state.kept if t in acceptable), None)
         if kept is not None and best is not None and best[0] >= kept[0] * (1 - BREACH_SWITCH_SAVING):
             best = kept
         elif best is not None and kept is not None:
@@ -139,13 +150,13 @@ class Breaches:
             return self.widen_plan(ai, reach, ours, fighters, structures, probe, area)
         # An access breach comes first: this fight's widening plan goes (other fights keep theirs)
         mine = {f.tag for f in fighters}
-        for tag in [t for t, plan in self.widening.items() if plan.area == area or t in mine]:
-            del self.widening[tag]
-        self.assignments.deferred = set(self.widening)
+        for tag in [t for t, plan in self.breach_state.widening.items() if plan.area == area or t in mine]:
+            del self.breach_state.widening[tag]
+        self.assignments.deferred = set(self.breach_state.widening)
         # One breach per fight: drop any other commitment among this fight's options
-        for t in [t for t in self.breach_kept if t in candidates and t != best[1]]:
-            del self.breach_kept[t]
-        self.breach_kept[best[1]] = ai.time
+        for t in [t for t in self.breach_state.kept if t in candidates and t != best[1]]:
+            del self.breach_state.kept[t]
+        self.breach_state.kept[best[1]] = ai.time
         chosen = structures[best[1]]
         self.breach_notes[best[1]] = (chosen.position, f"breach: lose ~{best[0]:.0f}, {best[2]} on it", ai.time)
         return {best[1]: best[2]}
@@ -153,9 +164,9 @@ class Breaches:
     def forget_stale_widening(self, now: float) -> None:
         """Drop widening plans no evaluation has kept for BREACH_KEEP_SECONDS (their fight is over: nothing
         re-evaluates it), so their targets don't stay deferred."""
-        for tag in [t for t, plan in self.widening.items() if now - plan.seen > BREACH_KEEP_SECONDS]:
-            del self.widening[tag]
-        self.assignments.deferred = set(self.widening)
+        for tag in [t for t, plan in self.breach_state.widening.items() if now - plan.seen > BREACH_KEEP_SECONDS]:
+            del self.breach_state.widening[tag]
+        self.assignments.deferred = set(self.breach_state.widening)
 
     def widen_plan(
         self,
@@ -189,9 +200,11 @@ class Breaches:
                 continue
             if not t.is_structure and now - self.enemy_moved.get(t.tag, now) < WIDEN_STILL_SECONDS:
                 continue  # moving (or just stopped): no plan around it
-            if self.widen_given_up.get(t.tag, -1) > now:
+            if self.breach_state.given_up.get(t.tag, -1) > now:
                 continue
-            if t.tag not in self.widening and any(u.position.distance_to(t.position) < reach_of(t, u) for u in ours):
+            if t.tag not in self.breach_state.widening and any(
+                u.position.distance_to(t.position) < reach_of(t, u) for u in ours
+            ):
                 # Already engaged with it: the walk up is paid for, so fight it (backing up is only for a
                 # lost fight, never to go round to another way in)
                 COUNTS["widen: not started (already engaged)"] += 1
@@ -262,31 +275,31 @@ class Breaches:
         # Keep a running plan while it still pays off (its target still and the 30 s not used up). Only this
         # fight's plans (its area, or its targets): another fight's plan is that fight's to keep or drop
         mine = {f.tag for f in fighters}
-        for tag, plan in list(self.widening.items()):
+        for tag, plan in list(self.breach_state.widening.items()):
             started = plan.started
             if plan.area != area and tag not in mine:
                 continue
             if now - started > WIDEN_MAX_SECONDS:
                 COUNTS["widen: given up (too long)"] += 1
-                self.widen_given_up[tag] = now + WIDEN_GIVE_UP_SECONDS
-                del self.widening[tag]
+                self.breach_state.given_up[tag] = now + WIDEN_GIVE_UP_SECONDS
+                del self.breach_state.widening[tag]
             elif tag not in options:
                 COUNTS["widen: dropped (target moved, died or no longer cheaper)"] += 1
-                del self.widening[tag]
+                del self.breach_state.widening[tag]
         if not options:
-            self.assignments.deferred = set(self.widening)
+            self.assignments.deferred = set(self.breach_state.widening)
             return {}
         lost, s_tag, attackers, t_tag, head_on, secs = min(options.values())
-        kept = next(((t, plan) for t, plan in self.widening.items() if t in options), None)
+        kept = next(((t, plan) for t, plan in self.breach_state.widening.items() if t in options), None)
         if kept is not None:
             t_tag = kept[0]
             lost, s_tag, attackers, _, head_on, secs = options[t_tag]
-        started = self.widening[t_tag].started if t_tag in self.widening else now
+        started = self.breach_state.widening[t_tag].started if t_tag in self.breach_state.widening else now
         # One plan per fight: this fight's other plans go
-        for tag in [t for t, plan in self.widening.items() if plan.area == area or t in mine]:
-            del self.widening[tag]
-        self.widening[t_tag] = WidenPlan(s_tag, started, area, now)
-        self.assignments.deferred = set(self.widening)
+        for tag in [t for t, plan in self.breach_state.widening.items() if plan.area == area or t in mine]:
+            del self.breach_state.widening[tag]
+        self.breach_state.widening[t_tag] = WidenPlan(s_tag, started, area, now)
+        self.assignments.deferred = set(self.breach_state.widening)
         target, building = next(e for e in fighters if e.tag == t_tag), structures[s_tag]
         COUNTS["widen: on"] += 1
         self.breach_notes[s_tag] = (

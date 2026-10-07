@@ -2,6 +2,7 @@
 reach maps of the fights they're in."""
 
 import time
+from dataclasses import dataclass, field
 
 import numpy as np
 from ares import AresBot
@@ -12,8 +13,26 @@ from scipy.ndimage import label
 
 from bot.combat import armed, weapon_range, wins
 from bot.settings import BACK_OFF_MARGIN, PLAN_SECONDS, REACH_SECONDS, REGIONS_SECONDS, STAGING_MARGIN
-from bot.squads import Site, center_of, enemy_groups
+from bot.squads import EnemyGroup, Site, center_of, enemy_groups
 from bot.targeting import ReachMap, RouteMap
+
+
+@dataclass
+class RouteState:
+    """What `Routes` keeps between steps (owned by `Army` as `route_state`)."""
+
+    # Map-wide routes around danger (`route_map`), per PLAN_SECONDS window: the enemy groups and avoid areas
+    # as the window began; per squad (its units' tags), which of those groups it can't beat; and one route
+    # map per set of groups to avoid (squads that lose to the same groups share it)
+    groups: list[EnemyGroup] = field(default_factory=list)
+    zones: list[tuple[Point2, float]] = field(default_factory=list)
+    losing: dict[frozenset[int], frozenset[int]] = field(default_factory=dict)
+    maps: dict[frozenset[int], RouteMap] = field(default_factory=dict)
+    built_at: float = -99.0
+    regions: tuple | None = None  # labelled walkable regions of the ground grid, and ours (`can_walk_to`)
+    regions_at: float = -999.0
+    # (area, the squad's unit tags) -> (built at, map, the enemy tags it was built with) (`reach_map`)
+    reach_cache: dict[tuple, tuple[float, ReachMap, frozenset[int]]] = field(default_factory=dict)
 
 
 class Routes:
@@ -23,26 +42,28 @@ class Routes:
         """Routes around danger for these units, rebuilt every PLAN_SECONDS: avoid areas, and the reach
         (+ BACK_OFF_MARGIN) of every unit in an enemy group *these* units can't beat. (One map for every
         squad sent a weak patrol through a group only a big raid beats, or kept the raid out.)"""
-        if ai.time - self.routes_at >= PLAN_SECONDS:
-            self.routes_at = ai.time
-            self.route_groups = enemy_groups(ai)
-            self.route_zones = list(self.avoided(ai))
-            self.route_losing, self.route_maps = {}, {}
+        if ai.time - self.route_state.built_at >= PLAN_SECONDS:
+            self.route_state.built_at = ai.time
+            self.route_state.groups = enemy_groups(ai)
+            self.route_state.zones = list(self.avoided(ai))
+            self.route_state.losing, self.route_state.maps = {}, {}
         own = frozenset(u.tag for u in units)
-        losing = self.route_losing.get(own)
+        losing = self.route_state.losing.get(own)
         if losing is None:
-            losing = frozenset(i for i, g in enumerate(self.route_groups) if not (units and wins(ai, units, g.units)))
-            self.route_losing[own] = losing
-        routes = self.route_maps.get(losing)
+            losing = frozenset(
+                i for i, g in enumerate(self.route_state.groups) if not (units and wins(ai, units, g.units))
+            )
+            self.route_state.losing[own] = losing
+        routes = self.route_state.maps.get(losing)
         if routes is None:
             started = time.perf_counter()
-            zones = self.route_zones + [
+            zones = self.route_state.zones + [
                 (u.position, weapon_range(u) + u.radius + 0.375 + BACK_OFF_MARGIN)
                 for i in sorted(losing)
-                for u in self.route_groups[i].units
+                for u in self.route_state.groups[i].units
                 if armed(u)
             ]
-            routes = self.route_maps[losing] = RouteMap(ai.mediator.get_ground_grid, zones)
+            routes = self.route_state.maps[losing] = RouteMap(ai.mediator.get_ground_grid, zones)
             if self.debug:
                 self.route_ms.append((time.perf_counter() - started) * 1000)
         return routes
@@ -81,13 +102,13 @@ class Routes:
     def can_walk_to(self, ai: AresBot, spot: Point2, near: int = 3) -> bool:
         """Is `spot` (or ground within `near` of it) in a walkable region our units are in? Minerals,
         rocks and buildings are walls: a base behind a mineral wall isn't, until it's mined out."""
-        if ai.time - self.regions_at >= REGIONS_SECONDS or self.regions is None:
-            self.regions_at = ai.time
+        if ai.time - self.route_state.regions_at >= REGIONS_SECONDS or self.route_state.regions is None:
+            self.route_state.regions_at = ai.time
             walkable = np.isfinite(ai.mediator.get_ground_grid)
             labels, _ = label(walkable, structure=np.ones((3, 3), dtype=bool))
             ours = {int(labels[int(u.position.x), int(u.position.y)]) for u in ai.units if not u.is_flying} - {0}
-            self.regions = (labels, ours)
-        labels, ours = self.regions
+            self.route_state.regions = (labels, ours)
+        labels, ours = self.route_state.regions
         w, h = labels.shape
         for dx in range(-near, near + 1):
             for dy in range(-near, near + 1):
@@ -126,9 +147,9 @@ class Routes:
         center = center_of(units)
         key = (round(center.x / 10), round(center.y / 10), frozenset(u.tag for u in units))
         tags = frozenset(e.tag for e in ground)
-        cached = self.reach_cache.get(key)
+        cached = self.route_state.reach_cache.get(key)
         if cached is None or ai.time - cached[0] >= REACH_SECONDS or not tags <= cached[2]:
             built = ReachMap(ai.mediator.get_ground_grid, units, ground, ai.get_terrain_z_height)
             cached = (ai.time, built, tags)
-            self.reach_cache[key] = cached
+            self.route_state.reach_cache[key] = cached
         return cached[1]

@@ -52,7 +52,7 @@ from bot.army_notes import (
     note,
 )
 from bot.avoid import AvoidAreas
-from bot.breach import Breaches, WidenPlan
+from bot.breach import Breaches, BreachState
 from bot.combat import (
     ARMY_TYPES,
     IGNORED_THREATS,
@@ -68,7 +68,7 @@ from bot.combat import (
 )
 from bot.jobs import SquadJobs
 from bot.micro import CHOKE_VERDICTS, back_off, fight, move, spread_move
-from bot.routes import Routes
+from bot.routes import Routes, RouteState
 from bot.settings import (
     ACTIVE_MOVE,
     ACTIVE_TURN,
@@ -94,7 +94,6 @@ from bot.settings import (
 )
 from bot.squads import (
     Battle,
-    EnemyGroup,
     Patrol,
     Rally,
     ScoutPlan,
@@ -108,8 +107,6 @@ from bot.targeting import (
     Assignments,
     BlockTracker,
     Detours,
-    ReachMap,
-    RouteMap,
     TargetSlots,
     attack_capacity,
 )
@@ -133,24 +130,13 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.settled: dict[tuple[int, float], int | None] = {}  # (target, attacker radius) -> capacity (`TargetSlots`)
         self.cells_taken: set[tuple[float, float]] = set()  # attack spots claimed this step (`spot_key`)
         self.assignments = Assignments()  # each zergling's target, kept across steps
-        # Map-wide routes around danger (`route_map`), per PLAN_SECONDS window: the enemy groups and avoid areas
-        # as the window began; per squad (its units' tags), which of those groups it can't beat; and one
-        # route map per set of groups to avoid (squads that lose to the same groups share it)
-        self.route_groups: list[EnemyGroup] = []
-        self.route_zones: list[tuple[Point2, float]] = []
-        self.route_losing: dict[frozenset[int], frozenset[int]] = {}
-        self.route_maps: dict[frozenset[int], RouteMap] = {}
+        self.route_state = RouteState()  # routes around danger, walkable regions, area reach maps (`bot.routes`)
+        self.breach_state = BreachState()  # breach and widening plans (`bot.breach`)
         self.squad_scouts: dict[int, ScoutPlan] = {}  # squads scouting while waiting on an overlord
         self.scouted_at: dict[Point2, float] = {}  # expansion spots our scouts have looked at -> when
-        self.routes_at = -99.0
         self.enemy_state: dict[int, tuple[Point2, float, float]] = {}  # tag -> (where, facing, last active)
         self.enemy_moved: dict[int, float] = {}  # enemy unit tag -> when it last moved (or was first seen)
-        # Widening plans: target tag -> (building to break, when the plan started); given up: tag -> until
-        self.widening: dict[int, WidenPlan] = {}
-        self.widen_given_up: dict[int, float] = {}
         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
-        self.breach_kept: dict[int, float] = {}  # the breach targets we're committed to -> last confirmed
-        self.breach_evals: dict[tuple[int, int], tuple[float, dict[int, int]]] = {}  # fight area -> (when, caps)
         self.strikes: list[Strike] = []  # enemy groups shooting us, and the zerglings sent for them
         self.recent_shooters: dict[int, tuple[Point2, float, float]] = {}  # armed enemy -> (where, reach, seen)
         self.shooters_at = -1.0
@@ -165,16 +151,12 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.site_letters: dict[Point2, str] = {}  # raid site center -> its letter (kept across plans)
         self.breach_notes: dict[int, tuple[Point2, str, float]] = {}  # structure -> (where, text, when)
         self.avoid_reasons: dict[Point2, str] = {}  # avoid area center -> why
-        self.regions = None  # labelled walkable regions of the ground grid (`can_walk_to`)
-        self.regions_at = -999.0
         self.helped_at = -999.0
         self.gathered: set[Point2] = set()  # defended sites (centers) whose raiders have gathered
         self.staging_since: dict[Point2, float] = {}  # defended site -> when its raiders started gathering
         self.raids_ok = True  # every raid staffed, gathered and not short of the bar (patrols allowed)
         self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
         self.detours = Detours()  # routes around our own crowd for blocked zerglings
-        # (area, the squad's unit tags) -> (built at, map, the enemy tags it was built with)
-        self.reach_cache: dict[tuple, tuple[float, ReachMap, frozenset[int]]] = {}
         # Debug: count what zerglings decide, logged every few seconds (scenarios switch this on)
         self.debug = False
         self.last_note: dict[int, tuple[float, str]] = {}  # our unit -> (when, its last decision), kept
@@ -303,7 +285,9 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.diagnostics = self.debug or overlay.enabled()
         army_notes.enabled = self.diagnostics
         self.clear_empty_avoid_areas(ai)
-        self.breach_kept = {t: when for t, when in self.breach_kept.items() if ai.time - when < BREACH_KEEP_SECONDS}
+        self.breach_state.kept = {
+            t: when for t, when in self.breach_state.kept.items() if ai.time - when < BREACH_KEEP_SECONDS
+        }
         self.remember_shooters(ai)
         self.track_activity(ai)
         self.partly_seen = self.find_partly_seen(ai)
@@ -324,7 +308,9 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         # Scouting plans of squads that died or were merged away: their spot is free to scout again
         self.squad_scouts = {i: plan for i, plan in self.squad_scouts.items() if i in self.book.squads}
         # Area maps not used for a while: rebuilt on next use anyway (`reach_map`), so don't keep them
-        self.reach_cache = {k: v for k, v in self.reach_cache.items() if ai.time - v[0] < REACH_KEEP_SECONDS}
+        self.route_state.reach_cache = {
+            k: v for k, v in self.route_state.reach_cache.items() if ai.time - v[0] < REACH_KEEP_SECONDS
+        }
         self.log_debug(ai, squads)
 
         home_threats = [

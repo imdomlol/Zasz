@@ -325,14 +325,14 @@ def test_another_fights_evaluation_keeps_a_widening_plan():
 
     army = Army()
     ai = SimpleNamespace(time=100.0, time_formatted="01:40")
-    army.widening = {111: WidenPlan(222, 95.0, ("A",), 99.0)}  # fight A's plan on target 111
+    army.breach_state.widening = {111: WidenPlan(222, 95.0, ("A",), 99.0)}  # fight A's plan on target 111
     army.assignments.deferred = {111}
     reach = SimpleNamespace(
         regions=lambda: np.zeros((4, 4), int), reached=np.zeros((4, 4), bool), walkable=np.ones((4, 4), bool)
     )
     # Fight B is evaluated and has no options: A's plan and its deferred target stay, with their start time
     assert army.widen_plan(ai, reach, [], [], {}, SimpleNamespace(health_max=35), ("B",)) == {}
-    assert army.widening[111].started == 95.0 and army.assignments.deferred == {111}
+    assert army.breach_state.widening[111].started == 95.0 and army.assignments.deferred == {111}
     # Nothing re-evaluates A for a while: its fight is over, the plan goes
     army.forget_stale_widening(99.0 + 11)
-    assert army.widening == {} and army.assignments.deferred == set()
+    assert army.breach_state.widening == {} and army.assignments.deferred == set()
