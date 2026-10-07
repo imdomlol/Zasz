@@ -1,0 +1,21 @@
+# Offline checks on every push and pull request: lint, format and the unit tests. No StarCraft II
+# (scenarios and benchmarks run on a machine with the game; see CLAUDE.md).
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # ares-sc2
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install # the version in .python-version
+      - run: uv sync --locked # python-sc2 and map_analyzer come from GitHub (pinned by the lock)
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run python -m pytest -q
