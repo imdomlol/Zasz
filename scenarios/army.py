@@ -6,7 +6,7 @@ from collections import Counter
 from loguru import logger
 from sc2.ids.unit_typeid import UnitTypeId
 
-from bot.army import TARGET_NOTES, UNIT_NOTES
+from bot.army_notes import TARGET_NOTES, UNIT_NOTES
 from bot.targeting import attack_capacity
 from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 

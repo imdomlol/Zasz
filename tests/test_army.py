@@ -196,7 +196,7 @@ def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
 
 
 def test_normal_games_dont_keep_debug_counts_or_timings():
-    from bot.army import COUNTS
+    from bot.army_notes import COUNTS
 
     army = Army()
     army._control = lambda ai, attacking: COUNTS.update({"a decision": 1})
@@ -211,7 +211,7 @@ def test_normal_games_dont_keep_debug_counts_or_timings():
 
 
 def test_a_new_game_starts_with_no_counts_left():
-    from bot.army import COUNTS, REACH_DUMPED
+    from bot.army_notes import COUNTS, REACH_DUMPED
 
     COUNTS["from an earlier game"] += 1
     REACH_DUMPED.add(3)
@@ -245,7 +245,7 @@ def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
 
 
 def test_raid_sizing_knows_a_sieged_tank_we_are_on_top_of_cant_shoot():
-    from bot.army import wins
+    from bot.combat import wins
     from bot.squads import needed
 
     ai = fake_ai()  # the stand-in sim: 10 zerglings beat anything, fewer lose

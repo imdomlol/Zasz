@@ -15,6 +15,7 @@ from bot.actions.pathing import ExpansionAccess
 from bot.actions.queens import build_queens, control_queens
 from bot.actions.scouting import Scouting
 from bot.actions.upgrades import remaining_gas, upgrade_plan, workers_per_gas
+from bot.combat import ARMY_TYPES
 from bot.decisions import Decision, Decisions, ScriptedDecisions
 from bot.efficiency import DamageTracker
 from bot.observation import Observation, observe
@@ -47,7 +48,7 @@ class ZaszBot(AresBot):
         self.army = army.Army()
         self.scouting = Scouting()
         self.expansions = ExpansionAccess()  # which expansions we can walk to, and why not
-        self.damage = DamageTracker(army.ARMY_TYPES)  # how much of the army's damage lands
+        self.damage = DamageTracker(ARMY_TYPES)  # how much of the army's damage lands
 
     async def on_start(self) -> None:
         await super().on_start()
@@ -88,7 +89,7 @@ class ZaszBot(AresBot):
 
     async def on_unit_created(self, unit: Unit) -> None:
         await super().on_unit_created(unit)
-        if unit.type_id in army.ARMY_TYPES:
+        if unit.type_id in ARMY_TYPES:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
 
     async def on_unit_took_damage(self, unit: Unit, amount_damage_taken: float) -> None:

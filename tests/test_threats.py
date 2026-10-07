@@ -5,7 +5,8 @@ from types import SimpleNamespace
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
-from bot.army import armed, back_off, choke_worth, dps_vs, reach_of, weapon_range
+from bot.army import back_off, choke_worth
+from bot.combat import armed, dps_vs, reach_of, weapon_range
 from bot.settings import BUNKER_MARINES, MARINE_DPS, MARINE_RANGE
 
 
@@ -37,7 +38,7 @@ def test_other_units_and_structures_are_read_as_they_are():
 
 
 def test_duel_zerglings_against_the_marines_out_of_a_bunker():
-    from bot.army import duel
+    from bot.combat import duel
 
     # 4 marines (45 hp, ~9.8 dps) out of a dead bunker: 8 zerglings win with some left, 2 lose
     left, marines = duel(8, 35, 10.0, 4)
@@ -81,7 +82,7 @@ def test_back_off_stops_cleanly_when_no_armed_threats_remain():
 
 
 def test_a_unit_type_the_game_puts_no_price_on_costs_nothing_instead_of_crashing():
-    from bot.army import production_cost
+    from bot.combat import production_cost
 
     def calculate_cost(type_id):
         if type_id == UnitTypeId.ZERGLINGBURROWED:  # no creation ability: python-sc2 raises

@@ -13,7 +13,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 from bot import ZaszBot
-from bot.army import ARMY_TYPES
+from bot.combat import ARMY_TYPES
 from bot.decisions import Decisions
 from bot.recording import DecisionRecorder
 
