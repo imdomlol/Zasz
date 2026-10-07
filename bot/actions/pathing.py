@@ -70,15 +70,24 @@ class ExpansionAccess:
         return False
 
     def _forget_if_blockers_changed(self, ai: AresBot) -> None:
-        """Drop cached answers when a structure (ours or theirs) or a rock appears or disappears."""
+        """Drop cached answers when what blocks the ground changes: a structure (ours or theirs) or a rock
+        appears or disappears, a structure changes shape in place (a supply depot raised or lowered: same
+        tag, another type) or lands elsewhere, or a mineral patch mines out (a mineral wall opening)."""
         if self._blockers_loop == ai.state.game_loop:
             return  # already checked this step
         self._blockers_loop = ai.state.game_loop
+
+        def shapes(structures) -> frozenset:
+            return frozenset(
+                (s.tag, s.type_id, s.position) for s in structures.not_flying if s.type_id not in WALK_OVER
+            )
+
         blockers = hash(
             (
-                frozenset(s.tag for s in ai.structures.not_flying if s.type_id not in WALK_OVER),
-                frozenset(s.tag for s in ai.enemy_structures.not_flying if s.type_id not in WALK_OVER),
+                shapes(ai.structures),
+                shapes(ai.enemy_structures),
                 frozenset(ai.destructables.tags),
+                frozenset(ai.mineral_field.tags),
             )
         )
         if blockers != self._blockers:
