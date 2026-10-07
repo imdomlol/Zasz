@@ -110,8 +110,11 @@ class AvoidAreas:
 
     def clear_empty_avoid_areas(self, ai: AresBot) -> None:
         """An avoid area whose center we can see with no armed enemy in it is over: the army that
-        made it walked off (it used to stay up its full AVOID_SECONDS)."""
+        made it walked off (it used to stay up its full AVOID_SECONDS). Armed structures (a cannon, a
+        bunker) count for the areas a fight made, where they can be what turned the squad back; an
+        "army can't beat" area is about the army alone (its structures don't walk off)."""
         armed_enemies = [e for e in ai.enemy_units if not e.is_memory and armed(e)]
+        armed_structures = [s for s in ai.enemy_structures if not s.is_memory and armed(s)]
         kept = []
         for center, radius, until in self.turned_back_at:
             unseen = self.avoid_reasons.get(center) == "unseen fire"  # the shooter isn't at the center
@@ -124,11 +127,10 @@ class AvoidAreas:
                     until = ai.time + 1  # an overlord is on its way: keep it until it has looked
                 kept.append((center, radius, until))
                 continue
-            if (
-                not unseen
-                and ai.is_visible(center)
-                and not any(e.position.distance_to(center) < radius for e in armed_enemies)
-            ):
+            there = armed_enemies
+            if self.avoid_reasons.get(center) != "army can't beat":
+                there = armed_enemies + armed_structures
+            if not unseen and ai.is_visible(center) and not any(e.position.distance_to(center) < radius for e in there):
                 COUNTS["avoid area cleared (seen empty)"] += 1
                 continue
             kept.append((center, radius, until))

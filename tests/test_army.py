@@ -238,6 +238,28 @@ def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
     assert army.avoid_reasons == {Point2((21, 20)): "unseen fire"}
 
 
+def test_a_static_defense_keeps_the_area_it_made():
+    """An area a fight made near a cannon stays while the cannon does, though no enemy unit is there."""
+    army, ai = Army(), fake_ai(time=10.0)
+    cannon = marine(20.5, 20.5, is_memory=False, structure=True, can_attack_ground=True)
+    ai.is_visible, ai.enemy_units, ai.enemy_structures = (lambda p: True), [], [cannon]
+    army.turned_back(ai, [cannon], "nothing to do safely")
+    army.clear_empty_avoid_areas(ai)
+    assert army.blocked(ai, Point2((20.5, 21)))
+    ai.enemy_structures = []  # destroyed
+    army.clear_empty_avoid_areas(ai)
+    assert not army.blocked(ai, Point2((20.5, 21)))
+
+
+def test_an_army_area_ignores_structures():
+    army, ai = Army(), fake_ai(time=10.0)
+    cannon = marine(20.5, 20.5, is_memory=False, structure=True, can_attack_ground=True)
+    ai.is_visible, ai.enemy_units, ai.enemy_structures = (lambda p: True), [], [cannon]
+    army.turned_back(ai, [marine(20.5, 20.5)], "army can't beat")
+    army.clear_empty_avoid_areas(ai)
+    assert not army.blocked(ai, Point2((20.5, 21)))  # the army walked off: as before
+
+
 # --- one combat estimate ---
 
 
