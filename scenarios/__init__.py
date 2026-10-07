@@ -9,6 +9,10 @@ and is a small class:
 - `check(bot)`: called every step; return `passed()` / `failed(...)` to finish, or None to keep going
 - `on_timeout(bot)`: what running out of time means (a failure unless overridden)
 - `decisions()` / `recorder()`: optionally run the bot with other decisions, or record the game
+- `teardown(bot)`: called once the outcome is known (e.g. to remove temporary files)
+
+The registry (`ALL`) holds the classes: a run builds only the scenario it plays, so importing the
+registry (e.g. `--list`) sets nothing up.
 
 Debug quirks found so far:
 - Spawned units appear on the next step.
@@ -82,6 +86,8 @@ class Scenario:
     def recorder(self) -> DecisionRecorder | None:
         return None
 
+    def teardown(self, bot: "ScenarioBot") -> None: ...
+
 
 class ScenarioBot(ZaszBot):
     """ZaszBot with a scenario attached: sets it up, checks it every step, leaves when decided."""
@@ -134,6 +140,7 @@ class ScenarioBot(ZaszBot):
         else:
             self.outcome = self.scenario.check(self)
         if self.outcome:
+            self.scenario.teardown(self)
             await self.client.leave()
 
     # --- helpers for setting up scenarios ---
@@ -173,7 +180,7 @@ from scenarios import (  # noqa: E402 (they import the classes above)
     walls,
 )
 
-ALL: list[Scenario] = [
+ALL: list[type[Scenario]] = [
     *expansions.SCENARIOS,
     *defense.SCENARIOS,
     *army.SCENARIOS,

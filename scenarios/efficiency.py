@@ -1,7 +1,8 @@
 """Damage efficiency (`bot/efficiency.py`): zerglings vs a cluster of structures in different layouts.
 
 These measure rather than judge: a scenario passes when every structure is dead in time, and
-its message (also appended to `benchmarks/efficiency.csv` with the commit) reports how much of
+its message (also a row of `benchmarks/efficiency.csv`, written by `scripts/run_scenarios.py` with
+the run's labels and the scenario's side, seed and status) reports how much of
 the zerglings' damage potential landed. Compare layouts with each other (ramp vs open field is the
 ramp problem) and commits with each other.
 
@@ -11,15 +12,12 @@ zerglings appear and the bays are checked to be in place. Measuring starts when 
 appear.
 """
 
-import csv
-from datetime import datetime
 from pathlib import Path
 
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
-from scripts import run_meta
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS_FILE = ROOT / "benchmarks" / "efficiency.csv"
@@ -43,6 +41,9 @@ FIELDS = [
     "taken",
     "sc2_build",
     "run_id",
+    "side",  # where the enemy main was: top/bottom (the game's own view)
+    "seed",  # the game seed; blank for a random start
+    "status",  # PASS/FAIL, as in scenarios.csv
 ]
 
 
@@ -58,6 +59,7 @@ class StructureAssault(Scenario):
         self.spawned_at = 0.0
         self.fight_started = 0.0
         self.expected = 0
+        self.result_row: dict | None = None  # this run's efficiency.csv measurements (see `report`)
 
     def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
         """Structure positions and where the zerglings start."""
@@ -118,29 +120,19 @@ class StructureAssault(Scenario):
         t = bot.damage.total
         side = "top" if bot.enemy_start_locations[0].y > bot.game_info.map_center.y else "bottom"
         text = f"[{side}] {text}"
-        RESULTS_FILE.parent.mkdir(exist_ok=True)
-        new_file = not RESULTS_FILE.exists()
-        meta = run_meta.inherited()  # this run's commit, build and id, as in scenarios.csv
-        with RESULTS_FILE.open("a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=FIELDS)
-            if new_file:
-                writer.writeheader()
-            writer.writerow(
-                {
-                    "timestamp": datetime.now().isoformat(timespec="seconds"),
-                    "commit": meta["commit"],
-                    "scenario": self.name,
-                    "kill_time": round(self.elapsed(bot), 1) if verdict is passed else "",
-                    "dps": round(t.dealt_per_second, 1),
-                    "efficiency": round(t.efficiency or 0, 3),
-                    "blocked": round(t.share(t.blocked), 3),
-                    "idle": round(t.share(t.idle), 3),
-                    "dealt": round(t.damage_dealt),
-                    "taken": round(t.damage_taken),
-                    "sc2_build": meta["sc2_build"],
-                    "run_id": meta["run_id"],
-                }
-            )
+        # The parent process writes the row, with the run's labels (`scripts/run_scenarios.py`). An
+        # efficiency that couldn't be measured (no damage potential) stays blank, not 0
+        self.result_row = {
+            "scenario": self.name,
+            "kill_time": round(self.elapsed(bot), 1) if verdict is passed else "",
+            "dps": round(t.dealt_per_second, 1),
+            "efficiency": "" if t.efficiency is None else round(t.efficiency, 3),
+            "blocked": round(t.share(t.blocked), 3),
+            "idle": round(t.share(t.idle), 3),
+            "dealt": round(t.damage_dealt),
+            "taken": round(t.damage_taken),
+            "side": side,
+        }
         return verdict(f"{text}; {t.summary()}")
 
 
@@ -514,11 +506,11 @@ class OpenArmyFree(OpenArmy):
 
 
 SCENARIOS = [
-    OpenField(),
-    DeepBase(),
-    Ramp(),
-    CrampedMain(),
-    CrampedMainMoreZealots(),
-    OpenArmy(),
-    OpenArmyFree(),
+    OpenField,
+    DeepBase,
+    Ramp,
+    CrampedMain,
+    CrampedMainMoreZealots,
+    OpenArmy,
+    OpenArmyFree,
 ]

@@ -31,4 +31,4 @@ class SporesVsAir(Scenario):
         return failed(f"no spore within {self.time_limit:.0f}s (starport seen: {bool(seen)})")
 
 
-SCENARIOS = [SporesVsAir()]
+SCENARIOS = [SporesVsAir]

@@ -273,4 +273,4 @@ class AlternateTarget(Scenario):
         )
 
 
-SCENARIOS = [TankDive(), RetreatFromLosingFight(), FightWinnable(), AlternateTarget()]
+SCENARIOS = [TankDive, RetreatFromLosingFight, FightWinnable, AlternateTarget]

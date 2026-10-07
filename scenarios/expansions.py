@@ -92,4 +92,4 @@ class ExpansionRocks(Scenario):
         return passed(f"{len(behind_gates)} gated bases; {location.rounded} needs the gate broken")
 
 
-SCENARIOS = [ExpansionBaseline(), ExpansionHostile(), ExpansionWalled(), ExpansionRocks()]
+SCENARIOS = [ExpansionBaseline, ExpansionHostile, ExpansionWalled, ExpansionRocks]

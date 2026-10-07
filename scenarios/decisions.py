@@ -27,13 +27,21 @@ class CustomDecisions(Scenario):
     time_limit = 60
 
     def __init__(self) -> None:
-        self.path = Path(tempfile.mkdtemp()) / "custom_decisions.jsonl"
+        self.folder: tempfile.TemporaryDirectory | None = None  # made with the recorder, removed in teardown
+        self.path = Path()
 
     def decisions(self) -> ExpandFirst:
         return ExpandFirst()
 
     def recorder(self) -> DecisionRecorder:
+        self.folder = tempfile.TemporaryDirectory(prefix="zasz-scenario-")
+        self.path = Path(self.folder.name) / "custom_decisions.jsonl"
         return DecisionRecorder(self.path, meta={"scenario": self.name})
+
+    def teardown(self, bot: ScenarioBot) -> None:
+        bot.recorder.close("scenario over")  # on_end's close() then does nothing
+        if self.folder is not None:
+            self.folder.cleanup()
 
     async def setup(self, bot: ScenarioBot) -> None:
         await bot.client.debug_minerals()
@@ -44,7 +52,7 @@ class CustomDecisions(Scenario):
         if not bot.townhalls.not_ready:
             return None
         # The policy was followed; check the recording of it too
-        bot.recorder._file.flush()
+        bot.recorder.flush()
         recording = read_records(self.path)
         if not recording.steps:
             return failed("nothing recorded")
@@ -61,4 +69,4 @@ class CustomDecisions(Scenario):
         return passed(f"natural started at {bot.time:.0f}s without a pool; {len(recording.steps)} steps recorded")
 
 
-SCENARIOS = [CustomDecisions()]
+SCENARIOS = [CustomDecisions]

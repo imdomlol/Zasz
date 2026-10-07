@@ -77,3 +77,30 @@ def test_random_starts_arent_compared():
 
 def test_a_status_change_is_shown():
     assert "FAIL -> PASS" in compare(scenario_row(), [scenario_row(run_id="earlier", status="FAIL")])
+
+
+def test_step_times_kept_as_count_total_and_maximum():
+    from scripts.benchmark import BenchmarkZasz
+
+    bot = BenchmarkZasz()
+    assert bot.step_stats(100) == {}
+    samples = [0.004, 0.012, 0.002, 0.030]
+    for seconds in samples:
+        bot.add_step_time(seconds)
+    stats = bot.step_stats(game_loop=8)
+    assert stats["frame_ms"] == round(1000 * sum(samples) / 8, 2)
+    assert stats["avg_step_ms"] == round(1000 * sum(samples) / len(samples), 2)
+    assert stats["max_step_ms"] == 30.0
+
+
+def test_scenario_registry_holds_classes_and_sets_nothing_up(tmp_path, monkeypatch):
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    from scenarios import ALL
+    from scenarios.decisions import CustomDecisions
+
+    assert all(isinstance(s, type) for s in ALL)
+    assert len({s.name for s in ALL}) == len(ALL)
+    CustomDecisions()  # building it doesn't make its recording folder yet
+    assert list(tmp_path.iterdir()) == []

@@ -82,6 +82,7 @@ class Report:
     real_time: float
     log: str
     stats: dict | None = None  # ScenarioBot.stats(): units/army lost, damage taken/dealt
+    efficiency: dict | None = None  # an efficiency scenario's measurements, for efficiency.csv
 
 
 def run_scenario(
@@ -93,7 +94,7 @@ def run_scenario(
     logger.remove()
     log = io.StringIO()
     logger.add(log, level="INFO", colorize=sys.stdout.isatty())
-    scenario = next(s for s in ALL if s.name == name)
+    scenario = next(s for s in ALL if s.name == name)()
     bot = ScenarioBot(scenario)
     started = time.monotonic()
     # If StarCraft II crashes mid-game, python-sc2 waits on the dead connection forever and the
@@ -132,7 +133,9 @@ def run_scenario(
         message = f"no result after {deadline:.0f}s real time (StarCraft II probably crashed or hung)"
         logger.error(message)
     game_time = bot.time if getattr(bot, "state", None) else 0.0
-    return Report(name, status, message, game_time, time.monotonic() - started, log.getvalue(), bot.stats())
+    real_time = time.monotonic() - started
+    efficiency_row = getattr(scenario, "result_row", None)
+    return Report(name, status, message, game_time, real_time, log.getvalue(), bot.stats(), efficiency_row)
 
 
 def make_repeatable(seed: int) -> None:
@@ -144,11 +147,12 @@ def make_repeatable(seed: int) -> None:
     uuid.uuid4 = lambda: uuid.UUID(int=random.getrandbits(128), version=4)
 
 
-def append_result(row: dict) -> None:
-    RESULTS_FILE.parent.mkdir(exist_ok=True)
-    new = not RESULTS_FILE.exists()
-    with RESULTS_FILE.open("a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS)
+def append_result(row: dict, path: Path = RESULTS_FILE, fields: list[str] = FIELDS) -> None:
+    """One row, appended by this (parent) process only, so parallel scenarios never race for the file."""
+    path.parent.mkdir(exist_ok=True)
+    new = not path.exists()
+    with path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
         if new:
             writer.writeheader()
         writer.writerow(row)
@@ -258,7 +262,7 @@ def main() -> None:
             plays.append((name, side_name, seed))
     runs = [(play, i) for play in plays for i in range(1, args.repeat + 1)]
 
-    # This run's commit, build and id, for its rows here and the efficiency scenarios' (in the workers)
+    # This run's commit, build and id, for its rows here and in efficiency.csv
     meta = run_meta.start_run(seeds.sc2_build())
     history = run_meta.ensure_header(RESULTS_FILE, FIELDS)
     run_meta.ensure_header(efficiency.RESULTS_FILE, efficiency.FIELDS)
@@ -283,8 +287,9 @@ def main() -> None:
             run: pool.submit(run_scenario, run[0][0], str(replays[run]), args.watchdog, run[0][2], args.realtime)
             for run in runs
         }
-        for run, future in futures.items():
+        for run in list(futures):
             (name, side, seed), _ = run
+            future = futures.pop(run)  # a reported scenario's log isn't kept around
             try:
                 report = future.result()
             except Exception as e:  # the worker process itself died
@@ -292,6 +297,7 @@ def main() -> None:
             reports.append(report)
             if args.verbose or report.status != "PASS":
                 sys.stdout.write(report.log)
+            report.log = ""
             stats = report.stats or {}
             cost = (
                 f"; lost {stats['units_lost']} units ({stats['army_lost']} resources), "
@@ -320,6 +326,20 @@ def main() -> None:
             if line := compare({k: str(v) for k, v in row.items()}, history):
                 print(line, flush=True)
             append_result(row)
+            if report.efficiency:
+                append_result(
+                    {
+                        "timestamp": row["timestamp"],
+                        "commit": meta["commit"],
+                        **report.efficiency,
+                        "sc2_build": meta["sc2_build"],
+                        "run_id": meta["run_id"],
+                        "seed": row["seed"],
+                        "status": report.status,
+                    },
+                    efficiency.RESULTS_FILE,
+                    efficiency.FIELDS,
+                )
             if args.replays == "none" or (args.replays == "failed" and report.status == "PASS"):
                 replays[run].unlink(missing_ok=True)
 

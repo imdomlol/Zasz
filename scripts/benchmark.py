@@ -109,7 +109,10 @@ class BenchmarkZasz(ZaszBot):
         super().__init__(recorder=recorder)
         self.stats: dict = {}
         self.max_drones = 0
-        self.step_times: list[float] = []  # seconds of bot time per step
+        # Bot time per step, kept as a running count, total and maximum (seconds)
+        self.steps = 0
+        self.step_total = 0.0
+        self.step_max = 0.0
         self.startup_seconds = 0.0
         self._startup_started = 0.0
         self._sc2_wait = 0.0  # total seconds spent waiting for SC2
@@ -142,9 +145,14 @@ class BenchmarkZasz(ZaszBot):
         result = await super()._after_step()  # ares runs its behaviors and sends actions in here
         now = time.perf_counter()
         if self._mark is not None:
-            self.step_times.append((now - self._mark) - (self._sc2_wait - self._mark_wait))
+            self.add_step_time((now - self._mark) - (self._sc2_wait - self._mark_wait))
         self._mark, self._mark_wait = now, self._sc2_wait
         return result
+
+    def add_step_time(self, seconds: float) -> None:
+        self.steps += 1
+        self.step_total += seconds
+        self.step_max = max(self.step_max, seconds)
 
     async def on_step(self, iteration: int) -> None:
         await super().on_step(iteration)
@@ -161,15 +169,19 @@ class BenchmarkZasz(ZaszBot):
             "lost_value": score.lost_minerals_army + score.lost_minerals_economy,
             "max_drones": self.max_drones,
         }
-        if self.step_times:
-            total = sum(self.step_times)
-            self.stats |= {
-                # What the ladder reports: bot time per game loop (a step covers GameStep loops)
-                "frame_ms": round(1000 * total / max(self.state.game_loop, 1), 2),
-                "avg_step_ms": round(1000 * total / len(self.step_times), 2),
-                "max_step_ms": round(1000 * max(self.step_times), 1),
-                "startup_s": round(self.startup_seconds, 2),
-            }
+        self.stats |= self.step_stats(self.state.game_loop)
+
+    def step_stats(self, game_loop: int) -> dict:
+        """Step-time columns (none if no step was timed)."""
+        if not self.steps:
+            return {}
+        return {
+            # What the ladder reports: bot time per game loop (a step covers GameStep loops)
+            "frame_ms": round(1000 * self.step_total / max(game_loop, 1), 2),
+            "avg_step_ms": round(1000 * self.step_total / self.steps, 2),
+            "max_step_ms": round(1000 * self.step_max, 1),
+            "startup_s": round(self.startup_seconds, 2),
+        }
 
 
 def installed_maps() -> list[str]:
@@ -237,6 +249,9 @@ def play_game(
         logger.error(traceback.format_exc())
     finally:
         logger.remove(capture)
+        if bot.recorder:
+            # Normally on_end closed it; after a crash this writes the end record it never got
+            bot.recorder.close(row.get("result", "Crash"))
     row = {"timestamp": datetime.now().isoformat(timespec="seconds"), **row, **bot.stats}
     return row, time.monotonic() - started, log.getvalue()
 
@@ -272,7 +287,8 @@ def run_matchups(game_args: list[tuple], jobs: int):
     with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
         futures = [pool.submit(play_game_in_worker, a) for a in game_args]
         try:
-            for a, future in zip(game_args, futures, strict=True):
+            for i, a in enumerate(game_args):
+                future, futures[i] = futures[i], None  # a reported game's log isn't kept around
                 try:
                     row, real_time, log = future.result()
                 except Exception as e:  # the worker process itself died

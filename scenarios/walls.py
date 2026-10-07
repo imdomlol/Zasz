@@ -231,4 +231,4 @@ class WallBays(WalledMarines):
     WEAK = [(BAY, 3, 9, 3), (BAY, 6, 9, 3), (BAY, 9, 9, 3)]
 
 
-SCENARIOS = [WallTechLab(), WallBunker(), WallBays()]
+SCENARIOS = [WallTechLab, WallBunker, WallBays]
