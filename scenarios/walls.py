@@ -99,11 +99,15 @@ class WalledMarines(Scenario):
     async def on_step(self, bot: ScenarioBot) -> None:
         if self.phase == "spawn":
             self.plan(bot)
-            for type_id, u, v, size in self.pieces():
-                if type_id != TECHLAB:  # the tech lab a step later (retried until it's there)
-                    await bot.spawn(type_id, self.world(u, v, size), enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
-            await bot.spawn(UnitTypeId.MARINE, self.world(POCKET.x, POCKET.y), amount=4, enemy=True)
+            # The tech lab a step later (retried until it's there)
+            pieces = [(t, self.world(u, v, size), 1, True) for t, u, v, size in self.pieces() if t != TECHLAB]
+            await bot.spawn_all(
+                [
+                    *pieces,
+                    (KEEP_ALIVE, keep_alive_spot(bot), 1, True),
+                    (UnitTypeId.MARINE, self.world(POCKET.x, POCKET.y), 4, True),
+                ]
+            )
             self.spawned_at = bot.time
             self.phase = "clear"
         elif self.phase == "clear" and not self.labs_placed(bot):

@@ -150,8 +150,14 @@ class ScenarioBot(ZaszBot):
         return 3 - self.player_id
 
     async def spawn(self, unit_type: UnitTypeId, position: Point2, amount: int = 1, enemy: bool = False) -> None:
-        owner = self.enemy_id if enemy else self.player_id
-        await self.client.debug_create_unit([[unit_type, amount, position, owner]])
+        await self.spawn_all([(unit_type, position, amount, enemy)])
+
+    async def spawn_all(self, spawns: list[tuple[UnitTypeId, Point2, int, bool]]) -> None:
+        """(unit type, position, amount, enemy) each, in one debug request, created in list order. Only
+        for spawns that don't need to wait for each other (e.g. a tech lab needs its building first)."""
+        if spawns:
+            owners = {False: self.player_id, True: self.enemy_id}
+            await self.client.debug_create_unit([[t, n, p, owners[enemy]] for t, p, n, enemy in spawns])
 
     def slow_down(self) -> None:
         """`--slow X` (ZASZ_SLOW): play X times slower than real time, to watch. The game waits for the

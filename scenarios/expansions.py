@@ -34,9 +34,8 @@ class RampBlocked(Scenario):
         if self.enemy_wall:
             await bot.client.debug_show_map()  # we only know about enemy walls we've seen
         bottom = bot.main_base_ramp.bottom_center
-        for dx in (-6, -3, 0, 3, 6):
-            for dy in (-6, -3, 0, 3, 6):
-                await bot.spawn(UnitTypeId.ENGINEERINGBAY, bottom.offset((dx, dy)), enemy=self.enemy_wall)
+        spots = [bottom.offset((dx, dy)) for dx in (-6, -3, 0, 3, 6) for dy in (-6, -3, 0, 3, 6)]
+        await bot.spawn_all([(UnitTypeId.ENGINEERINGBAY, spot, 1, self.enemy_wall) for spot in spots])
 
     def check(self, bot: ScenarioBot) -> Outcome | None:
         if bot.time < 3:  # let the spawns land and ares refresh its grid

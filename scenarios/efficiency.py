@@ -14,9 +14,11 @@ appear.
 
 from pathlib import Path
 
+from loguru import logger
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
+from bot.targeting import ReachMap
 from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,11 +50,17 @@ FIELDS = [
 
 
 class StructureAssault(Scenario):
-    """Base: spawn the layout, clear the enemy's workers and command center, then the zerglings."""
+    """Base: spawn the layout, clear the enemy's workers and command center, then the zerglings.
+
+    The staged sequence (`on_step`) is shared by every efficiency scenario; subclasses fill in what
+    the enemy spawns (`enemy_spawns`), what of the enemy's stays (`KEEP`), where the zerglings start
+    (`zergling_start`), and optionally `fight_starting` and `upkeep`."""
 
     reinforcements = False  # only the units it spawns fight
 
     time_limit = 90
+    LINGS = ZERGLINGS
+    KEEP = {STRUCTURE, KEEP_ALIVE}  # enemy types that survive the clear-out
 
     def __init__(self) -> None:
         self.phase = "spawn"
@@ -60,10 +68,32 @@ class StructureAssault(Scenario):
         self.fight_started = 0.0
         self.expected = 0
         self.result_row: dict | None = None  # this run's efficiency.csv measurements (see `report`)
+        self._layout: tuple[list[Point2], Point2] | None = None
 
     def layout(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
         """Structure positions and where the zerglings start."""
         raise NotImplementedError
+
+    def planned(self, bot: ScenarioBot) -> tuple[list[Point2], Point2]:
+        """`layout`, worked out once (on the first step, before anything is spawned)."""
+        if self._layout is None:
+            self._layout = self.layout(bot)
+        return self._layout
+
+    def enemy_spawns(self, bot: ScenarioBot) -> list[tuple[UnitTypeId, Point2]]:
+        """What the enemy gets in the first phase (the keep-alive structure is added to it)."""
+        positions, _ = self.planned(bot)
+        self.expected = len(positions)
+        return [(STRUCTURE, p) for p in positions]
+
+    def zergling_start(self, bot: ScenarioBot) -> Point2:
+        return self.planned(bot)[1]
+
+    def fight_starting(self, bot: ScenarioBot) -> None:
+        """The zerglings are on the map; measuring starts right after this."""
+
+    def upkeep(self, bot: ScenarioBot) -> None:
+        """Every step, after the phase's work (e.g. keep the enemy's units in place)."""
 
     async def setup(self, bot: ScenarioBot) -> None:
         await bot.client.debug_show_map()
@@ -73,26 +103,24 @@ class StructureAssault(Scenario):
         # Spawn the layout first: removing the enemy's command center while it has no other
         # structure would end the game
         if self.phase == "spawn":
-            positions, _ = self.layout(bot)
-            self.expected = len(positions)
-            for position in positions:
-                await bot.spawn(STRUCTURE, position, enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
+            spawns = [*self.enemy_spawns(bot), (KEEP_ALIVE, keep_alive_spot(bot))]
+            await bot.spawn_all([(unit_type, spot, 1, True) for unit_type, spot in spawns])
             self.spawned_at = bot.time
             self.phase = "clear"
         elif self.phase == "clear" and bot.time - self.spawned_at > 1:
             # Everything else the enemy has (command center, SCVs) goes: no repair, no workers
-            keep = {STRUCTURE, KEEP_ALIVE}
-            others = {u.tag for u in bot.enemy_units} | {s.tag for s in bot.enemy_structures if s.type_id not in keep}
+            others = {u.tag for u in bot.enemy_units if u.type_id not in self.KEEP}
+            others |= {s.tag for s in bot.enemy_structures if s.type_id not in self.KEEP}
             if others:
                 await bot.client.debug_kill_unit(others)
-            _, start = self.layout(bot)
-            await bot.spawn(UnitTypeId.ZERGLING, start, amount=ZERGLINGS)
+            await bot.spawn(UnitTypeId.ZERGLING, self.zergling_start(bot), amount=self.LINGS)
             self.phase = "zerglings"
         elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
+            self.fight_starting(bot)
             bot.damage.reset(bot.time)
             self.fight_started = bot.time
             self.phase = "fight"
+        self.upkeep(bot)
 
     def check(self, bot: ScenarioBot) -> Outcome | None:
         if self.phase == "zerglings":
@@ -231,6 +259,8 @@ class CrampedMain(StructureAssault):
     COLUMNS = (-8, -4, 0, 4, 8)  # gateways are 3x3: 4 apart leaves a 1-tile gap
     ROWS = (6, 10, 14)  # depth past the ramp top
 
+    KEEP = {UnitTypeId.GATEWAY, UnitTypeId.ZEALOT, UnitTypeId.STALKER, KEEP_ALIVE}
+
     def __init__(self) -> None:
         super().__init__()
         self.targets: set[int] = set()
@@ -273,49 +303,27 @@ class CrampedMain(StructureAssault):
                     break
         return zealots, stalkers
 
-    async def on_step(self, bot: ScenarioBot) -> None:
-        if self.phase == "spawn":
-            positions, _ = self.layout(bot)
-            for position in positions:
-                await bot.spawn(UnitTypeId.GATEWAY, position, enemy=True)
-            zealots, stalkers = self.unit_spots(bot)
-            for spot in zealots:
-                await bot.spawn(UnitTypeId.ZEALOT, spot, enemy=True)
-            for spot in stalkers:
-                await bot.spawn(UnitTypeId.STALKER, spot, enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
-            self.expected = len(positions)
-            self.spawned_at = bot.time
-            self.phase = "clear"
-        elif self.phase == "clear" and bot.time - self.spawned_at > 1:
-            keep = {UnitTypeId.GATEWAY, UnitTypeId.ZEALOT, UnitTypeId.STALKER, KEEP_ALIVE}
-            others = {u.tag for u in bot.enemy_units if u.type_id not in keep}
-            others |= {s.tag for s in bot.enemy_structures if s.type_id not in keep}
-            if others:
-                await bot.client.debug_kill_unit(others)
-            _, start = self.layout(bot)
-            await bot.spawn(UnitTypeId.ZERGLING, start, amount=self.LINGS)
-            bot.army.debug = True  # log what the zerglings decide
-            self.phase = "zerglings"
-        elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
-            self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
-            self.targets |= {s.tag for s in bot.enemy_structures(UnitTypeId.GATEWAY)}
-            # Debug: what the zerglings can actually reach at the start (no gateway broken yet)
-            from loguru import logger
+    def enemy_spawns(self, bot: ScenarioBot) -> list[tuple[UnitTypeId, Point2]]:
+        positions, _ = self.planned(bot)
+        self.expected = len(positions)
+        zealots, stalkers = self.unit_spots(bot)
+        return [
+            *((UnitTypeId.GATEWAY, p) for p in positions),
+            *((UnitTypeId.ZEALOT, p) for p in zealots),
+            *((UnitTypeId.STALKER, p) for p in stalkers),
+        ]
 
-            from bot.targeting import ReachMap
+    def fight_starting(self, bot: ScenarioBot) -> None:
+        self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
+        self.targets |= {s.tag for s in bot.enemy_structures(UnitTypeId.GATEWAY)}
+        # Debug: what the zerglings can actually reach at the start (no gateway broken yet)
+        lings = list(bot.units(UnitTypeId.ZERGLING))
+        enemies = list(bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}))
+        reach = ReachMap(bot.mediator.get_ground_grid, lings, enemies, bot.get_terrain_z_height, margin=30)
+        report = ", ".join(f"{e.type_id.name}@{e.position.rounded}:{reach.open_sides(e)}" for e in enemies)
+        logger.info(f"reach at start (open cells per unit): {report}")
 
-            lings = list(bot.units(UnitTypeId.ZERGLING))
-            enemies = list(bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}))
-            try:
-                reach = ReachMap(bot.mediator.get_ground_grid, lings, enemies, bot.get_terrain_z_height, margin=30)
-                report = ", ".join(f"{e.type_id.name}@{e.position.rounded}:{reach.open_sides(e)}" for e in enemies)
-                logger.info(f"reach at start (open cells per unit): {report}")
-            except TypeError:
-                pass  # older bot code (comparisons) has a different ReachMap
-            bot.damage.reset(bot.time)
-            self.fight_started = bot.time
-            self.phase = "fight"
+    def upkeep(self, bot: ScenarioBot) -> None:
         if self.phase == "fight":
             # Keep the units in their spots: they defend from there instead of walking out
             for unit in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER}):
@@ -333,7 +341,7 @@ class CrampedMain(StructureAssault):
                 return failed(f"setup: {built} of {self.expected} gateways spawned")
             if units < 6:
                 return failed(f"setup: only {units} zealots/stalkers spawned")
-            positions, _ = self.layout(bot)
+            positions, _ = self.planned(bot)
             gateways = bot.enemy_structures(UnitTypeId.GATEWAY)
             moved = [p for p in positions if not gateways.closer_than(0.6, p)]
             if moved:
@@ -396,12 +404,20 @@ class OpenArmy(StructureAssault):
     STALKER_DEPTH = 3  # behind the zealots, as behind the back row there
     APPROACH = 20  # zerglings start this far in front of the zealots
     HOLD = True  # keep the enemy units in place (False: the built-in AI moves them)
+    KEEP = {UnitTypeId.ZEALOT, UnitTypeId.STALKER, KEEP_ALIVE}
 
     def __init__(self) -> None:
         super().__init__()
         self.targets: set[int] = set()
+        self._spots: tuple[list[Point2], list[Point2], Point2] | None = None
 
     def spots(self, bot: ScenarioBot) -> tuple[list[Point2], list[Point2], Point2]:
+        """Zealots, stalkers, and where the zerglings start (worked out once)."""
+        if self._spots is None:
+            self._spots = self.find_spots(bot)
+        return self._spots
+
+    def find_spots(self, bot: ScenarioBot) -> tuple[list[Point2], list[Point2], Point2]:
         """Zealots, stalkers, and where the zerglings start: around the map center, every spot
         on walkable ground."""
         center = bot.game_info.map_center
@@ -430,31 +446,17 @@ class OpenArmy(StructureAssault):
                         return zealots, stalkers, start
         raise RuntimeError("no open ground for the army around the map center")
 
-    async def on_step(self, bot: ScenarioBot) -> None:
-        if self.phase == "spawn":
-            zealots, stalkers, _ = self.spots(bot)
-            for spot in zealots:
-                await bot.spawn(UnitTypeId.ZEALOT, spot, enemy=True)
-            for spot in stalkers:
-                await bot.spawn(UnitTypeId.STALKER, spot, enemy=True)
-            await bot.spawn(KEEP_ALIVE, keep_alive_spot(bot), enemy=True)
-            self.spawned_at = bot.time
-            self.phase = "clear"
-        elif self.phase == "clear" and bot.time - self.spawned_at > 1:
-            keep = {UnitTypeId.ZEALOT, UnitTypeId.STALKER, KEEP_ALIVE}
-            others = {u.tag for u in bot.enemy_units if u.type_id not in keep}
-            others |= {s.tag for s in bot.enemy_structures if s.type_id not in keep}
-            if others:
-                await bot.client.debug_kill_unit(others)
-            _, _, start = self.spots(bot)
-            await bot.spawn(UnitTypeId.ZERGLING, start, amount=self.LINGS)
-            bot.army.debug = True
-            self.phase = "zerglings"
-        elif self.phase == "zerglings" and bot.units(UnitTypeId.ZERGLING):
-            self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
-            bot.damage.reset(bot.time)
-            self.fight_started = bot.time
-            self.phase = "fight"
+    def enemy_spawns(self, bot: ScenarioBot) -> list[tuple[UnitTypeId, Point2]]:
+        zealots, stalkers, _ = self.spots(bot)
+        return [*((UnitTypeId.ZEALOT, p) for p in zealots), *((UnitTypeId.STALKER, p) for p in stalkers)]
+
+    def zergling_start(self, bot: ScenarioBot) -> Point2:
+        return self.spots(bot)[2]
+
+    def fight_starting(self, bot: ScenarioBot) -> None:
+        self.targets = {u.tag for u in bot.enemy_units.of_type({UnitTypeId.ZEALOT, UnitTypeId.STALKER})}
+
+    def upkeep(self, bot: ScenarioBot) -> None:
         # On hold from the start and through the fight, every step, as in the gateway grid (the
         # only difference is the buildings). The built-in AI keeps ordering its units back to its
         # main, so a hold issued once doesn't stick
