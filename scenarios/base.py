@@ -70,6 +70,7 @@ class ScenarioBot(ZaszBot):
         self.scenario = scenario
         self.outcome: Outcome | None = None
         self.lost: Counter[UnitTypeId] = Counter()  # our army units that died, by type
+        self._orders_logged = 0  # commands written to the order log (`log_orders`)
 
     async def on_before_start(self) -> None:
         await super().on_before_start()
@@ -79,8 +80,10 @@ class ScenarioBot(ZaszBot):
     def log_orders(self, path: str) -> None:
         """Write every command sent to the game to `path`, one per line: game loop, unit, ability,
         target, queued. Two runs of the same seed and code give the same file, so a refactor that
-        should change nothing can be checked order by order (`scripts/compare_orders.py`)."""
-        out = open(path, "w")  # noqa: SIM115 (open for the whole game; closed by the process exit)
+        should change nothing can be checked order by order (`scripts/compare_orders.py`). The game's
+        end adds `# end <status> loop=<n> commands=<k>`: a log without it is from a game that never
+        finished (a crash), and doesn't count as evidence."""
+        out = self._order_log = open(path, "w")  # noqa: SIM115 (open for the whole game; closed in on_end)
         send = self.client.actions
 
         def where(target) -> str:
@@ -92,6 +95,7 @@ class ScenarioBot(ZaszBot):
 
         async def logged(actions, return_successes=False):
             for a in actions if isinstance(actions, list) else [actions]:
+                self._orders_logged += 1
                 out.write(
                     f"{self.state.game_loop} {a.unit.tag} {a.unit.type_id.name} {a.ability.name} "
                     f"{where(a.target)}{' queued' if a.queue else ''}\n"
@@ -100,6 +104,13 @@ class ScenarioBot(ZaszBot):
             return await send(actions, return_successes)
 
         self.client.actions = logged
+
+    async def on_end(self, game_result) -> None:
+        await super().on_end(game_result)
+        if (out := getattr(self, "_order_log", None)) is not None:
+            status = "none" if self.outcome is None else ("PASS" if self.outcome.passed else "FAIL")
+            out.write(f"# end {status} loop={self.state.game_loop} commands={self._orders_logged}\n")
+            out.close()
 
     async def on_unit_destroyed(self, unit_tag: int) -> None:
         await super().on_unit_destroyed(unit_tag)

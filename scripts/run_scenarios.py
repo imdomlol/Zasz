@@ -23,6 +23,7 @@ import _thread
 import argparse
 import csv
 import io
+import json
 import multiprocessing
 import os
 import random
@@ -145,6 +146,13 @@ def run_scenario(
     real_time = time.monotonic() - started
     efficiency_row = getattr(scenario, "result_row", None)
     return Report(name, status, message, game_time, real_time, log.getvalue(), bot.stats(), efficiency_row)
+
+
+def write_manifest(order_log: Path, meta: dict, statuses: list[tuple[str, str]]) -> None:
+    """The order log's record of the run (`scripts/compare_orders.py` reads it): which code ran, and each
+    scenario's status. Written once every scenario is done, so a run cut short has none."""
+    manifest = {**meta, "complete": True, "runs": dict(statuses)}
+    (order_log / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
 
 
 def make_repeatable(seed: int) -> None:
@@ -368,6 +376,8 @@ def main() -> None:
             if args.replays == "none" or (args.replays == "failed" and report.status == "PASS"):
                 replays[run].unlink(missing_ok=True)
 
+    if args.order_log:
+        write_manifest(args.order_log, meta, [(label(run), r.status) for run, r in zip(runs, reports, strict=True)])
     if not any(run_dir.iterdir()):
         run_dir.rmdir()
     failures = [r for r in reports if r.status != "PASS"]

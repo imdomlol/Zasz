@@ -145,3 +145,32 @@ def test_first_differing_order():
     assert first_difference(["a", "b"], ["a", "b"]) is None
     assert first_difference(["a", "b"], ["a", "c"]) == 1
     assert first_difference(["a", "b"], ["a"]) == 1  # one log ended early
+
+
+def order_run(path, logs: dict[str, list[str]], complete: bool = True, end: bool = True):
+    """An order-log directory as run_scenarios writes it: one log per label, and a manifest."""
+    import json
+
+    path.mkdir()
+    for label, lines in logs.items():
+        body = lines + ([f"# end PASS loop=10 commands={len(lines)}"] if end else [])
+        (path / f"{label}.orders").write_text("".join(line + "\n" for line in body))
+    (path / "manifest.json").write_text(json.dumps({"complete": complete, "runs": dict.fromkeys(logs, "PASS")}))
+    return path
+
+
+def test_order_comparison_needs_complete_evidence(tmp_path):
+    from scripts.compare_orders import compare
+
+    log = {"fight_winnable[top]": ["2 1 ZERGLING ATTACK #5"]}
+    assert compare(tmp_path / "missing", tmp_path / "also_missing")  # no directories
+    a, b = order_run(tmp_path / "a", log), order_run(tmp_path / "b", log)
+    assert compare(a, b, only=["fight_winnable"]) == []
+    assert compare(a, b)  # the other repeatable scenarios are in neither run
+    assert compare(a, order_run(tmp_path / "c", log, complete=False), only=["fight_winnable"])
+    assert compare(a, order_run(tmp_path / "d", log, end=False), only=["fight_winnable"])  # a crashed game
+    assert compare(a, order_run(tmp_path / "e", {}), only=["fight_winnable"])  # missing on one side
+    other = order_run(tmp_path / "f", {"fight_winnable[top]": ["2 1 ZERGLING ATTACK #6"]})
+    assert compare(a, other, only=["fight_winnable"]) == ["fight_winnable[top]: differs at line 1"]
+    empty_a, empty_b = order_run(tmp_path / "g", {}), order_run(tmp_path / "h", {})
+    assert compare(empty_a, empty_b, everything=True) == ["nothing to compare"]

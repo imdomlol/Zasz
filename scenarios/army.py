@@ -10,7 +10,7 @@ from bot.army_notes import TARGET_NOTES, UNIT_NOTES
 from bot.targeting import attack_capacity
 from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 
-ORDER_LOG = os.environ.get("ZASZ_ORDER_LOG") == "1"  # tank_dive: log decision vs game order per zergling
+ORDER_CHECK = os.environ.get("ZASZ_ORDER_CHECK") == "1"  # tank_dive: log decision vs game order per zergling
 
 TANKS = {UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}
 GAP_SECONDS = 1.0  # tank_dive: how long one open slot on the tank may last while zerglings are on marines
@@ -116,10 +116,10 @@ class TankDive(Scenario):
         # Diagnostic: zerglings whose decision this step names a different target than their order in the
         # game (an order should show up one step later; a mismatch that lasts means it never got through),
         # and zerglings in more than one strike (handled twice per step)
-        # Off unless ZASZ_ORDER_LOG=1 (it logs every mismatching zergling every step)
+        # Off unless ZASZ_ORDER_CHECK=1 (it logs every mismatching zergling every step)
         names = {e.tag: f"{e.type_id.name.lower()}@{e.position.x:.0f},{e.position.y:.0f}" for e in bot.enemy_units}
         strikes_of = Counter(t for st in bot.army.strikes for t in st.lings)
-        for z in lings if ORDER_LOG else []:
+        for z in lings if ORDER_CHECK else []:
             decided = UNIT_NOTES.get(z.tag, "")
             ordered = names.get(z.order_target, str(z.order_target)) if z.order_target is not None else "none"
             target = next((n for n in names.values() if n in decided), None)

@@ -47,4 +47,22 @@ ALL: list[type[Scenario]] = [
     *walls.SCENARIOS,
 ]
 
-__all__ = ["ALL", "Outcome", "Scenario", "ScenarioBot", "failed", "passed"]
+# Scenarios that play out command for command the same on the same code and seed (the rest vary a little
+# even then, from the game itself): a refactor's order logs must match on these (`scripts/compare_orders.py`)
+REPEATABLE = [
+    "alternate_target",
+    "custom_decisions",
+    "efficiency_deep_base",
+    "efficiency_open_field",
+    "efficiency_ramp",
+    "expansion_baseline",
+    "expansion_hostile",
+    "expansion_rocks",
+    "expansion_walled",
+    "fight_winnable",
+    "retreat_losing_fight",
+    "spores_vs_air",
+    "wall_techlab",
+]
+
+__all__ = ["ALL", "REPEATABLE", "Outcome", "Scenario", "ScenarioBot", "failed", "passed"]
