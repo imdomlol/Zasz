@@ -120,6 +120,7 @@ from bot.squads import (
     EnemyGroup,
     Patrol,
     Rally,
+    ScoutPlan,
     Site,
     Squad,
     SquadBook,
@@ -209,9 +210,7 @@ class Army:
         self.route_zones: list[tuple[Point2, float]] = []
         self.route_losing: dict[frozenset[int], frozenset[int]] = {}
         self.route_maps: dict[frozenset[int], RouteMap] = {}
-        # Squads scouting while waiting on an overlord: squad id -> (spot, deadline, started, what it was
-        # doing before: job, target, site, site tags, helping)
-        self.squad_scouts: dict[int, tuple] = {}
+        self.squad_scouts: dict[int, ScoutPlan] = {}  # squads scouting while waiting on an overlord
         self.scouted_at: dict[Point2, float] = {}  # expansion spots our scouts have looked at -> when
         self.routes_at = -99.0
         self.enemy_state: dict[int, tuple[Point2, float, float]] = {}  # tag -> (where, facing, last active)
@@ -843,7 +842,7 @@ class Army:
                 COUNTS[f"squad scout: too far ({2 * walk / speed:.0f}s > {budget:.0f}s)"] += 1
                 continue
             before = (squad.job, squad.target, squad.site, set(squad.site_tags), squad.helping)
-            self.squad_scouts[squad.id] = (spot, ai.time + budget, ai.time, before)
+            self.squad_scouts[squad.id] = ScoutPlan(spot, ai.time + budget, ai.time, before)
             squad.job, squad.target = "scout", spot
             COUNTS[f"squad scout sent ({2 * walk / speed:.0f}s of {budget:.0f}s)"] += 1
             return

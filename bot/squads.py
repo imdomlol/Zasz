@@ -29,7 +29,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from ares.consts import WORKER_TYPES, EngagementResult
 from sc2.ids.unit_typeid import UnitTypeId
@@ -55,6 +55,11 @@ from bot.settings import (
 
 if TYPE_CHECKING:
     from ares import AresBot
+
+    from bot.targeting import ReachMap
+
+# What a squad is doing (see the module docstring); scouting while an overlord comes is "scout"
+Job = Literal["patrol", "raid", "push", "help", "gather", "engage", "defend", "scout"]
 
 IGNORED = {UnitTypeId.LARVA, UnitTypeId.EGG, UnitTypeId.OVERLORD, UnitTypeId.OVERSEER, UnitTypeId.OBSERVER}
 
@@ -202,7 +207,7 @@ def enemy_sites(ai: AresBot, structures: list[Unit], groups: list[EnemyGroup]) -
 class Squad:
     id: int
     tags: set[int]
-    job: str = "patrol"  # patrol, raid, push, help, gather, engage, defend, scout
+    job: Job = "patrol"
     target: Point2 | None = None  # patrol spot, raid site, or the fight being helped
     helping: int | None = None  # the squad whose fight we're joining
     site: Point2 | None = None  # the site being raided (its center)
@@ -351,8 +356,18 @@ class Strike:
     lings: set[int]  # our zerglings on it
     spot: Point2 | None  # where they gather, outside the enemies' reach
     since: float
-    reach: object = None  # the ReachMap it was planned on (`bot.targeting.ReachMap`)
+    reach: ReachMap | None = None  # the reach map it was planned on
     go: bool = False  # gathered: going in
+
+
+class ScoutPlan(NamedTuple):
+    """A squad scouting an expansion while it waits on an overlord (`Army.send_squad_scout`)."""
+
+    spot: Point2
+    deadline: float  # back by then (the overlord's arrival, or SCOUTED_SECONDS)
+    started: float
+    # What it was doing before, restored when it's done: (job, target, site, site tags, helping)
+    before: tuple[Job, Point2 | None, Point2 | None, set[int], int | None]
 
 
 # --- helping ---
