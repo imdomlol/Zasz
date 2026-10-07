@@ -209,3 +209,11 @@ def test_replaying_a_recorded_sequence_reproduces_attack():
     assert recorded == [False, True, True, False, False]  # same count, different answers (steps 2 and 4)
     replay = ScriptedDecisions()
     assert [replay.decide(obs).attack for obs in observations] == recorded
+
+
+def test_older_recorded_decisions_missing_fields_still_load():
+    d = Decision(build=Build.POOL, drone_target=20, attack=True).to_dict()
+    del d["spores_per_base"], d["queens"]  # recorded before these fields existed
+    assert Decision.from_dict(d) == Decision(build=Build.POOL, drone_target=20, attack=True)
+    with pytest.raises(ValueError, match="renamed"):
+        Decision.from_dict({**d, "renamed": 1})

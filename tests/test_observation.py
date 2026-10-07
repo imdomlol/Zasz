@@ -77,3 +77,10 @@ def test_older_recordings_missing_features_still_load():
     assert obs.enemy_has_air is False
     assert obs.own_units[UnitTypeId.QUEEN] == 0
     assert obs.own_units[UnitTypeId.ZERGLING] == 18
+
+
+def test_previous_attack_is_the_last_feature():
+    # New features go at the end, so recordings made before it still line up
+    assert FEATURE_NAMES[-1] == "attacking"
+    assert Observation(attacking=True).to_vector()[-1] == 1.0
+    assert Observation.from_dict({"game_time": 1.0}).attacking is False  # older recordings

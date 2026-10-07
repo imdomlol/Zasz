@@ -175,8 +175,8 @@ observe(ai) -> Observation -> decisions.decide(obs) -> Decision -> actions carry
 
 Decisions only see the observation, plus whatever state the policy keeps itself: the scripted
 rules remember whether they're attacking (start at 16 zerglings, stop below 8), so between those
-counts the same observation can give either answer. A recording replayed in order reproduces it; a
-model trained on single steps can't see it. Either way the rules need no game to test: they have
+counts the same observation could give either answer, so the observation includes the previous
+step's attack decision (`attacking`, its last feature) for a model trained on single steps. Either way the rules need no game to test: they have
 offline unit tests (`uv run pytest`, no StarCraft II needed).
 
 ## Layout

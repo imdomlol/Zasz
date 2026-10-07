@@ -69,6 +69,10 @@ class Observation:
     # units over the last 10 s; 1.0 when nothing was committed
     damage_efficiency: float = 1.0
 
+    # The policy's own state, so a model trained on single steps sees it too: the previous step's
+    # `Decision.attack` (the scripted rules keep attacking until the army drops below a threshold)
+    attacking: bool = False
+
     def __post_init__(self) -> None:
         # Count fields always hold every key of their fixed list (missing ones are 0), so there's
         # one representation, e.g. `Observation(own_units={ZERGLING: 20})` in tests
@@ -146,4 +150,5 @@ def observe(ai: ZaszBot) -> Observation:
         enemy_structures=ai.enemy_structures.amount,
         enemy_has_air=enemy_has_air(ai),
         damage_efficiency=ai.damage.recent_efficiency,
+        attacking=ai.decision.attack,  # not yet this step's decision: observe runs first
     )

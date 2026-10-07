@@ -88,8 +88,9 @@ rule below. Worse: one reworked attempt, else revert and note why here. Push aft
   no version change, `bot/decisions/types.py`, `scenarios/base.py`, run.py builds its bot in `main`), 43
   (README, docstrings, `docs/progress.md` current state, `experiments/README.md`). 30 was already done in
   phase 1 (`run_meta.ensure_header`: temp file + swap, refuses to drop columns).
-- Not done (optional, waits for the user): 40's `attacking` observation feature (changes the recording
-  schema).
+- Also done (the optional parts): 40's `attacking` observation feature (the previous step's
+  `Decision.attack`, appended last: older recordings still load) and 38's decision defaults
+  (`Decision.from_dict` fills fields missing from older recordings, rejects unknown ones).
 - **Check** (`34b2311`): scenarios `--repeat 3` the same on average (summed lost 2700 vs 2717 at `d6e38de`;
   the exact ones identical but tank_dive/wall_bays within their 1-ling spread; only wall_bunker fails, as
   expected). `benchmark.py --games 6 --seed 1 --jobs 6`: 5 wins + the Ultralove Protoss tie (logged as

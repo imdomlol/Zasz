@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import Enum
 from types import MappingProxyType
 from typing import Protocol
@@ -66,14 +66,19 @@ class Decision:
 
     @classmethod
     def from_dict(cls, d: dict) -> Decision:
+        """Inverse of `to_dict`. A missing field takes its default (a recording from before the field
+        existed); an unknown one is an error (a renamed field would otherwise be dropped silently)."""
+        if unknown := set(d) - {f.name for f in fields(cls)}:
+            raise ValueError(f"unknown decision fields {sorted(unknown)}")
+        default = cls()
         return cls(
-            build=Build(d["build"]),
-            drone_target=d["drone_target"],
-            army={UnitTypeId[name]: share for name, share in d["army"].items()},
-            upgrades=tuple(UpgradeId[name] for name in d["upgrades"]),
-            attack=d["attack"],
-            queens=d["queens"],
-            spores_per_base=d["spores_per_base"],
+            build=Build(d.get("build", default.build.value)),
+            drone_target=d.get("drone_target", default.drone_target),
+            army={UnitTypeId[name]: share for name, share in d.get("army", {}).items()},
+            upgrades=tuple(UpgradeId[name] for name in d.get("upgrades", [])),
+            attack=d.get("attack", default.attack),
+            queens=d.get("queens", default.queens),
+            spores_per_base=d.get("spores_per_base", default.spores_per_base),
         )
 
     def to_vector(self) -> list[float]:
