@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 
 # ares-sc2 is cloned next to this file: `ares` lives in `ares-sc2/src`,
-# and its combat simulator `sc2_helper` in `ares-sc2`
+# and its combat simulator `sc2_helper` in `ares-sc2` (the ladder zip has the same layout; the
+# scripts and tests get the same paths from scripts/bootstrap.py)
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "ares-sc2"))
 sys.path.insert(0, str(ROOT / "ares-sc2" / "src"))
@@ -15,10 +16,9 @@ from sc2.player import Bot, Computer
 
 from bot import ZaszBot
 
-bot = Bot(Race.Zerg, ZaszBot(), name="Zasz")
-
 
 def main():
+    bot = Bot(Race.Zerg, ZaszBot(), name="Zasz")
     if "--LadderServer" in sys.argv:
         from ladder import run_ladder_game
 

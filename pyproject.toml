@@ -4,8 +4,15 @@ version = "0.1.0"
 description = "Zasz, a Zerg StarCraft II bot built on ares-sc2"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"  # ares-sc2 range; AI Arena runs 3.12
+# What Zasz imports itself, not only through ares (AI Arena preinstalls these). python-sc2 (`sc2`) and
+# map_analyzer come from ares' own git pins, so they stay ares' to choose
 dependencies = [
     "ares-sc2",
+    "numpy>=2",
+    "scipy>=1.13",
+    "loguru>=0.7",
+    "aiohttp>=3.9",  # ladder.py
+    "pyyaml>=6.0",  # scripts/create_ladder_zip.py
 ]
 
 [dependency-groups]

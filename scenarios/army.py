@@ -8,7 +8,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 
 from bot.army import TARGET_NOTES, UNIT_NOTES
 from bot.targeting import attack_capacity
-from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 
 ORDER_LOG = os.environ.get("ZASZ_ORDER_LOG") == "1"  # tank_dive: log decision vs game order per zergling
 

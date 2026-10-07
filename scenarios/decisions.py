@@ -8,7 +8,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from bot.decisions import Build, Decision
 from bot.observation import FEATURE_NAMES, Observation
 from bot.recording import DecisionRecorder, read_records
-from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 
 
 class ExpandFirst:

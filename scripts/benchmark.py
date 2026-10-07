@@ -46,8 +46,10 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# Same paths as run.py: our bot, then ares (`ares-sc2/src`) and its `sc2_helper` (`ares-sc2`)
-sys.path[:0] = [str(ROOT), str(ROOT / "ares-sc2" / "src"), str(ROOT / "ares-sc2")]
+sys.path.insert(0, str(ROOT))
+import scripts.bootstrap  # noqa: F401 (our bot and ares on the import path)
+
+# isort: split
 
 from loguru import logger
 from sc2 import maps

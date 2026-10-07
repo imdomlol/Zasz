@@ -192,7 +192,8 @@ bot/
 ├── targeting.py       # target slots: spread melee attackers over structures (fill from the back)
 ├── overlay.py         # debug drawing of what the army is doing (--overlay)
 ├── decisions/         # WHAT to do
-│   ├── __init__.py    #   Decision (the action space) and the Decisions interface
+│   ├── __init__.py    #   the rules every policy follows
+│   ├── types.py       #   Decision (the action space) and the Decisions interface
 │   └── scripted.py    #   hand-written rules (a learned model would sit next to this)
 ├── actions/           # HOW to do it well: stays scripted
 │   ├── macro.py       #   a Decision's spending: supply, pool/expansion timing, drones, army
@@ -214,6 +215,7 @@ scripts/
 ├── benchmark.py       # win-rate benchmark
 ├── run_scenarios.py   # scenario runner
 ├── run_meta.py        # commit, StarCraft II build and run id on every result row
+├── bootstrap.py       # import paths for the scripts and tests (run.py keeps its own for the zip)
 └── create_ladder_zip.py
 benchmarks/            # result CSVs (tracked; union-merged across machines)
 experiments/           # dropped army experiments, kept as patches (see its README)

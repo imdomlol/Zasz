@@ -2,7 +2,7 @@ import pytest
 from sc2.ids.unit_typeid import UnitTypeId
 
 import bot.actions.macro
-import bot.decisions
+import bot.decisions.types
 from bot.actions.macro import spawn_composition
 from bot.decisions import Decision
 
@@ -12,7 +12,7 @@ MORE_UNITS = [UnitTypeId.ZERGLING, UnitTypeId.ROACH, UnitTypeId.HYDRALISK]
 @pytest.fixture
 def more_army_units(monkeypatch):
     """As if `ARMY_UNITS` listed roaches and hydralisks too (today it's zerglings only)."""
-    monkeypatch.setattr(bot.decisions, "ARMY_UNITS", MORE_UNITS)
+    monkeypatch.setattr(bot.decisions.types, "ARMY_UNITS", MORE_UNITS)
     monkeypatch.setattr(bot.actions.macro, "ARMY_UNITS", MORE_UNITS)
 
 

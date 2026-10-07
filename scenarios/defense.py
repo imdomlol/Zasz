@@ -2,7 +2,7 @@
 
 from sc2.ids.unit_typeid import UnitTypeId
 
-from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 
 
 class SporesVsAir(Scenario):

@@ -15,7 +15,6 @@ newer build than the Linux one), so it's looked up once with short probe games a
 
 import json
 import multiprocessing
-import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -79,14 +78,14 @@ def probe(map_name: str) -> dict:
 def _probe_side(args: tuple[str, int]) -> str:
     """Start a game with this seed, see where the mains are, leave."""
     map_name, seed = args
-    root = Path(__file__).resolve().parent.parent
-    sys.path[:0] = [str(root), str(root / "ares-sc2" / "src"), str(root / "ares-sc2")]
     from loguru import logger
     from sc2 import maps
     from sc2.bot_ai import BotAI
     from sc2.data import Difficulty, Race
     from sc2.main import run_game
     from sc2.player import Bot, Computer
+
+    import scripts.bootstrap  # noqa: F401 (this worker's import paths, as the parent's)
 
     logger.remove()
 

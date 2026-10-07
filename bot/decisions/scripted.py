@@ -1,6 +1,6 @@
 from sc2.ids.unit_typeid import UnitTypeId
 
-from bot.decisions import Build, Decision
+from bot.decisions.types import Build, Decision
 from bot.observation import Observation
 from bot.settings import (
     ARMY_COMPOSITION,

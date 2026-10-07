@@ -3,7 +3,7 @@
 from sc2.ids.unit_typeid import UnitTypeId
 
 from bot.actions.building import next_expansion_location
-from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 
 
 class ExpansionBaseline(Scenario):

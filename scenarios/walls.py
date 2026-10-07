@@ -22,7 +22,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
 from bot.targeting import ReachMap
-from scenarios import Outcome, Scenario, ScenarioBot, failed, passed
+from scenarios.base import Outcome, Scenario, ScenarioBot, failed, passed
 from scenarios.efficiency import keep_alive_spot
 
 BAY = UnitTypeId.ENGINEERINGBAY
