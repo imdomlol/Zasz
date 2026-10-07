@@ -34,6 +34,9 @@ class Scouting:
         self.avoid_until: dict[Point2, float] = {}  # post -> skip until this time (got shot there)
         self.requests: dict[Point2, float] = {}  # spots the army wants seen -> when asked
         self.sent: dict[int, Point2] = {}  # overlord tag -> requested spot it's flying to
+        # Overlords whose request or post was dropped (shot, seen, expired): heading home until they're
+        # back over our bases (their old order would otherwise carry them on to the dropped spot)
+        self.returning: set[int] = set()
 
     def request(self, ai: AresBot, spot: Point2) -> None:
         """Ask for vision of `spot` (ignored if one nearby is already asked for)."""
@@ -58,10 +61,12 @@ class Scouting:
     def on_damage(self, ai: AresBot, unit: Unit) -> None:
         if unit.tag in self.sent:
             self.sent.pop(unit.tag)  # shot on the way: give up, another one tries
+            self.returning.add(unit.tag)
             ai.mediator.assign_role(tag=unit.tag, role=UnitRole.IDLE)
         if unit.tag in self.posts:
             post = self.posts.pop(unit.tag)
             self.avoid_until[post] = ai.time + SCOUT_POST_COOLDOWN
+            self.returning.add(unit.tag)
             ai.mediator.assign_role(tag=unit.tag, role=UnitRole.IDLE)
 
     def control(self, ai: AresBot) -> None:
@@ -70,6 +75,7 @@ class Scouting:
         self.posts = {tag: post for tag, post in self.posts.items() if tag in alive}
         self.assign_requests(ai, overlords, alive)
         self.assign_posts(ai, overlords)
+        self.returning = {t for t in self.returning if t in alive and t not in self.sent and t not in self.posts}
 
         air_grid = ai.mediator.get_air_grid
         for overlord in overlords:
@@ -84,10 +90,13 @@ class Scouting:
                     ai.register_behavior(
                         PathUnitToTarget(unit=overlord, grid=air_grid, target=self.posts[overlord.tag])
                     )
-            elif ai.townhalls and ai.townhalls.closest_distance_to(overlord) > 15 and overlord.is_idle:
-                # An ex-scout or stray: head back over our bases
-                home = ai.townhalls.closest_to(overlord).position
-                ai.register_behavior(PathUnitToTarget(unit=overlord, grid=air_grid, target=home))
+            elif ai.townhalls and ai.townhalls.closest_distance_to(overlord) > 15:
+                if overlord.is_idle or overlord.tag in self.returning:
+                    # An ex-scout or stray: head back over our bases
+                    home = ai.townhalls.closest_to(overlord).position
+                    ai.register_behavior(PathUnitToTarget(unit=overlord, grid=air_grid, target=home))
+            else:
+                self.returning.discard(overlord.tag)  # back home
 
     def assign_requests(self, ai: AresBot, overlords: list[Unit], alive: set[int]) -> None:
         """Requested spots: done once we can see them (or after SCOUT_REQUEST_SECONDS); each open one
@@ -95,6 +104,10 @@ class Scouting:
         self.requests = {
             s: t for s, t in self.requests.items() if not ai.is_visible(s) and ai.time - t < SCOUT_REQUEST_SECONDS
         }
+        done = {tag for tag, s in self.sent.items() if tag in alive and s not in self.requests}
+        for tag in done:  # seen or expired: home, and no longer a scout
+            self.returning.add(tag)
+            ai.mediator.assign_role(tag=tag, role=UnitRole.IDLE)
         self.sent = {tag: s for tag, s in self.sent.items() if tag in alive and s in self.requests}
         for spot in self.requests:
             if spot in self.sent.values():
