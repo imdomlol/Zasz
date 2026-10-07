@@ -15,7 +15,7 @@ uv run python scripts/benchmark.py --games 6              # full games vs Hard
 Scenario and benchmark rows are appended to `benchmarks/*.csv` (union-merged across machines: commit them).
 Match the surrounding code's style: plain-language comments and docstrings, settings in `bot/settings.py`.
 
-## Current task: fix the CODE_REVIEW.md findings, in phases
+## Done: the CODE_REVIEW.md fixes, in phases (all merged into `squads`, 2026-10-07)
 
 CODE_REVIEW.md has 44 findings, each with a **Verification** section (real severity, evidence, proposed fix,
 whether the fix **changes behavior**, a test) and a summary table near the top. Fix in this order:
@@ -33,8 +33,8 @@ whether the fix **changes behavior**, a test) and a summary table near the top. 
    24, 25, then 19 (changes the efficiency metric; compare efficiency only between runs that both have it). Done
    on `review-phase4-behavior` (see Phase 4 below): all kept except 20 (reverted); 06 reworked; 21 step 2 only.
 5. **Structure/recordings/packaging/docs** — 22 (army.py split, last; orders must stay identical), 37–40, 41,
-   42, 35, 36, 27, 30, 31, 43 (docs last). Done on `review-phase5-structure` except 22 (see Phase 5 below).
-   **Next: 22**, on its own (waits for the user).
+   42, 35, 36, 27, 30, 31, 43 (docs last). Done on `review-phase5-structure`, then 22 on
+   `review-phase5-army-split` (see Phase 5 below). No next step is documented: the review is done.
 
 ### Phase 1 (done): how runs are labelled now
 
@@ -96,6 +96,20 @@ rule below. Worse: one reworked attempt, else revert and note why here. Push aft
   expected). `benchmark.py --games 6 --seed 1 --jobs 6`: 5 wins + the Ultralove Protoss tie (logged as
   "Crash": the 4.6 MB replay save, the known tooling issue), every matchup inside earlier runs' spread,
   5.9–16.6 ms per game loop, max step 609 ms.
+
+### Phase 5, finding 22 (2026-10-07, branch `review-phase5-army-split`)
+
+- `bot/army.py` (~2,600 lines) split in 5 steps: typed jobs/strike maps/`ScoutPlan`; `bot/combat.py` and
+  `bot/army_notes.py`; `bot/micro.py` (per-zergling fighting); `Army` built from parts (`bot/jobs.py`,
+  `strikes.py`, `breach.py`, `routes.py`, `avoid.py`, `army_debug.py`; army.py now 640 lines); `fight()`
+  split into `fight_options` / `note_options` / `go_for`. Code moved unchanged.
+- **Check: order logs** (`run_scenarios.py --order-log DIR`, `scripts/compare_orders.py A B`). 13 scenarios
+  give the same commands every run on the same code; all 13 were identical after every step. tank_dive,
+  wall_bays, wall_bunker and the cramped/open-army ones vary on unchanged code too (shown with 6 repeats
+  on the pre-split code: same divergence points), so they're judged on average.
+- Final (`679b123`): scenarios `--repeat 3` the same (2717 vs 2700 summed lost); 21 games vs Hard
+  `--seed 1`: 19 wins + 2 ties (Ultralove/Magannatha Protoss), 91.7k lost (earlier runs of this bot code:
+  93.8-100.7k), 9.6 ms per game loop (was 10.0-10.7), max step 482 ms, no crash.
 
 ## Baseline to compare against (Linux, SC2 build 75689, code `cfbdb7e`, 2026-10-05)
 
