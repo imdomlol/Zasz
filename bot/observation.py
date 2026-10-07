@@ -11,7 +11,9 @@ New features go at the end, so recorded data stays readable.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ares.consts import TOWNHALL_TYPES
@@ -53,12 +55,12 @@ class Observation:
     pool_ready: bool = False
 
     # Our forces, upgrades and structures
-    own_units: dict[UnitTypeId, int] = _counts(OWN_UNIT_TYPES)
-    own_structures: dict[UnitTypeId, int] = _counts(OWN_STRUCTURE_TYPES)
-    upgrades_done: dict[UpgradeId, int] = _counts(UPGRADES)  # 1 = researched
+    own_units: Mapping[UnitTypeId, int] = _counts(OWN_UNIT_TYPES)
+    own_structures: Mapping[UnitTypeId, int] = _counts(OWN_STRUCTURE_TYPES)
+    upgrades_done: Mapping[UpgradeId, int] = _counts(UPGRADES)  # 1 = researched
 
     # What we know about the enemy (seen now or remembered)
-    enemy_race: dict[Race, int] = _counts(RACES)  # one-hot
+    enemy_race: Mapping[Race, int] = _counts(RACES)  # one-hot
     enemy_army_supply: float = 0.0
     enemy_workers: int = 0
     enemy_bases: int = 0
@@ -82,7 +84,8 @@ class Observation:
                 unknown = set(given) - set(keys)
                 if unknown:
                     raise ValueError(f"{f.name}: {unknown} not in the fixed list (bot.spaces)")
-                object.__setattr__(self, f.name, {key: given.get(key, 0) for key in keys})
+                # Read-only: a policy can't change what the recorder later writes for this step
+                object.__setattr__(self, f.name, MappingProxyType({key: given.get(key, 0) for key in keys}))
 
     def to_dict(self) -> dict[str, float]:
         """Flat `{feature name: number}`, always with the same names in the same order."""

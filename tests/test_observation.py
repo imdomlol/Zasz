@@ -84,3 +84,11 @@ def test_previous_attack_is_the_last_feature():
     assert FEATURE_NAMES[-1] == "attacking"
     assert Observation(attacking=True).to_vector()[-1] == 1.0
     assert Observation.from_dict({"game_time": 1.0}).attacking is False  # older recordings
+
+
+def test_counts_are_read_only_and_still_serialize():
+    obs = Observation(own_units={UnitTypeId.ZERGLING: 5})
+    with pytest.raises(TypeError):
+        obs.own_units[UnitTypeId.ZERGLING] = 999  # a policy can't change the recorded input
+    assert obs.to_dict()["own_units.ZERGLING"] == 5
+    assert Observation.from_dict(obs.to_dict()) == obs
