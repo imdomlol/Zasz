@@ -51,9 +51,10 @@ resources lost, ~10 ms per game loop; scenarios `--repeat 3`: ~2,700-2,720 summe
 Newest first, at most 3 entries. When you push a branch, add an entry at the top (date, branch, the few
 outcomes that matter next time) and drop the oldest; details belong in commits, `todo.md` and `docs/progress.md`.
 
-- **2026-10-07, `docs-consolidate`:** `todo.md` is now the one backlog (review leftovers, old notes and the
-  watch list folded in; new #23 `run-robustness`, #24 `protoss-ties`); `notes.md` and `CODE_REVIEW.md`
-  removed; `docs/progress.md` holds milestones only.
+- **2026-10-07, `docs-consolidate` (merged into `squads`):** `todo.md` is now the one backlog (review
+  leftovers, old notes and the watch list folded in), with the verified 2026-10-07 repository review
+  (R01-R21) at the top in 4 phases, **next**, waiting for the user's go; `notes.md`, `CODE_REVIEW.md` and the
+  review file removed; `docs/progress.md` holds milestones only.
 - **2026-10-07, `review-phase5-structure` + `review-phase5-army-split` (merged into `squads`):** the code
   review is finished. `bot/army.py` is split into parts (`jobs`, `strikes`, `breach`, `routes`, `avoid`,
   `micro`, `combat`, `army_notes`, `army_debug`) with identical orders; recordings and decisions validated;
