@@ -104,3 +104,36 @@ def test_scenario_registry_holds_classes_and_sets_nothing_up(tmp_path, monkeypat
     assert len({s.name for s in ALL}) == len(ALL)
     CustomDecisions()  # building it doesn't make its recording folder yet
     assert list(tmp_path.iterdir()) == []
+
+
+def test_ladder_zip_keeps_only_the_ladders_binaries():
+    from scripts.create_ladder_zip import wanted
+
+    assert wanted("ares-sc2/sc2_helper/sc2_helper.cpython-312-x86_64-linux-gnu.so")
+    assert wanted("map_analyzer/cext/mapanalyzerext.so")  # untagged: loads on any version
+    assert wanted("bot/army.py")
+    for other in (
+        "ares-sc2/sc2_helper/sc2_helper.cpython-311-x86_64-linux-gnu.so",
+        "ares-sc2/sc2_helper/sc2_helper.cpython-313-x86_64-linux-gnu.so",
+        "ares-sc2/sc2_helper/sc2_helper.cp312-win_amd64.pyd",
+        "ares-sc2/sc2_helper/sc2_helper.cpython-312-darwin.so",
+        "ares-sc2/sc2_helper/test.py",
+        "cython_extensions/geometry.pyx",
+    ):
+        assert not wanted(other), other
+
+
+def test_ladder_zip_picks_the_linux_x86_64_312_wheel():
+    import pytest
+
+    from scripts.create_ladder_zip import pick_wheel
+
+    def wheel(tags: str) -> dict:
+        return {"filename": f"cython_extensions_sc2-0.18.0-{tags}.whl"}
+
+    arm = wheel("cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64")
+    x86 = wheel("cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64")
+    other_python = wheel("cp313-cp313-manylinux2014_x86_64")
+    assert pick_wheel([arm, other_python, x86]) is x86
+    with pytest.raises(SystemExit, match="no cp312"):
+        pick_wheel([arm, other_python])

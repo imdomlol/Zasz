@@ -5,3 +5,4 @@ replays/
 /sc2/
 *.zip
 data/
+.cache/
