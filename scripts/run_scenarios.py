@@ -26,12 +26,10 @@ import io
 import json
 import multiprocessing
 import os
-import random
 import sys
 import threading
 import time
 import traceback
-import uuid
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -43,7 +41,6 @@ import scripts.bootstrap  # noqa: F401 (our bot and ares on the import path)
 
 # isort: split
 
-import numpy as np
 from loguru import logger
 from sc2 import maps
 from sc2.data import Difficulty, Race
@@ -100,7 +97,7 @@ def run_scenario(
     if order_log:
         os.environ["ZASZ_ORDER_LOG"] = order_log  # read by ScenarioBot (this worker only)
     if seed is not None:
-        make_repeatable(seed)
+        run_meta.make_repeatable(seed)
     logger.remove()
     log = io.StringIO()
     logger.add(log, level="INFO", colorize=sys.stdout.isatty())
@@ -153,15 +150,6 @@ def write_manifest(order_log: Path, meta: dict, statuses: list[tuple[str, str]])
     scenario's status. Written once every scenario is done, so a run cut short has none."""
     manifest = {**meta, "complete": True, "runs": dict(statuses)}
     (order_log / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
-
-
-def make_repeatable(seed: int) -> None:
-    """Our side of a fixed-seed run: StarCraft II follows the game seed, but ares picks creep tumor
-    spots with Python's `random` and names squads with `uuid4`, which made the same seed play out a
-    little differently each time. Seed those from the game seed too (this worker process only)."""
-    random.seed(seed)
-    np.random.seed(seed)
-    uuid.uuid4 = lambda: uuid.UUID(int=random.getrandbits(128), version=4)
 
 
 def append_result(row: dict, path: Path = RESULTS_FILE, fields: list[str] = FIELDS) -> None:
@@ -304,8 +292,7 @@ def main() -> None:
     started = time.monotonic()
 
     jobs = 1 if args.realtime else max(1, min(args.jobs, len(runs)))
-    # Workers hash strings the same way every run (set order), part of making a seed repeatable
-    os.environ.setdefault("PYTHONHASHSEED", "0")
+    run_meta.repeatable_workers()
     # One fresh process per scenario (python-sc2 keeps per-process state); reported in order
     with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
         futures = {

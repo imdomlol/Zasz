@@ -97,6 +97,9 @@ FIELDS = [
     "seed",
     "sc2_build",
     "run_id",
+    "jobs",  # games at once (they slow each other down: compare step times only at the same count)
+    "host",
+    "python",
 ]
 
 
@@ -269,24 +272,26 @@ def game_row(map_name: str, race: str, difficulty: str, labels: dict, seed: int)
         "seed": seed,
         "sc2_build": labels["sc2_build"],
         "run_id": labels["run_id"],
+        "jobs": labels.get("jobs", ""),
+        "host": labels.get("host", ""),
+        "python": labels.get("python", ""),
     }
 
 
 def play_game_in_worker(game_args: tuple) -> tuple[dict, float, str]:
-    """play_game in a worker process: log only to the buffer, so the parent can print it in order."""
+    """play_game in a fresh worker process: log only to the buffer, so the parent can print it in order;
+    our side's randomness seeded from the game seed first, as in the scenarios."""
     logger.remove()
+    run_meta.make_repeatable(game_args[5])
     return play_game(*game_args)
 
 
 def run_matchups(game_args: list[tuple], jobs: int):
     """Yield (row, real_time, log) per game, in matchup order."""
-    if jobs == 1:
-        for a in game_args:
-            yield play_game(*a)
-        return
-
-    # One fresh process per game (python-sc2 keeps per-process state). Results are taken in submission
-    # order, so a game that finishes early waits for the ones before it to be reported.
+    # One fresh process per game, --jobs 1 too (python-sc2 keeps per-process state, and a fresh process
+    # is the only way to give a game a fixed hash seed). Results are taken in submission order, so a game
+    # that finishes early waits for the ones before it to be reported.
+    run_meta.repeatable_workers()
     with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
         futures = [pool.submit(play_game_in_worker, a) for a in game_args]
         try:
@@ -408,6 +413,7 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
 
         jobs = max(1, min(args.jobs, len(matchups)))
+        labels |= run_meta.run_context(jobs)
         for i, (row, real_time, log) in enumerate(run_matchups(game_args, jobs), 1):
             replay = Path(game_args[i - 1][-1])
             if row["result"] == "Crash":

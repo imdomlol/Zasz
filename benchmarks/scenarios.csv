@@ -2282,3 +2282,6 @@ timestamp,commit,scenario,side,seed,sc2_build,status,game_time,units_lost,army_l
 2026-10-07T14:45:02,e38657a-dirty,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261007-144453-4747
 2026-10-07T14:45:06,e38657a-dirty,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261007-144453-4747
 2026-10-07T14:45:06,e38657a-dirty,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261007-144453-4747
+2026-10-07T14:47:54,9e088e6-dirty,expansion_baseline,top,1,75689,PASS,0.1,0,0,0,0,"natural at (65, 30)",20261007-144745-295a
+2026-10-07T14:47:58,9e088e6-dirty,fight_winnable,top,1,75689,PASS,21.6,0,0,0,90,"marines dead at 22s, 6 zerglings left",20261007-144745-295a
+2026-10-07T14:47:58,9e088e6-dirty,spores_vs_air,top,1,75689,PASS,1.8,0,0,0,0,spore started at 2s,20261007-144745-295a

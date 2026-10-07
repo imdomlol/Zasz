@@ -17,11 +17,16 @@ Also here: reading and upgrading the result CSVs, which several machines append 
 import argparse
 import csv
 import os
+import platform
+import random
 import secrets
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 # Written by the runs themselves: changes here don't make the code dirty
@@ -71,6 +76,29 @@ def inherited() -> dict[str, str]:
     if all(name in os.environ for name in ENV.values()):
         return {key: os.environ[name] for key, name in ENV.items()}
     return {"commit": current_commit(), "sc2_build": "", "run_id": ""}
+
+
+def repeatable_workers() -> None:
+    """Worker processes started from now on hash strings the same way every run. Unit types hash by
+    their name, so with a random hash seed every game iterated sets of them in its own order, and the
+    same seed played out a little differently on our side. Set before the workers start (a running
+    interpreter's hash seed can't change)."""
+    os.environ.setdefault("PYTHONHASHSEED", "0")
+
+
+def make_repeatable(seed: int) -> None:
+    """Our side's randomness, seeded from the game seed (this worker process only; call it before the
+    bot is made): ares picks fallback creep tumor spots with Python's `random`, and names its squads
+    with `uuid4`. With `repeatable_workers`, the same seed and code play out the same way on our side;
+    StarCraft II and the built-in AI follow the game seed (a full game still varies a little)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    uuid.uuid4 = lambda: uuid.UUID(int=random.getrandbits(128), version=4)
+
+
+def run_context(jobs: int) -> dict[str, str]:
+    """What else a row's timing depends on: games at once (they slow each other down), machine, Python."""
+    return {"jobs": str(jobs), "host": platform.node(), "python": platform.python_version()}
 
 
 def at_least(minimum: int):

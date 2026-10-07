@@ -174,3 +174,22 @@ def test_order_comparison_needs_complete_evidence(tmp_path):
     assert compare(a, other, only=["fight_winnable"]) == ["fight_winnable[top]: differs at line 1"]
     empty_a, empty_b = order_run(tmp_path / "g", {}), order_run(tmp_path / "h", {})
     assert compare(empty_a, empty_b, everything=True) == ["nothing to compare"]
+
+
+def test_benchmark_games_seed_our_side_from_the_game_seed(monkeypatch):
+    import os
+    import random
+    import uuid
+
+    import scripts.benchmark as benchmark
+
+    monkeypatch.setattr(uuid, "uuid4", uuid.uuid4)  # seeding replaces it: restored after the test
+    monkeypatch.setattr(benchmark, "play_game", lambda *args: random.random())
+    args = ("Map", "Terran", "Hard", 1200, {}, 7, None, "replay")
+    assert benchmark.play_game_in_worker(args) == random.Random(7).random()
+    assert benchmark.FIELDS[-3:] == ["jobs", "host", "python"]
+    monkeypatch.delenv("PYTHONHASHSEED", raising=False)
+    from scripts import run_meta
+
+    run_meta.repeatable_workers()
+    assert os.environ["PYTHONHASHSEED"] == "0"
