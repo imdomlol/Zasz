@@ -12,6 +12,7 @@ from bot.actions.building import ExpandTo, affordable_on_arrival, next_expansion
 from bot.actions.drones import BuildDrones
 from bot.actions.pathing import ExpansionAccess
 from bot.decisions import Build, Decision
+from bot.spaces import ARMY_UNITS
 
 
 def macro_plan(ai: AresBot, decision: Decision, expansions: ExpansionAccess) -> MacroPlan:
@@ -41,9 +42,7 @@ def macro_plan(ai: AresBot, decision: Decision, expansions: ExpansionAccess) -> 
 
 
 def spawn_composition(decision: Decision) -> dict:
-    """The decision's army proportions in ares' `SpawnController` format (listed order = priority)."""
-    return {
-        unit: {"proportion": share, "priority": priority}
-        for priority, (unit, share) in enumerate(decision.army.items())
-        if share > 0
-    }
+    """The decision's army proportions in ares' `SpawnController` format. Priority follows
+    `ARMY_UNITS` order (as the decision's vector does), not the order the dict was written in."""
+    wanted = [unit for unit in ARMY_UNITS if decision.army.get(unit, 0) > 0]
+    return {unit: {"proportion": decision.army[unit], "priority": priority} for priority, unit in enumerate(wanted)}

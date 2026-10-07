@@ -16,8 +16,11 @@ interface and is passed to `ZaszBot(decisions=...)`. The rules every implementat
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Protocol
 
 from sc2.ids.unit_typeid import UnitTypeId
@@ -40,11 +43,27 @@ class Build(Enum):
 class Decision:
     build: Build = Build.NONE
     drone_target: int = 0  # make drones up to this many
-    army: dict[UnitTypeId, float] = field(default_factory=dict)  # proportions over `ARMY_UNITS`
+    # Proportions over `ARMY_UNITS` (non-negative). Read-only: a policy that reuses and changes its
+    # dict can't change a decision already made (or recorded)
+    army: Mapping[UnitTypeId, float] = field(default_factory=dict)
     upgrades: tuple[UpgradeId, ...] = ()  # wish list from `UPGRADES`, highest priority first
     attack: bool = False  # attack, or stay home and defend
     queens: int = 0  # total queens wanted (needs a spawning pool)
     spores_per_base: int = 0  # spore crawlers in each mineral line
+
+    def __post_init__(self) -> None:
+        # Only what the fixed lists can express, so `to_dict`, `to_vector` and the actions agree on
+        # what a decision contains
+        if unknown := [unit for unit in self.army if unit not in ARMY_UNITS]:
+            raise ValueError(f"army: {unknown} not in ARMY_UNITS (bot.spaces)")
+        if bad := {unit: share for unit, share in self.army.items() if not (math.isfinite(share) and share >= 0)}:
+            raise ValueError(f"army: shares must be finite and non-negative, got {bad}")
+        if unknown := [u for u in self.upgrades if u not in UPGRADES]:
+            raise ValueError(f"upgrades: {unknown} not in UPGRADES (bot.spaces)")
+        if len(set(self.upgrades)) != len(self.upgrades):
+            raise ValueError(f"upgrades: listed twice in {self.upgrades}")
+        object.__setattr__(self, "army", MappingProxyType(dict(self.army)))
+        object.__setattr__(self, "upgrades", tuple(self.upgrades))
 
     def to_dict(self) -> dict:
         """JSON-friendly and lossless (see `from_dict`)."""
@@ -76,7 +95,8 @@ class Decision:
         build = [float(self.build == b) for b in Build]
         army = [float(self.army.get(unit, 0.0)) for unit in ARMY_UNITS]
         n = len(UPGRADES)
-        upgrades = [(n - self.upgrades.index(u)) / n if u in self.upgrades else 0.0 for u in UPGRADES]
+        rank = {u: i for i, u in enumerate(self.upgrades)}
+        upgrades = [(n - rank[u]) / n if u in rank else 0.0 for u in UPGRADES]
         return [
             *build,
             self.drone_target / MAX_DRONES,

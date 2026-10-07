@@ -1933,3 +1933,8 @@ timestamp,commit,scenario,side,seed,sc2_build,status,game_time,units_lost,army_l
 2026-10-06T04:29:31,05c022a,efficiency_open_army_free,top,1,75689,FAIL,120.0,1,25,52,150,"[top] 7 of 8 units still alive, 47 zerglings left; 1 dmg/s, efficiency 36% (blocked 50%, idle 14%), dealt 150, taken 48 (ratio 3.1)",20261006-042713-a278
 2026-10-06T04:29:32,05c022a,efficiency_open_army_free,top,1,75689,FAIL,120.0,1,25,52,150,"[top] 7 of 8 units still alive, 47 zerglings left; 1 dmg/s, efficiency 36% (blocked 50%, idle 14%), dealt 150, taken 48 (ratio 3.1)",20261006-042713-a278
 2026-10-06T04:29:33,05c022a,efficiency_open_army_free,top,1,75689,FAIL,120.0,1,25,52,150,"[top] 7 of 8 units still alive, 47 zerglings left; 1 dmg/s, efficiency 36% (blocked 50%, idle 14%), dealt 150, taken 48 (ratio 3.1)",20261006-042713-a278
+2026-10-07T11:09:19,a2ec14b,custom_decisions,top,1,75689,PASS,9.2,0,0,0,0,natural started at 9s without a pool; 11 steps recorded,20261007-110908-084d
+2026-10-07T11:09:24,a2ec14b,efficiency_open_field,top,1,75689,PASS,33.9,0,0,0,5008,"[top] all 6 structures dead in 33s; 156 dmg/s, efficiency 67% (blocked 8%, idle 26%), dealt 5100, taken 0 (ratio inf)",20261007-110908-084d
+2026-10-07T11:09:52,a2ec14b,efficiency_cramped_main,top,1,75689,PASS,121.3,15,375,744,16080,"[top] all units and 15 gateways dead in 120s; 134 dmg/s, efficiency 60% (blocked 12%, idle 27%), dealt 16080, taken 630 (ratio 25.5)",20261007-110908-084d
+2026-10-07T11:09:52,a2ec14b,wall_bays,top,1,75689,PASS,29.6,5,125,183,2082,"all marines dead in 28s, 5 of 24 zerglings lost",20261007-110908-084d
+2026-10-07T11:09:52,a2ec14b,tank_dive,top,1,75689,PASS,6.8,6,150,307,310,"all dead at 7s (tank at 7s); tank first targeted at 2.1s, a marine at 2.1s",20261007-110908-084d

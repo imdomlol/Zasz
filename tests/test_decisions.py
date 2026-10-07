@@ -1,8 +1,10 @@
+import pytest
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 
 from bot.decisions import DECISION_NAMES, Build, Decision, Decisions, ScriptedDecisions
 from bot.observation import Observation
+from bot.recording import DecisionRecorder, read_records
 from bot.settings import (
     ATTACK_AT_ZERGLINGS,
     CREEP_QUEENS,
@@ -160,3 +162,50 @@ def test_a_custom_policy_fits_the_interface():
 
     policy: Decisions = AlwaysExpand()
     assert policy.decide(Observation(drone_capacity=12)) == Decision(build=Build.EXPAND, drone_target=12)
+
+
+def test_invalid_decisions_are_rejected():
+    with pytest.raises(ValueError, match="ARMY_UNITS"):
+        Decision(army={UnitTypeId.PROBE: 1.0})
+    with pytest.raises(ValueError, match="non-negative"):
+        Decision(army={UnitTypeId.ZERGLING: -3.0})
+    with pytest.raises(ValueError, match="UPGRADES"):
+        Decision(upgrades=(UpgradeId.WARPGATERESEARCH,))
+    with pytest.raises(ValueError, match="twice"):
+        Decision(upgrades=(UpgradeId.ZERGLINGMOVEMENTSPEED, UpgradeId.ZERGLINGMOVEMENTSPEED))
+
+
+def test_a_decision_keeps_its_army_when_the_policy_reuses_its_dict(tmp_path):
+    army = {UnitTypeId.ZERGLING: 1.0}
+    first = Decision(army=army)
+    army[UnitTypeId.ZERGLING] = 0.5  # the policy changes its dict for the next step
+    assert first.army[UnitTypeId.ZERGLING] == 1.0
+    with pytest.raises(TypeError):
+        first.army[UnitTypeId.ZERGLING] = 0.0  # read-only
+
+    # So the recorder sees the change as a new decision
+    path = tmp_path / "game.jsonl"
+    rec = DecisionRecorder(path)
+    rec.record(0, Observation(), first)
+    rec.record(1, Observation(), Decision(army=army))
+    rec.close()
+    assert [d.army[UnitTypeId.ZERGLING] for _, _, d in read_records(path).steps] == [1.0, 0.5]
+
+
+def test_a_decision_still_compares_and_round_trips():
+    d = Decision(army={UnitTypeId.ZERGLING: 1.0}, upgrades=(UpgradeId.ZERGLINGMOVEMENTSPEED,))
+    assert d == Decision(army={UnitTypeId.ZERGLING: 1.0}, upgrades=(UpgradeId.ZERGLINGMOVEMENTSPEED,))
+    assert Decision.from_dict(d.to_dict()) == d
+
+
+def test_replaying_a_recorded_sequence_reproduces_attack():
+    """`attack` depends on the policy's own history (hysteresis), not just the observation: between
+    STOP_ATTACK_AT_ZERGLINGS and ATTACK_AT_ZERGLINGS the same observation gives either answer.
+    Replayed in order through a fresh policy, a recording gives the same answers again."""
+    lings = [0, ATTACK_AT_ZERGLINGS, STOP_ATTACK_AT_ZERGLINGS, STOP_ATTACK_AT_ZERGLINGS - 1, STOP_ATTACK_AT_ZERGLINGS]
+    observations = [Observation(own_units={UnitTypeId.ZERGLING: n}, enemy_army_supply=10) for n in lings]
+    played = ScriptedDecisions()
+    recorded = [played.decide(obs).attack for obs in observations]
+    assert recorded == [False, True, True, False, False]  # same count, different answers (steps 2 and 4)
+    replay = ScriptedDecisions()
+    assert [replay.decide(obs).attack for obs in observations] == recorded
