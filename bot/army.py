@@ -52,7 +52,7 @@ from bot.army_notes import (
     note,
 )
 from bot.avoid import AvoidAreas
-from bot.breach import Breaches
+from bot.breach import Breaches, WidenPlan
 from bot.combat import (
     ARMY_TYPES,
     IGNORED_THREATS,
@@ -146,7 +146,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.enemy_state: dict[int, tuple[Point2, float, float]] = {}  # tag -> (where, facing, last active)
         self.enemy_moved: dict[int, float] = {}  # enemy unit tag -> when it last moved (or was first seen)
         # Widening plans: target tag -> (building to break, when the plan started); given up: tag -> until
-        self.widening: dict[int, tuple[int, float]] = {}
+        self.widening: dict[int, WidenPlan] = {}
         self.widen_given_up: dict[int, float] = {}
         self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
         self.breach_kept: dict[int, float] = {}  # the breach targets we're committed to -> last confirmed
