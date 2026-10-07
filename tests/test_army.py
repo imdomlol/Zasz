@@ -13,7 +13,7 @@ from ares.consts import EngagementResult
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 
-import bot.army
+import bot.routes
 from bot.army import Army
 from bot.settings import PLAN_SECONDS
 from fakes import marine, unit, zergling
@@ -42,7 +42,7 @@ def enemy_group(monkeypatch):
     """One enemy marine at (20.5, 20.5), the only enemy group."""
     enemy = marine(20.5, 20.5, can_attack_ground=True)
     group = SimpleNamespace(units=[enemy], center=enemy.position, spread=0.0, reach=6.0)
-    monkeypatch.setattr(bot.army, "enemy_groups", lambda ai: [group])
+    monkeypatch.setattr(bot.routes, "enemy_groups", lambda ai: [group])
     return enemy
 
 
