@@ -100,7 +100,8 @@ def draw(ai: AresBot, army: Army) -> None:
         if ai.time - when < 3:
             client.debug_sphere_out(lifted(ai, position), 2.2, BREACH_COLOR)
             client.debug_text_world(text, lifted(ai, position, 2.0), BREACH_COLOR, 12)
-    from bot.army_notes import BACK_OFF_CIRCLES, CHOKE_NOTES, CHOKE_OPENERS, TARGET_NOTES, UNIT_NOTES
+    from bot.army_notes import BACK_OFF_CIRCLES, CHOKE_OPENERS, TARGET_NOTES, UNIT_NOTES
+    from bot.micro import CHOKE_VERDICTS
 
     # Each of our units: its squad, and what it was told to do this step and why
     squad_of = {t: sq.id for sq in army.book.squads.values() for t in sq.tags}
@@ -110,7 +111,7 @@ def draw(ai: AresBot, army: Army) -> None:
             client.debug_text_world(label, lifted(ai, u.position, 0.6), UNIT_COLOR, 10)
 
     # Choke fights judged this step: what killing it would cost against what it's worth
-    for tag, (lost, worth, taken) in CHOKE_NOTES.items():
+    for tag, (lost, worth, taken) in CHOKE_VERDICTS.items():
         if tag in enemies:
             verdict = "take" if taken else "skip"
             label = f"choke: lose ~{lost:.0f}, worth {worth:.0f} ({verdict})"

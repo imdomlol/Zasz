@@ -13,7 +13,8 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
 
-from bot.army_notes import BACK_OFF_CIRCLES, CHOKE_NOTES, CHOKE_OPENERS, COUNTS, TARGET_NOTES, dump_reach, name_of, note
+from bot import army_notes
+from bot.army_notes import BACK_OFF_CIRCLES, CHOKE_OPENERS, COUNTS, TARGET_NOTES, dump_reach, name_of, note
 from bot.combat import ARMY_TYPES, armed, dps_vs, production_cost, reach_of, weapon_range
 from bot.settings import (
     BACK_OFF_MARGIN,
@@ -32,6 +33,9 @@ from bot.settings import (
 from bot.squads import center_of
 from bot.targeting import BlockTracker, Detours, TargetSlots, attack_capacity, pick_tiered, spot_key
 
+# This step's choke verdicts (`choke_worth`): enemy tag -> (zerglings lost, worth, taken). A decision cache
+# (each target judged once per step; `Army` also reads it to leave a refused fight), drawn by the overlay too
+CHOKE_VERDICTS: dict[int, tuple[float, float, bool]] = {}
 # Long-range or splash units zerglings should dive first rather than trade with from range
 DIVE_FIRST = {UnitTypeId.SIEGETANKSIEGED, UnitTypeId.SIEGETANK, UnitTypeId.LURKERMPBURROWED, UnitTypeId.COLOSSUS}
 
@@ -195,8 +199,8 @@ def fight_options(
             why = "plug" if nearest.tag in plugs else "choke not worth it"
             if nearest.tag in CHOKE_OPENERS:
                 why = f"open it up first: {CHOKE_OPENERS[nearest.tag]}"
-            elif nearest.tag in CHOKE_NOTES:
-                lost, worth, _ = CHOKE_NOTES[nearest.tag]
+            elif nearest.tag in CHOKE_VERDICTS:
+                lost, worth, _ = CHOKE_VERDICTS[nearest.tag]
                 why += f", lose ~{lost:.0f} vs worth {worth:.0f}"
             note([unit], f"step away from {name_of(nearest)} ({why})")
             unit.move(nearest.position.towards(position, nearest.radius + unit.radius + 2.0))
@@ -242,13 +246,17 @@ def fight_options(
 
 
 def note_options(ai: AresBot, unit: Unit, choice: FightOptions, enemies: list[Unit], slots: TargetSlots) -> None:
-    """For the overlay and debug counts: each candidate's best tier and room, and why there's none."""
+    """For the overlay and debug counts: each candidate's best tier and room, and why there's none.
+
+    The `TARGET_NOTES` loop runs whatever the debug settings: asking `slots.capacity` settles a target's
+    room for the step (shared by every squad and strike), and when it's first asked decides with whose
+    reach map; skipping it would change orders."""
     tiers, fighters, plugs = choice.tiers, choice.fighters, choice.plugs
     for rank, (tier, _) in enumerate(tiers, start=1):
         for e in tier:
             if e.tag not in TARGET_NOTES or TARGET_NOTES[e.tag][0] > rank:
                 TARGET_NOTES[e.tag] = (rank, slots.capacity(unit, e))
-    if not tiers and fighters and slots.reach is not None:
+    if not tiers and fighters and slots.reach is not None and army_notes.enabled:
         # Diagnostic: why every enemy unit here was left out (memory = only remembered, not seen now)
         for e in fighters:
             mem = " (remembered)" if e.is_memory else ""
@@ -354,27 +362,28 @@ def go_for(
     unsafe = diagnostics and not ai.mediator.is_position_safe(grid=ai.mediator.get_ground_grid, position=position)
     if unsafe:
         COUNTS[f"UNSAFE {category}"] += 1
-    if goal in dive:
-        tier = "dive"
-    elif goal in near_fighters:
-        tier = "fighter"
-    elif goal in workers:
-        tier = "worker"
-    elif goal in breach:
-        tier = "breach"
-    elif goal in in_the_way:
-        tier = "break through (safe)"
-    elif goal in covered:
-        tier = "covered work"
-    elif goal in clear:
-        tier = "clear the way (safe)"
-    elif goal in key:
-        tier = "key structure"
-    else:
-        tier = "target"
-    capacity = slots.capacity(unit, goal)
-    room = f" {slots.taken.get(goal.tag, 0)}/{'-' if capacity is None else capacity}"
-    note([unit], f"{category}: {name_of(goal)} [{tier}{room}]{' IN RANGE' if unsafe else ''}")
+    capacity = slots.capacity(unit, goal)  # (settles its room if nothing has yet: keep it with notes off)
+    if army_notes.enabled:
+        if goal in dive:
+            tier = "dive"
+        elif goal in near_fighters:
+            tier = "fighter"
+        elif goal in workers:
+            tier = "worker"
+        elif goal in breach:
+            tier = "breach"
+        elif goal in in_the_way:
+            tier = "break through (safe)"
+        elif goal in covered:
+            tier = "covered work"
+        elif goal in clear:
+            tier = "clear the way (safe)"
+        elif goal in key:
+            tier = "key structure"
+        else:
+            tier = "target"
+        room = f" {slots.taken.get(goal.tag, 0)}/{'-' if capacity is None else capacity}"
+        note([unit], f"{category}: {name_of(goal)} [{tier}{room}]{' IN RANGE' if unsafe else ''}")
 
     if flank and not goal.is_memory:
         side = 1 if unit.tag % 2 else -1  # alternate sides so they spread around the jam
@@ -415,7 +424,7 @@ def choke_worth(
     for at most CHOKE_SLOTS attackers, it's taken only if what we'd lose killing it that slowly is worth
     it: zerglings lost = the damage of everything covering its attack cells (itself included) over the
     time that many zerglings take to kill it, against its cost in zerglings. Worked out once per target
-    per step (`CHOKE_NOTES`)."""
+    per step (`CHOKE_VERDICTS`)."""
     if target.is_structure or weapon_range(target) >= PLUG_HARM_RANGE:
         # Only a unit that can't hit us from where it stands (a zealot) can be left alone: refusing a
         # stalker in a gap doesn't stop it shooting us
@@ -424,8 +433,8 @@ def choke_worth(
     # zerglings to in a choke
     if (value := production_cost(ai, target.type_id)) is None:
         return False
-    if target.tag in CHOKE_NOTES:
-        return CHOKE_NOTES[target.tag][2]
+    if target.tag in CHOKE_VERDICTS:
+        return CHOKE_VERDICTS[target.tag][2]
     capacity = slots.capacity(unit, target)
     full = attack_capacity(unit, target)
     if (
@@ -446,7 +455,7 @@ def choke_worth(
             None,
         )
         if opener is not None:
-            CHOKE_NOTES[target.tag] = (0.0, 0.0, False)
+            CHOKE_VERDICTS[target.tag] = (0.0, 0.0, False)
             CHOKE_OPENERS[target.tag] = name_of(opener)
             COUNTS["choke: open it up first"] += 1
             return False
@@ -476,7 +485,7 @@ def choke_worth(
     lost = sum(dps_vs(f, unit) for f in covering) * seconds / max(unit.health_max, 1)
     worth = value / 25  # a zergling costs 25
     taken = lost <= worth
-    CHOKE_NOTES[target.tag] = (lost, worth, taken)
+    CHOKE_VERDICTS[target.tag] = (lost, worth, taken)
     COUNTS["choke: taken" if taken else "choke: not worth it"] += 1
     return taken
 

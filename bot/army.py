@@ -40,11 +40,10 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
 
-from bot import overlay
+from bot import army_notes, overlay
 from bot.army_debug import ArmyDebug
 from bot.army_notes import (
     BACK_OFF_CIRCLES,
-    CHOKE_NOTES,
     CHOKE_OPENERS,
     COUNTS,
     REACH_DUMPED,
@@ -68,7 +67,7 @@ from bot.combat import (
     weapon_range,
 )
 from bot.jobs import SquadJobs
-from bot.micro import back_off, fight, move, spread_move
+from bot.micro import CHOKE_VERDICTS, back_off, fight, move, spread_move
 from bot.routes import Routes
 from bot.settings import (
     ACTIVE_MOVE,
@@ -302,6 +301,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         the rest of the time."""
         alive = {u.tag for u in ai.units}
         self.diagnostics = self.debug or overlay.enabled()
+        army_notes.enabled = self.diagnostics
         self.clear_empty_avoid_areas(ai)
         self.breach_kept = {t: when for t, when in self.breach_kept.items() if ai.time - when < BREACH_KEEP_SECONDS}
         self.remember_shooters(ai)
@@ -309,7 +309,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.partly_seen = self.find_partly_seen(ai)
         BACK_OFF_CIRCLES.clear()
         TARGET_NOTES.clear()
-        CHOKE_NOTES.clear()
+        CHOKE_VERDICTS.clear()
         CHOKE_OPENERS.clear()
         UNIT_NOTES.clear()
         self.blocks.forget_dead(alive)
@@ -370,8 +370,9 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.execute_strikes(ai)
         if self.debug:
             self.note_hitting(ai, lings)
-        for tag, text in UNIT_NOTES.items():
-            self.last_note[tag] = (ai.time, text)
+        if self.debug:  # (read by `on_death`'s debug log only)
+            for tag, text in UNIT_NOTES.items():
+                self.last_note[tag] = (ai.time, text)
         if overlay.enabled():
             overlay.draw(ai, self)
 
@@ -467,7 +468,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
                         self.detours,
                         self.diagnostics,
                     )
-                refused = [t for t in threats if t.tag in CHOKE_NOTES and not CHOKE_NOTES[t.tag][2]]
+                refused = [t for t in threats if t.tag in CHOKE_VERDICTS and not CHOKE_VERDICTS[t.tag][2]]
                 if not busy and not (near_home or self.committed):
                     # Every zergling came up empty: the targets are choke fights not worth their cost,
                     # or out of reach with no breach worth making and nothing safe to break. Leave them

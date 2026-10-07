@@ -2,8 +2,9 @@
 the scenarios switch on), per-unit notes and per-target notes for the overlay (`bot.overlay`), and reach
 map dumps (ZASZ_DUMP_REACH).
 
-All of it is cleared every step (the notes) or read only for logs and drawing, with one exception:
-`CHOKE_NOTES` doubles as this step's cache of choke verdicts (`bot.micro.choke_worth`)."""
+All of it is cleared every step (the notes) or read only for logs and drawing: nothing here decides
+anything (this step's choke verdicts, which do, are `bot.micro.CHOKE_VERDICTS`). Unit notes are only
+kept while `enabled` (debug or the overlay on: `Army._control` sets it each step)."""
 
 import os
 from collections import Counter
@@ -23,17 +24,19 @@ BACK_OFF_CIRCLES: list[tuple[Point2, float]] = []
 TARGET_NOTES: dict[int, tuple[int, int | None]] = {}  # enemy tag -> (priority, capacity)
 
 
-CHOKE_NOTES: dict[int, tuple[float, float, bool]] = {}  # enemy tag -> (zerglings lost, worth, taken)
-
-
 CHOKE_OPENERS: dict[int, str] = {}  # enemy tag -> the building to break first to open it up (overlay)
 
 
 UNIT_NOTES: dict[int, str] = {}  # our unit tag -> its latest decision this step (overlay)
 
+enabled = False  # keep unit notes this step (debug or the overlay is on)
+
 
 def note(units: list[Unit], text: str) -> None:
-    """Record what these units were told to do, and why (the overlay shows it over each one)."""
+    """Record what these units were told to do, and why (the overlay shows it over each one). Nothing is
+    kept while notes are off; callers building a costly text check `enabled` first."""
+    if not enabled:
+        return
     for u in units:
         UNIT_NOTES[u.tag] = text
 

@@ -142,7 +142,9 @@ class ScenarioBot(ZaszBot):
         await super().on_step(iteration)
         self.slow_down()
         if iteration == 0:
-            self.army.debug = True  # log what the squads decide (scenario logs are only shown on request)
+            # Log what the squads decide (scenario logs are only shown on request); --quiet-army
+            # (ZASZ_QUIET_ARMY) plays as real games do, without it (tank_dive's checks read the notes)
+            self.army.debug = not os.environ.get("ZASZ_QUIET_ARMY")
             await self.scenario.setup(self)
             return
         await self.scenario.on_step(self)

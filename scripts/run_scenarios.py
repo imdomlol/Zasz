@@ -252,7 +252,15 @@ def main() -> None:
         help="Write every command each scenario sends to DIR/<scenario>.orders, to check that a refactor "
         "changes no order (scripts/compare_orders.py)",
     )
+    parser.add_argument(
+        "--quiet-army",
+        action="store_true",
+        help="Army debug notes off, as in real games (tank_dive reads them, so it fails): checks that the "
+        "notes change no order",
+    )
     args = parser.parse_args()
+    if args.quiet_army:
+        os.environ["ZASZ_QUIET_ARMY"] = "1"  # read by the game processes (ScenarioBot)
     if args.order_log:
         args.order_log.mkdir(parents=True, exist_ok=True)
     if args.overlay:
