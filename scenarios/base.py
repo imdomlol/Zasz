@@ -71,6 +71,36 @@ class ScenarioBot(ZaszBot):
         self.outcome: Outcome | None = None
         self.lost: Counter[UnitTypeId] = Counter()  # our army units that died, by type
 
+    async def on_before_start(self) -> None:
+        await super().on_before_start()
+        if path := os.environ.get("ZASZ_ORDER_LOG"):
+            self.log_orders(path)
+
+    def log_orders(self, path: str) -> None:
+        """Write every command sent to the game to `path`, one per line: game loop, unit, ability,
+        target, queued. Two runs of the same seed and code give the same file, so a refactor that
+        should change nothing can be checked order by order (`scripts/compare_orders.py`)."""
+        out = open(path, "w")  # noqa: SIM115 (open for the whole game; closed by the process exit)
+        send = self.client.actions
+
+        def where(target) -> str:
+            if target is None:
+                return "-"
+            if hasattr(target, "tag"):
+                return f"#{target.tag}"
+            return f"({target.x!r},{target.y!r})"
+
+        async def logged(actions, return_successes=False):
+            for a in actions if isinstance(actions, list) else [actions]:
+                out.write(
+                    f"{self.state.game_loop} {a.unit.tag} {a.unit.type_id.name} {a.ability.name} "
+                    f"{where(a.target)}{' queued' if a.queue else ''}\n"
+                )
+            out.flush()
+            return await send(actions, return_successes)
+
+        self.client.actions = logged
+
     async def on_unit_destroyed(self, unit_tag: int) -> None:
         await super().on_unit_destroyed(unit_tag)
         unit = self._units_previous_map.get(unit_tag)

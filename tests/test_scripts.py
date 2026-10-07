@@ -137,3 +137,11 @@ def test_ladder_zip_picks_the_linux_x86_64_312_wheel():
     assert pick_wheel([arm, other_python, x86]) is x86
     with pytest.raises(SystemExit, match="no cp312"):
         pick_wheel([arm, other_python])
+
+
+def test_first_differing_order():
+    from scripts.compare_orders import first_difference
+
+    assert first_difference(["a", "b"], ["a", "b"]) is None
+    assert first_difference(["a", "b"], ["a", "c"]) == 1
+    assert first_difference(["a", "b"], ["a"]) == 1  # one log ended early

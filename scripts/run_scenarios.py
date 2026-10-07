@@ -88,9 +88,16 @@ class Report:
 
 
 def run_scenario(
-    name: str, replay: str, watchdog: float | None = None, seed: int | None = None, realtime: bool = False
+    name: str,
+    replay: str,
+    watchdog: float | None = None,
+    seed: int | None = None,
+    realtime: bool = False,
+    order_log: str | None = None,
 ) -> Report:
     """Play one scenario in this process (a worker); its log is captured, not printed."""
+    if order_log:
+        os.environ["ZASZ_ORDER_LOG"] = order_log  # read by ScenarioBot (this worker only)
     if seed is not None:
         make_repeatable(seed)
     logger.remove()
@@ -230,7 +237,15 @@ def main() -> None:
         help="Real seconds before a stuck scenario (e.g. StarCraft II crashed) is reported as an ERROR "
         f"(default: time limit x {WATCHDOG_FACTOR} + {WATCHDOG_MARGIN})",
     )
+    parser.add_argument(
+        "--order-log",
+        type=Path,
+        help="Write every command each scenario sends to DIR/<scenario>.orders, to check that a refactor "
+        "changes no order (scripts/compare_orders.py)",
+    )
     args = parser.parse_args()
+    if args.order_log:
+        args.order_log.mkdir(parents=True, exist_ok=True)
     if args.overlay:
         os.environ["ZASZ_OVERLAY"] = "1"  # read by the game processes (bot/overlay.py)
     if args.slow:
@@ -286,7 +301,15 @@ def main() -> None:
     # One fresh process per scenario (python-sc2 keeps per-process state); reported in order
     with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
         futures = {
-            run: pool.submit(run_scenario, run[0][0], str(replays[run]), args.watchdog, run[0][2], args.realtime)
+            run: pool.submit(
+                run_scenario,
+                run[0][0],
+                str(replays[run]),
+                args.watchdog,
+                run[0][2],
+                args.realtime,
+                str(args.order_log / f"{label(run)}.orders") if args.order_log else None,
+            )
             for run in runs
         }
         for run in list(futures):
