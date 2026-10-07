@@ -100,6 +100,12 @@ FIELDS = [
     "jobs",  # games at once (they slow each other down: compare step times only at the same count)
     "host",
     "python",
+    # What we lost, by the game's score (minerals + gas unless named): `lost_value` above is minerals only, in
+    # army and economy (kept as it was, so history compares); `killed_value` is minerals + gas of everything
+    "lost_minerals_total",
+    "lost_vespene_total",
+    "lost_army_total",
+    "lost_tech_total",
 ]
 
 
@@ -173,6 +179,7 @@ class BenchmarkZasz(ZaszBot):
             "collected_minerals": score.collected_minerals,
             "killed_value": score.killed_value_units + score.killed_value_structures,
             "lost_value": score.lost_minerals_army + score.lost_minerals_economy,
+            **loss_columns(score),
             "max_drones": self.max_drones,
         }
         self.stats |= self.step_stats(self.state.game_loop)
@@ -188,6 +195,17 @@ class BenchmarkZasz(ZaszBot):
             "max_step_ms": round(1000 * self.step_max, 1),
             "startup_s": round(self.startup_seconds, 2),
         }
+
+
+def loss_columns(score) -> dict[str, float]:
+    """The explicit loss columns (see FIELDS) from a game's score."""
+    kinds = ("none", "army", "economy", "technology", "upgrade")
+    return {
+        "lost_minerals_total": sum(getattr(score, f"lost_minerals_{k}") for k in kinds),
+        "lost_vespene_total": sum(getattr(score, f"lost_vespene_{k}") for k in kinds),
+        "lost_army_total": score.lost_minerals_army + score.lost_vespene_army,
+        "lost_tech_total": score.lost_minerals_technology + score.lost_vespene_technology,
+    }
 
 
 def installed_maps() -> list[str]:

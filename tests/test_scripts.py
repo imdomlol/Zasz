@@ -187,9 +187,34 @@ def test_benchmark_games_seed_our_side_from_the_game_seed(monkeypatch):
     monkeypatch.setattr(benchmark, "play_game", lambda *args: random.random())
     args = ("Map", "Terran", "Hard", 1200, {}, 7, None, "replay")
     assert benchmark.play_game_in_worker(args) == random.Random(7).random()
-    assert benchmark.FIELDS[-3:] == ["jobs", "host", "python"]
+    assert {"jobs", "host", "python"} <= set(benchmark.FIELDS)
     monkeypatch.delenv("PYTHONHASHSEED", raising=False)
     from scripts import run_meta
 
     run_meta.repeatable_workers()
     assert os.environ["PYTHONHASHSEED"] == "0"
+
+
+def test_loss_columns_add_up_the_score_categories():
+    from types import SimpleNamespace
+
+    from scripts.benchmark import loss_columns
+
+    fields = {
+        f"lost_{r}_{k}": 0.0
+        for r in ("minerals", "vespene")
+        for k in ("none", "army", "economy", "technology", "upgrade")
+    }
+    fields |= {
+        "lost_minerals_army": 500,
+        "lost_vespene_army": 100,
+        "lost_minerals_technology": 200,
+        "lost_minerals_economy": 50,
+    }
+    columns = loss_columns(SimpleNamespace(**fields))
+    assert columns == {
+        "lost_minerals_total": 750,
+        "lost_vespene_total": 100,
+        "lost_army_total": 600,
+        "lost_tech_total": 200,
+    }
