@@ -2,6 +2,7 @@
 building, and a summary every few seconds."""
 
 from collections import Counter
+from dataclasses import dataclass, field
 
 from ares import AresBot
 from ares.consts import UnitTreeQueryType
@@ -13,6 +14,20 @@ from bot.combat import ARMY_TYPES, armed, reach_of
 from bot.squads import Squad
 
 
+@dataclass
+class DebugState:
+    """What only the debug log reads (owned by `Army` as `debug_state`)."""
+
+    last_note: dict[int, tuple[float, str]] = field(default_factory=dict)  # our unit -> (when, its last decision)
+    # Enemy building -> (most zerglings in range of it at once, the room it had then, its name) (`note_hitting`)
+    most_hitting: dict[int, tuple[int, int | None, str]] = field(default_factory=dict)
+    hitting_now: dict[int, int] = field(default_factory=dict)  # armed building -> zerglings in range last step
+    step_ms: list[float] = field(default_factory=list)  # army time per step (ms), logged and reset with the counts
+    route_ms: list[float] = field(default_factory=list)  # time spent on route checks (ms), same
+    counts: Counter[str] = field(default_factory=lambda: COUNTS)
+    counts_logged_at: float = 0.0
+
+
 class ArmyDebug:
     """Debug logs (part of `bot.army.Army`)."""
 
@@ -20,17 +35,23 @@ class ArmyDebug:
         """Debug log: one of our army units died. Where, what it was last doing, and which enemies could
         hit that spot (with how far inside their reach it stood)."""
         # A dead unit's tag never comes back: drop what's remembered about it (these only grew all game)
-        for memory in (self.last_damaged, self.enemy_state, self.enemy_moved, self.most_hitting, self.hitting_now):
+        for memory in (
+            self.last_damaged,
+            self.enemy_state,
+            self.enemy_moved,
+            self.debug_state.most_hitting,
+            self.debug_state.hitting_now,
+        ):
             memory.pop(tag, None)
-        self.breach_notes.pop(tag, None)
+        self.breach_state.notes.pop(tag, None)
         self.breach_state.given_up.pop(tag, None)
         if not self.debug:
-            self.last_note.pop(tag, None)
+            self.debug_state.last_note.pop(tag, None)
             return
         unit = ai._units_previous_map.get(tag)
         if unit is None or unit.type_id not in ARMY_TYPES:
             return
-        when, text = self.last_note.pop(tag, (ai.time, "no decision recorded"))
+        when, text = self.debug_state.last_note.pop(tag, (ai.time, "no decision recorded"))
         spot = unit.position
         enemies = ai.mediator.get_units_in_range(
             start_points=[spot], distances=16, query_tree=UnitTreeQueryType.EnemyGround
@@ -59,16 +80,16 @@ class ArmyDebug:
             n = sum(1 for u in lings if u.target_in_range(s))
             if armed(s):
                 self.note_refill(ai, lings, s, n)
-            if n and n >= self.most_hitting.get(s.tag, (0, None, ""))[0]:
+            if n and n >= self.debug_state.most_hitting.get(s.tag, (0, None, ""))[0]:
                 room = next((v for (tag, _), v in self.settled.items() if tag == s.tag), None)
-                self.most_hitting[s.tag] = (n, room, name_of(s))
+                self.debug_state.most_hitting[s.tag] = (n, room, name_of(s))
 
     def note_refill(self, ai: AresBot, lings: list[Unit], target: Unit, n: int) -> None:
         """Debug: every change in how many zerglings are in range of an armed building, with who holds its
         slots without hitting it (assigned, not in range: how far) and what the zerglings within 3 of it
         are doing instead."""
-        before = self.hitting_now.get(target.tag, 0)
-        self.hitting_now[target.tag] = n
+        before = self.debug_state.hitting_now.get(target.tag, 0)
+        self.debug_state.hitting_now[target.tag] = n
         if n == before:
             return
         holders = [
@@ -88,9 +109,9 @@ class ArmyDebug:
         )
 
     def log_debug(self, ai: AresBot, squads: list[Squad]) -> None:
-        if not self.debug or ai.time - self.counts_logged_at < 3:
+        if not self.debug or ai.time - self.debug_state.counts_logged_at < 3:
             return
-        self.counts_logged_at = ai.time
+        self.debug_state.counts_logged_at = ai.time
         jobs: Counter[str] = Counter()
         for s in squads:
             jobs[s.job] += len(s.tags)
@@ -98,20 +119,21 @@ class ArmyDebug:
         lings = sum(len(s.tags) for s in squads)
         seen = Counter(u.type_id.name.lower() for u in ai.enemy_units if not u.is_memory)
         seen.update(s.type_id.name.lower() for s in ai.enemy_structures if not s.is_memory)
-        summary = ", ".join(f"{k} {v}" for k, v in sorted(self.counts.items()))
+        summary = ", ".join(f"{k} {v}" for k, v in sorted(self.debug_state.counts.items()))
         enemy = " ".join(f"{k} {v}" for k, v in sorted(seen.items()))
-        raids = "; ".join(text for _, text in self.site_notes)
-        steps = self.step_ms or [0.0]
+        raids = "; ".join(text for _, text in self.job_state.site_notes)
+        steps = self.debug_state.step_ms or [0.0]
         timing = f"army {sum(steps) / len(steps):.1f} ms/step avg, {max(steps):.1f} max"
-        if self.route_ms:
-            timing += f"; routes {len(self.route_ms)} checks, {sum(self.route_ms) / len(self.route_ms):.1f} ms avg"
-            timing += f", {max(self.route_ms):.1f} max"
-        hitting = sorted(self.most_hitting.values(), key=lambda x: -x[0])[:4]
+        if self.debug_state.route_ms:
+            routes = self.debug_state.route_ms
+            timing += f"; routes {len(routes)} checks, {sum(routes) / len(routes):.1f} ms avg"
+            timing += f", {max(self.debug_state.route_ms):.1f} max"
+        hitting = sorted(self.debug_state.most_hitting.values(), key=lambda x: -x[0])[:4]
         most = ", ".join(f"{name} {n} (room {'-' if room is None else room})" for n, room, name in hitting)
         logger.info(
             f"{ai.time_formatted} army debug: {len(squads)} squads ({mode}), {lings} zerglings vs {enemy}"
             f" | raids: {raids or 'none'} | most hitting at once: {most or 'none'} | {timing} | {summary}"
         )
-        self.counts.clear()
-        self.step_ms.clear()
-        self.route_ms.clear()
+        self.debug_state.counts.clear()
+        self.debug_state.step_ms.clear()
+        self.debug_state.route_ms.clear()

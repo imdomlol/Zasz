@@ -65,7 +65,7 @@ class Routes:
             ]
             routes = self.route_state.maps[losing] = RouteMap(ai.mediator.get_ground_grid, zones)
             if self.debug:
-                self.route_ms.append((time.perf_counter() - started) * 1000)
+                self.debug_state.route_ms.append((time.perf_counter() - started) * 1000)
         return routes
 
     def route_ok(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:
@@ -76,7 +76,7 @@ class Routes:
         started = time.perf_counter()
         ok = routes.reaches(center_of(units), spot)
         if self.debug:
-            self.route_ms.append((time.perf_counter() - started) * 1000)
+            self.debug_state.route_ms.append((time.perf_counter() - started) * 1000)
         return ok
 
     def dangerous_for(self, ai: AresBot, units: list[Unit], spot: Point2) -> bool:

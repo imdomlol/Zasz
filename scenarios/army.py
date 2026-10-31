@@ -118,7 +118,7 @@ class TankDive(Scenario):
         # and zerglings in more than one strike (handled twice per step)
         # Off unless ZASZ_ORDER_CHECK=1 (it logs every mismatching zergling every step)
         names = {e.tag: f"{e.type_id.name.lower()}@{e.position.x:.0f},{e.position.y:.0f}" for e in bot.enemy_units}
-        strikes_of = Counter(t for st in bot.army.strikes for t in st.lings)
+        strikes_of = Counter(t for st in bot.army.strike_state.strikes for t in st.lings)
         for z in lings if ORDER_CHECK else []:
             decided = UNIT_NOTES.get(z.tag, "")
             ordered = names.get(z.order_target, str(z.order_target)) if z.order_target is not None else "none"

@@ -150,8 +150,8 @@ SPOT = (30.5, 5.5)  # the one enemy expansion to look at
 def scouting_army(monkeypatch):
     """An army with a squad held back by a partly seen position (so it wants to scout), no danger."""
     army = Army()
-    army.turned_back_at = [(Point2((15, 15)), 5.0, 999.0)]
-    army.avoid_reasons[Point2((15, 15))] = "scout needed"
+    army.avoid_state.areas = [(Point2((15, 15)), 5.0, 999.0)]
+    army.avoid_state.reasons[Point2((15, 15))] = "scout needed"
     monkeypatch.setattr(army, "dangerous_for", lambda ai, units, spot: False)
     monkeypatch.setattr(army, "route_map", lambda ai, units: SimpleNamespace(distance=lambda a, b: a.distance_to(b)))
     return army
@@ -169,7 +169,7 @@ def test_a_squad_waiting_on_an_overlord_scouts_an_expansion(monkeypatch):
     s = squad(army)
     army.send_squad_scout(ai, s)
     assert (s.job, s.target) == ("scout", Point2(SPOT))
-    assert army.squad_scouts[s.id][0] == Point2(SPOT)
+    assert army.job_state.squad_scouts[s.id][0] == Point2(SPOT)
 
 
 def test_a_spot_being_scouted_isnt_given_to_a_second_squad(monkeypatch):
@@ -177,7 +177,7 @@ def test_a_spot_being_scouted_isnt_given_to_a_second_squad(monkeypatch):
     first, second = squad(army), squad(army)
     army.send_squad_scout(ai, first)
     army.send_squad_scout(ai, second)
-    assert second.id not in army.squad_scouts and second.job != "scout"
+    assert second.id not in army.job_state.squad_scouts and second.job != "scout"
 
 
 def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
@@ -199,10 +199,10 @@ def test_normal_games_dont_keep_debug_counts_or_timings():
     army._control = lambda ai, attacking: COUNTS.update({"a decision": 1})
     try:
         army.control(None, False)
-        assert army.step_ms == [] and not COUNTS
+        assert army.debug_state.step_ms == [] and not COUNTS
         army.debug = True
         army.control(None, False)
-        assert len(army.step_ms) == 1 and COUNTS["a decision"] == 1
+        assert len(army.debug_state.step_ms) == 1 and COUNTS["a decision"] == 1
     finally:
         COUNTS.clear()
 
@@ -224,18 +224,18 @@ def test_avoid_areas_expire_and_take_their_reasons_with_them():
     army.turned_back(ai, [marine(20.5, 20.5)], "army can't beat")
     army.mark_avoid(ai, Point2((5, 30)), 4.0, "scout needed", seconds=100)
     assert army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
-    assert set(army.avoid_reasons.values()) == {"army can't beat", "scout needed"}
+    assert set(army.avoid_state.reasons.values()) == {"army can't beat", "scout needed"}
     ai.time += 60  # past AVOID_SECONDS, not past the scout's 100 s
     assert not army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
-    assert list(army.avoid_reasons.values()) == ["scout needed"]
+    assert list(army.avoid_state.reasons.values()) == ["scout needed"]
 
 
 def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
     army, ai = Army(), fake_ai(time=10.0)
     army.mark_avoid(ai, Point2((20, 20)), 6.0, "army can't beat")
     army.mark_avoid(ai, Point2((21, 20)), 6.0, "unseen fire")
-    assert [(p, r) for p, r, _ in army.turned_back_at] == [(Point2((21, 20)), 6.0)]
-    assert army.avoid_reasons == {Point2((21, 20)): "unseen fire"}
+    assert [(p, r) for p, r, _ in army.avoid_state.areas] == [(Point2((21, 20)), 6.0)]
+    assert army.avoid_state.reasons == {Point2((21, 20)): "unseen fire"}
 
 
 # --- one combat estimate ---

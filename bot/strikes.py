@@ -2,6 +2,7 @@
 their reach and go in together."""
 
 from collections import Counter
+from dataclasses import dataclass, field
 
 from ares import AresBot
 from ares.consts import WORKER_TYPES, EngagementResult, UnitTreeQueryType
@@ -29,6 +30,14 @@ from bot.squads import Strike, center_of, cluster
 from bot.targeting import ReachMap, TargetSlots, attack_capacity
 
 
+@dataclass
+class StrikeState:
+    """What `Strikes` keeps between steps (owned by `Army` as `strike_state`)."""
+
+    strikes: list[Strike] = field(default_factory=list)  # enemy groups shooting us, and the zerglings sent for them
+    struck_at: float = -999.0
+
+
 class Strikes:
     """Strikes (part of `bot.army.Army`)."""
 
@@ -42,11 +51,11 @@ class Strikes:
         A strike keeps its zerglings while it lasts, and ends when the enemies are dead or out of
         reach, or the fight isn't winnable any more."""
         alive = {u.tag for u in lings}
-        for strike in self.strikes:
+        for strike in self.strike_state.strikes:
             strike.lings &= alive
-        if ai.time - self.struck_at < STRIKE_SECONDS:
+        if ai.time - self.strike_state.struck_at < STRIKE_SECONDS:
             return
-        self.struck_at = ai.time
+        self.strike_state.struck_at = ai.time
         armed_enemies = [
             e
             for e in [*ai.enemy_units, *ai.enemy_structures]
@@ -63,7 +72,7 @@ class Strikes:
                 u.position.distance_to(e.position) < reach_of(e, u) + 1 for e in group if armed(e) for u in lings
             ):
                 continue  # not shooting at us
-            if any(e.tag in self.partly_seen for e in group):
+            if any(e.tag in self.avoid_state.partly_seen for e in group):
                 COUNTS["strike: partly seen, wait for vision"] += 1
                 continue
             center = center_of(group)
@@ -76,7 +85,7 @@ class Strikes:
             if not targets:
                 continue  # sealed in: that's for a breach
             tags = {e.tag for e in group}
-            old = next((s for s in self.strikes if s.targets & tags), None)
+            old = next((s for s in self.strike_state.strikes if s.targets & tags), None)
             distance = {u.tag: reach.walk_to(targets, u.position) for u in nearby}
             candidates = [u for u in nearby if distance[u.tag] <= STRIKE_RANGE]
             # The strike's own zerglings first (it keeps them), then the nearest
@@ -161,13 +170,13 @@ class Strikes:
             taken |= strike.lings
         if self.debug:
             # Strike start / end events (to see whether a strike survives its first attackers dying)
-            for old in self.strikes:
+            for old in self.strike_state.strikes:
                 if not any(new.targets & old.targets for new in strikes):
                     logger.info(f"{ai.time_formatted} STRIKE ENDED: {len(old.lings)} zerglings left, go={old.go}")
             for new in strikes:
-                if not any(new.targets & old.targets for old in self.strikes):
+                if not any(new.targets & old.targets for old in self.strike_state.strikes):
                     logger.info(f"{ai.time_formatted} STRIKE STARTED: {len(new.lings)} zerglings, go={new.go}")
-        self.strikes = strikes
+        self.strike_state.strikes = strikes
 
     def strike_size(
         self, ai: AresBot, pool: list[Unit], group: list[Unit], reach: ReachMap | None = None
@@ -187,7 +196,7 @@ class Strikes:
     def execute_strikes(self, ai: AresBot) -> None:
         by_tag = {u.tag: u for u in ai.units}
         enemies = {e.tag: e for e in [*ai.enemy_units, *ai.enemy_structures]}
-        for strike in self.strikes:
+        for strike in self.strike_state.strikes:
             group = [enemies[t] for t in strike.targets if t in enemies]
             units = [by_tag[t] for t in strike.lings if t in by_tag]
             if not group or not units:

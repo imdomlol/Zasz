@@ -47,6 +47,9 @@ class BreachState:
     evals: dict[tuple[int, int], tuple[float, dict[int, int]]] = field(default_factory=dict)  # area -> (when, caps)
     widening: dict[int, WidenPlan] = field(default_factory=dict)  # target tag -> its plan (`widen_plan`)
     given_up: dict[int, float] = field(default_factory=dict)  # target tag -> no widening plan until then
+    notes: dict[int, tuple[Point2, str, float]] = field(
+        default_factory=dict
+    )  # overlay: structure -> (where, text, when)
 
 
 class Breaches:
@@ -158,7 +161,7 @@ class Breaches:
             del self.breach_state.kept[t]
         self.breach_state.kept[best[1]] = ai.time
         chosen = structures[best[1]]
-        self.breach_notes[best[1]] = (chosen.position, f"breach: lose ~{best[0]:.0f}, {best[2]} on it", ai.time)
+        self.breach_state.notes[best[1]] = (chosen.position, f"breach: lose ~{best[0]:.0f}, {best[2]} on it", ai.time)
         return {best[1]: best[2]}
 
     def forget_stale_widening(self, now: float) -> None:
@@ -302,7 +305,7 @@ class Breaches:
         self.assignments.deferred = set(self.breach_state.widening)
         target, building = next(e for e in fighters if e.tag == t_tag), structures[s_tag]
         COUNTS["widen: on"] += 1
-        self.breach_notes[s_tag] = (
+        self.breach_state.notes[s_tag] = (
             building.position,
             f"widen {name_of(target)}: lose ~{lost:.0f} vs ~{head_on:.0f} head on,"
             f" {now - started:.0f}/{WIDEN_MAX_SECONDS:.0f}s",

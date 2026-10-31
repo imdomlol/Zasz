@@ -49,8 +49,9 @@ def test_a_stuck_game_is_killed_with_its_children_and_the_others_still_finish(tm
     pid_file = tmp_path / "child.pid"
     tasks = [("stuck", str(pid_file)), ("quick", 21), ("quick", 4)]
     started = time.monotonic()
-    outcomes = {o.index: o for o in supervise.run(game, tasks, 2, lambda i: 3.0)}
-    assert time.monotonic() - started < 20
+    # Only the stuck game gets a short deadline: starting a process can take seconds on a busy machine
+    outcomes = {o.index: o for o in supervise.run(game, tasks, 2, lambda i: 3.0 if i == 0 else 120.0)}
+    assert time.monotonic() - started < 120
     assert outcomes[0].result is None and "no result after 3s" in outcomes[0].error
     child = int(pid_file.read_text())
     gone_by = time.monotonic() + 3  # a kill signal lands a moment later

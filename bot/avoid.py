@@ -2,6 +2,7 @@
 fog. Patrols, raids and routes keep out of them until they expire or are seen empty."""
 
 import math
+from dataclasses import dataclass, field
 
 from ares import AresBot
 from ares.consts import WORKER_TYPES, UnitTreeQueryType
@@ -12,6 +13,18 @@ from bot.army_notes import COUNTS
 from bot.combat import armed, weapon_range, wins
 from bot.settings import AVOID_MARGIN, AVOID_SECONDS, PARTLY_SEEN_MARGIN, PARTLY_SEEN_RANGE, PARTLY_SEEN_SECONDS
 from bot.squads import center_of, enemy_groups
+
+
+@dataclass
+class AvoidState:
+    """What `AvoidAreas` keeps between steps (owned by `Army` as `avoid_state`)."""
+
+    # Where squads were turned back by a fight the sim says we'd lose: (center, radius, until). Sites and
+    # patrol spots near these are skipped for a while, so squads try elsewhere instead of walking back into
+    # the same wall as soon as the enemy leaves vision
+    areas: list[tuple[Point2, float, float]] = field(default_factory=list)
+    reasons: dict[Point2, str] = field(default_factory=dict)  # area center -> why
+    partly_seen: set[int] = field(default_factory=set)  # enemies seen on ground we have no vision of
 
 
 class AvoidAreas:
@@ -51,8 +64,8 @@ class AvoidAreas:
                 continue
             found.add(e.tag)
             if not any(
-                self.avoid_reasons.get(c) == "scout needed" and c.distance_to(e.position) < r / 2
-                for c, r, _ in self.turned_back_at
+                self.avoid_state.reasons.get(c) == "scout needed" and c.distance_to(e.position) < r / 2
+                for c, r, _ in self.avoid_state.areas
             ):
                 self.mark_avoid(
                     ai, e.position, weapon_range(e) + e.radius + PARTLY_SEEN_MARGIN, "scout needed", PARTLY_SEEN_SECONDS
@@ -62,7 +75,7 @@ class AvoidAreas:
         # Until a "scout needed" area has really been looked at, everything armed in it stays partly seen,
         # remembered units included: once a tank's reveal from firing wears off it's only remembered, and
         # was then treated as a plain target (the sim saw 2 tanks, not what stands around them)
-        areas = [(c, r) for c, r, _ in self.turned_back_at if self.avoid_reasons.get(c) == "scout needed"]
+        areas = [(c, r) for c, r, _ in self.avoid_state.areas if self.avoid_state.reasons.get(c) == "scout needed"]
         if areas:
             for group in ai.mediator.get_units_in_range(
                 start_points=[c for c, _ in areas],
@@ -96,26 +109,26 @@ class AvoidAreas:
     ) -> None:
         """An avoid area of a given size (`turned_back` works it out from the enemies seen)."""
         COUNTS[f"avoid area ({reason})"] += 1
-        self.set_avoid_areas([(p, r, t) for p, r, t in self.turned_back_at if p.distance_to(center) > radius / 2])
-        self.turned_back_at.append((center, radius, ai.time + seconds))
-        self.avoid_reasons[center] = reason
+        self.set_avoid_areas([(p, r, t) for p, r, t in self.avoid_state.areas if p.distance_to(center) > radius / 2])
+        self.avoid_state.areas.append((center, radius, ai.time + seconds))
+        self.avoid_state.reasons[center] = reason
 
     def set_avoid_areas(self, areas: list[tuple[Point2, float, float]]) -> None:
         """Replace the avoid areas, forgetting why the dropped ones were made (unless another area has the
         same center)."""
-        if len(areas) < len(self.turned_back_at):
+        if len(areas) < len(self.avoid_state.areas):
             centers = {p for p, _, _ in areas}
-            self.avoid_reasons = {c: why for c, why in self.avoid_reasons.items() if c in centers}
-        self.turned_back_at = areas
+            self.avoid_state.reasons = {c: why for c, why in self.avoid_state.reasons.items() if c in centers}
+        self.avoid_state.areas = areas
 
     def clear_empty_avoid_areas(self, ai: AresBot) -> None:
         """An avoid area whose center we can see with no armed enemy in it is over: the army that
         made it walked off (it used to stay up its full AVOID_SECONDS)."""
         armed_enemies = [e for e in ai.enemy_units if not e.is_memory and armed(e)]
         kept = []
-        for center, radius, until in self.turned_back_at:
-            unseen = self.avoid_reasons.get(center) == "unseen fire"  # the shooter isn't at the center
-            if self.avoid_reasons.get(center) == "scout needed":
+        for center, radius, until in self.avoid_state.areas:
+            unseen = self.avoid_state.reasons.get(center) == "unseen fire"  # the shooter isn't at the center
+            if self.avoid_state.reasons.get(center) == "scout needed":
                 if self.scouted(ai, center, radius):
                     COUNTS["avoid area cleared (scouted)"] += 1
                     continue
@@ -136,8 +149,8 @@ class AvoidAreas:
 
     def avoided(self, ai: AresBot) -> list[tuple[Point2, float]]:
         """Active avoid areas: (center, radius)."""
-        self.set_avoid_areas([(p, r, t) for p, r, t in self.turned_back_at if t > ai.time])
-        return [(p, r) for p, r, _ in self.turned_back_at]
+        self.set_avoid_areas([(p, r, t) for p, r, t in self.avoid_state.areas if t > ai.time])
+        return [(p, r) for p, r, _ in self.avoid_state.areas]
 
     def blocked(self, ai: AresBot, spot: Point2) -> bool:
         return any(spot.distance_to(p) < r for p, r in self.avoided(ai))
