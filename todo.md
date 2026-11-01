@@ -14,7 +14,7 @@ but narrow or indirect; **Low** = nice to have / tooling.
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
-| R | `review2-deferred` | **Next.** R04 being retested with the avoid-zone rule; R02 left over from the repository review | High | - |
+| R | `review2-deferred` | R02, left over from the repository review | High | - |
 | T | `faster-testing` | Judge a change in 15 minutes, not 80 | High | - |
 | 20 | `squads-polish` | Open squad behaviors: help flip-flop, raids that leave, pushes into the unknown, strike sizing | High | - |
 | 21 | `combat-estimates` | Fix the sim's blind spots: approach under fire, chokes, fog, bunkers; enemy groups | High | - |
@@ -37,18 +37,11 @@ but narrow or indirect; **Low** = nice to have / tooling.
 | 6 | `static-defense-placement` | Better spore / spine placement | Low-Medium | - |
 | 7 | `drone-escape-building` | Drone saves itself by starting a building | Low-Medium | - |
 
-## `review2-deferred`: Left over from the 2026-10-07 repository review
+## `review2-deferred`: R02, left over from the 2026-10-07 repository review
 
-The review's other items are done (all on `review2-r04-zones`). Full results:
+The review's other items are done (merged into `squads`). Full results:
 `docs/review2-report.md`. Each measured side by side against base `6c460c1`, same seeds, 21 games per run.
 
-- **R04 (avoid areas: static defense keeps its area, and areas aren't law), on `review2-r04-zones`: the user's decision.**
-  Two parts: a cannon or bunker we can see keeps the area it made (`clear_empty_avoid_areas`); each area remembers the
-  enemies that made it, and at each raid plan one the free squads clearly beat (`AVOID_DROP_AT`) is dropped, seen or not
-  (`drop_beatable_avoid_areas`). Areas with no known enemies (unseen fire, scout needed) keep their rules. 3 rounds side by
-  side: 95.1k lost, 60 of 63 wins, 0.42 lost/killed; base 91.2k, 55 of 63, 0.42. Same on average. It fires about 22 times a
-  game, mostly right after the zone is made. Watch: Ultralove and Pylon vs Zerg lost more. If that holds, keep zones up for
-  the squad that made them or for patrols, and drop them for raids only. Details: `docs/review2-report.md`.
 - **R02 (spare squads join only staffed raids), reverted in `476f5c8`.** 2 rounds: phase 2 84.4k lost, 41 of 42 wins, 0.38
   lost/killed; phase 2 + R02 102.4k, 38 of 42, 0.44; all of phase 3 without R02 78.5k, 40 of 42, 0.37. Longer games too
   (654 s vs 575 s). Not shown to help, and possibly harmful; 2 rounds can't prove harm. R02 had four parts (no spares for
@@ -66,6 +59,10 @@ counters for whether a change fires, mid-game scenarios.
 **Impact:** High: a change under about 20k can't be seen today, even in 5 rounds (5 hours).
 
 ## Watch list (not branches)
+
+- **Avoid areas dropped by the free squads' strength (R04):** fires about 22 times a game, mostly right after the area is
+  made, and Ultralove and Pylon vs Zerg lost more in its 3-round retest (all wins). If that holds, keep areas up for the squad
+  that made them or for patrols, and drop them for raids only (`drop_beatable_avoid_areas`).
 
 - **`wall_bunker` fails, expected**: a tight race even played optimally. Ideas for it are under #20.
 - **`efficiency_open_army_free` fails now and then on any code** (about 1 run in 6: the squad leaves the

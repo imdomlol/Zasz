@@ -5,9 +5,8 @@ once you've read it.
 
 ## Short version
 
-- All 4 phases and the new R04 are on `review2-r04-zones`, pushed, not merged. R02 is deferred.
-- **R04 with your avoid-zone rule: I recommend keeping it.** It's the same as base on resources lost, has the most wins
-  and fewest ties of the three, and it does what you asked. **Keeping it is your call.** One thing to watch: Zerg games.
+- All 4 phases and R04 are merged into `squads`. R02 is deferred.
+- **R04 with your avoid-zone rule: kept (your call).** Same as base on resources lost, most wins and fewest ties. To watch: Zerg games.
 - The retest found a real crash, older than R04: a zergling formation past the map edge ended the game. Fixed.
 - Earlier, after 2 rounds, I called V2 a real lead on the Protoss ties. It wasn't; don't rely on 2-round results.
 
@@ -48,9 +47,9 @@ on my part. The numbers here were read before that, but they aren't in `benchmar
 | 3, behavior fixes | `ab9c9b1` | Done: R01, R03, R07, R05, R06 kept; **R02 and R04 reverted and deferred** |
 | 4, runners and state owners | `5f2c0e7` | Done. 39 of 39 repeatable scenario runs identical to phase 3 (30,813 commands); 21 games ran with no crash |
 
-All of this is on `review2-r04-zones`; the separate phase branches were deleted once it contained them.
+All of this is merged into `squads`; the separate branches are deleted.
 
-Nothing is merged into `squads` or `main`.
+`main` is still behind `squads`.
 
 ## The first finding: phase 3 with R02 looked much worse, and one-run checks missed it
 
