@@ -109,6 +109,36 @@ the behaviors still seen going wrong in scenarios and games.
 
 **Impact:** High: these are where zerglings die for nothing. **Blockers:** each needs its scenario; judge
 on the regression set (`--repeat 3`) and a 21-game benchmark.
+- **Scout requests on every lost tank:** an overlord scout is requested whenever a tank drops out of
+  vision, including during an ordinary retreat. Request one only when we lose vision of it *and* none of
+  our units has been near it for a while, so a tank shooting from the dark is told apart from a fight we
+  just backed out of. (Seen in Hard/Very Hard games, 2026-10-05.)
+- **Retreat into a trap:** back-off picks a direction away from the threat without checking where it
+  leads. Several times an enemy army ran out of its main and down the ramp, and our scouts retreated into
+  the natural's mineral line and were trapped. Retreat toward open ground with a way out (`cornered`
+  already knows when there's none; use the same view to choose the direction).
+- **Scouts parked at avoid areas:** a scouting squad that backs off from an avoid area just sits on its
+  edge, waiting up to ~45 s for the area to expire, then dives the same units it was avoiding. Instead,
+  reassign its scout target to one it can reach without crossing an avoid area (`route_ok`).
+- **Unseen fire triggers far too often in fights** (CheatInsane game, 2026-10-05). `Army.on_damage` counts a
+  hit as unseen unless an armed enemy seen in the last `UNSEEN_EXPLAIN_SECONDS` (1 s) has the zergling's
+  position *when the damage lands* within its weapon reach + 1 tile; 2 such hits worth 25% of nearby health
+  in 8 s make the squad back off and mark a 12-tile avoid area. Likely false positives (from the code, not
+  yet measured):
+  - **Splash** (tanks, banelings, hellbats, colossi...) lands beyond the shooter's reach + 1.
+  - **Projectiles in flight**: a retreating zergling hit by a shot fired earlier is already out of reach.
+  - **Spells/effects** (storm, fungal, ...) have no armed shooter; `ai.state.effects` isn't consulted.
+  - **Big fights** clear the 2-hit / 25% bar in a second, turning a winning fight into a retreat.
+  Real cases (cloaked/burrowed units, shots from high ground or the fog) must still count. Ideas: allow
+  each weapon's splash radius and the distance a zergling covers while a shot flies (or check its position
+  ~0.5 s earlier); explain damage with active effects; don't count unseen hits while the force is in a
+  fight with visible armed enemies around it, or require the unseen damage to persist after they're gone.
+  **First measure:** log each unseen hit (amount, nearest seen enemy and its distance vs its reach, our
+  unit's movement) in a real game with army debug on, to see which cause dominates. Related: the tank
+  scout-request item above.
+- **(low priority) Enemy memory in their base:** a unit last seen in the enemy's base is probably still
+  there. Keep (or refresh) the memory of units last seen in the main/natural longer instead of letting it
+  fade like units seen in the field. Small cost today.
 
 ## `combat-estimates` (#21): Fix the combat sim's blind spots
 
@@ -138,6 +168,10 @@ decision logic. Every fight, strike, raid and help judgement goes through one `c
   enemies' range: estimate the damage taken on the way (time to cross x their dps) and take those
   zerglings off before judging. The sim called 2 zerglings vs 2 sieged tanks VICTORY_EMPHATIC.
 - **Sieged tanks:** splash and the long approach.
+- **Sieged vs unsieged tanks:** an unsieged tank seems to be treated as if it does sieged damage (or the
+  verdict is otherwise too pessimistic): squads give up trades they'd win. Check how the sim and our threat
+  code (`weapon_range`, `dps_vs`, the threat lookup out to a sieged tank's reach) tell `SIEGETANK` from
+  `SIEGETANKSIEGED`, and use the unsieged numbers for an unsieged tank. (Seen 2026-10-05.)
 - **Chokes:** only as many zerglings as fit around the reachable enemies fight at once (a ramp held by
   zealots). A first try broke the gateway grid by calling sealed fights hopeless: leave free work and
   breaches alone, and only judge *entering* a choke. Per target, `choke_worth` already refuses melee units
@@ -228,6 +262,13 @@ scenario can check every point on the path has creep after N minutes.
   `efficiency_ramp`.
 - **Idle ~24% everywhere** is mostly the melee wind-up; a better "swinging" signal would make it meaningful.
 - **Stutter step during cooldown**: not tried; the metric can decide.
+- **Focus fire on low health:** in fights a lot of the enemy is left on 1 HP (seen 2026-10-05). Target
+  choice (`fight` tiers -> `pick_tiered`) ignores health entirely: tier, then depth/distance, and a
+  zergling keeps its target while it has room; the slot caps spread zerglings over targets on purpose.
+  Within a tier, prefer the target that dies soonest (remaining health + shields over the damage we can
+  put on it), so its damage leaves the fight quickly; unit type still sets the tier (tanks first). Keep
+  the slot caps (finishing a target needs room on it) and don't switch so eagerly that zerglings walk
+  back and forth. Measure with `efficiency_open_army` (zerglings lost, kill time).
 - **Mutalisks** (#12): an overkill cap for ranged attackers in `attack_capacity`, and a scenario
   (mutalisks vs workers/structures) to measure bounce and spread.
 - **Real games read lower than scenarios** (45% vs 60-70%): maybe real congestion in messy fights; worth a

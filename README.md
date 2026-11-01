@@ -39,6 +39,7 @@ Run from the repo root (ares reads `config.yml` from the working directory):
 ```sh
 uv run python run.py                                   # vs Easy, random race, PersephoneAIE_v4
 uv run python run.py --difficulty Hard --race Terran --map TorchesAIE_v4 --realtime
+uv run python run.py --difficulty Hard --overlay --slow 1  # watch: decisions drawn, at Faster speed (--slow 3: 3x slower)
 ```
 
 Replays are saved to `replays/`.
