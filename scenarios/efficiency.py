@@ -237,6 +237,11 @@ class AvoidAreaBeaten(OpenField):
         middle = Point2((sum(p.x for p in positions) / len(positions), sum(p.y for p in positions) / len(positions)))
         return [*spawns, *[(UnitTypeId.MARINE, middle) for _ in range(self.MARINES)]]
 
+    def zergling_start(self, bot: ScenarioBot) -> Point2:
+        # Far enough not to notice the marines on the way: nearby, they'd fight whatever the area says
+        positions, _ = self.planned(bot)
+        return positions[0].towards(bot.start_location, 35)
+
     def fight_starting(self, bot: ScenarioBot) -> None:
         bot.army.turned_back(bot, list(bot.enemy_units(UnitTypeId.MARINE)), "no help possible")
 
