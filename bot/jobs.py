@@ -173,7 +173,6 @@ class SquadJobs:
             for sid, b in self.battles.items()
             if (sq := self.book.squads.get(sid)) is not None and sq.job in ("raid", "help", "engage", "gather")
         )
-        raids: list[tuple[Site, Point2]] = []  # staffed raids and where their squads go (staging or the site)
         for site in sites:
             on_it = [s for s in free if s.job == "raid" and s.site == site.center]
             if any(b.center.distance_to(site.center) < SITE_DEFENSE_RADIUS for b in self.battles.values()):
@@ -200,7 +199,6 @@ class SquadJobs:
                     COUNTS["raid skipped: not enough"] += 1
                     for s in on_it:
                         s.free()
-                    self.raids_ok = False  # a site we'd raid but can't: no spare squads to patrol with
                     continue
             elif site.structures:
                 # Undefended: as many as fit around the structures
@@ -244,9 +242,8 @@ class SquadJobs:
             if staffed < demand or state == "gathering":
                 self.raids_ok = False
             self.site_notes.append((site.center, f"raid {self.site_letters[site.center]}: {staffed}/{demand} {state}"))
-            raids.append((site, target))
         self.staging_since = {c: t for c, t in self.staging_since.items() if c in raiding}
-        self.no_idle_squads(ai, squads, raids, bool(sites), free)
+        self.no_idle_squads(ai, squads, sites, free)
 
     def label_sites(self, sites: list[Site]) -> None:
         """Letters for the overlay: a site keeps the letter of the previous plan's site within
@@ -266,31 +263,24 @@ class SquadJobs:
                 used.add(letter)
         self.site_letters = new
 
-    def no_idle_squads(
-        self, ai: AresBot, squads: list[Squad], raids: list[tuple[Site, Point2]], sites_known: bool, free: list[Squad]
-    ) -> None:
+    def no_idle_squads(self, ai: AresBot, squads: list[Squad], sites: list[Site], free: list[Squad]) -> None:
         """While attacking, squads with nothing to do don't sit around: at most MAX_PATROLS_ATTACKING
         keep patrolling (none in an army under PATROL_MIN_SQUADS squads), the rest join the nearest
-        staffed raid, going where its squads go (its staging point while they gather; more zerglings
-        there just take more targets: slots keep them from piling up), or, with nothing known to raid,
-        push toward their natural, then their main, then other bases, all to the same place so they go
-        as one group. Sites known but none raided (the sim said no squads we have win there, or a fight
-        is on): they keep patrolling, rather than walking into what was just judged a loss."""
+        raid (more zerglings there just take more targets: slots keep them from piling up), or, with
+        nothing known to raid, push toward their natural, then their main, then other bases, all to
+        the same place so they go as one group."""
         idle = [s for s in free if s.job == "patrol"]
         keep = MAX_PATROLS_ATTACKING if len(squads) >= PATROL_MIN_SQUADS and self.raids_ok else 0
         patrols = sorted(idle, key=lambda s: len(s.tags))[:keep]
         spare = [s for s in idle if s not in patrols]
         if not spare:
             return
-        if raids:
+        if sites:
             for s in spare:
-                site, target = min(raids, key=lambda r: r[0].center.distance_to(s.squad_position))
-                s.job, s.site, s.helping, s.target = "raid", site.center, None, target
+                site = min(sites, key=lambda t: t.center.distance_to(s.squad_position))
+                s.job, s.site, s.helping, s.target = "raid", site.center, None, site.center
                 s.site_tags = {u.tag for u in site.defenders + site.structures}
                 COUNTS["joined a raid"] += 1
-            return
-        if sites_known:
-            COUNTS["no raid to join: patrol"] += len(spare)
             return
         target = self.push_target(ai, [u for s in spare for u in s.units])
         if target is None:

@@ -264,47 +264,6 @@ def test_a_dead_units_memory_is_dropped():
     assert 7 not in army.last_damaged and 8 not in army.enemy_state and 8 not in army.enemy_moved
 
 
-# --- raids and the spare squads ---
-
-
-def raid_army(monkeypatch, demand):
-    """Five squads, one defended enemy site; the sim's demand for it is `demand` (None: can't staff it)."""
-    import bot.jobs
-    from bot.squads import Site
-
-    army = Army()
-    squads = []
-    for i in range(5):
-        s = army.book.new()
-        s.units = lings(8, 10 + i, 10 + i)
-        s.tags = {u.tag for u in s.units}
-        squads.append(s)
-    site = Site(Point2((60, 60)), [], [marine(60, 60, is_memory=False) for _ in range(3)])
-    monkeypatch.setattr(bot.jobs, "enemy_groups", lambda ai: [])
-    monkeypatch.setattr(bot.jobs, "enemy_sites", lambda ai, structures, groups: [site])
-    monkeypatch.setattr(bot.jobs, "needed", lambda *args, **kwargs: demand)
-    monkeypatch.setattr(bot.jobs, "rally_point", lambda ai: Point2((10, 10)))
-    monkeypatch.setattr(army, "blocked", lambda ai, p: False)
-    monkeypatch.setattr(army, "site_reachable", lambda ai, s: True)
-    ai = SimpleNamespace(time=10.0, enemy_structures=[], enemy_start_locations=[Point2((90, 90))])
-    return army, ai, squads, site
-
-
-def test_a_site_the_sim_rejects_gets_no_spare_squads(monkeypatch):
-    army, ai, squads, _ = raid_army(monkeypatch, demand=None)
-    army.assign_raids(ai, squads)
-    assert [s.job for s in squads] == ["patrol"] * 5
-    assert not army.raids_ok
-
-
-def test_spare_squads_join_a_gathering_raid_at_its_staging_point(monkeypatch):
-    army, ai, squads, site = raid_army(monkeypatch, demand=8)  # one squad staffs it, the rest are spare
-    army.assign_raids(ai, squads)
-    raiders = [s for s in squads if s.job == "raid"]
-    assert len(raiders) == 5 and {s.target for s in raiders} != {site.center}  # all at the staging point
-    assert len({s.target for s in raiders}) == 1
-
-
 def test_help_counts_a_helper_already_in_the_fight_once(monkeypatch):
     from ares.consts import EngagementResult
 
