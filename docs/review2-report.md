@@ -9,12 +9,12 @@ Status report written while the tests run; **Latest results** is updated as they
 |---|---|---|
 | 1, measurement tooling | `review2-phase1-measurement` | Done, pushed; bot unchanged |
 | 2, refactors with identical orders | `review2-phase2-refactors` | Done, pushed. 39 of 39 repeatable scenario runs matched command for command, debug on and off |
-| 3, behavior fixes | `review2-phase3-behavior` | Stack is a **regression**; finding the cause |
-| 4, runners and state owners | `review2-phase4-runners` | Drafted, tests pass, not measured yet |
+| 3, behavior fixes | `review2-phase3-behavior` | Done: R01, R03, R07, R05, R06 kept; **R02 and R04 reverted and deferred** |
+| 4, runners and state owners | `review2-phase4-runners` | Implemented; being checked (see Latest results) |
 
 Nothing is merged into `squads` or `main`.
 
-## The main finding: phase 3's stack is worse, and one-run checks missed it
+## The main finding: R02 made the bot worse, and one-run checks missed it
 
 Phase 2 and all of phase 3 ran side by side, same machine, same seeds, 21 games, two rounds each:
 
@@ -33,11 +33,22 @@ step, with one run, can't see a slow slide.** Compare against a fixed baseline, 
   possibly harmful", not proven harmful.
 - **R05 kept without more testing (your call).** It only touches overlords.
 - **R06: no effect seen.** No game logged a blocked or reopened expansion, so it changed no decision in those runs.
-- **R02, R01, R03, R07: under test.** See below.
+- **R02 reverted and deferred** (see below; it had looked fine, even good, in its first run).
+- **R01, R03, R07 kept as a group:** without R02 the stack matches phase 2 on average. They weren't separated from
+  each other, so this says "no harm together", not that each one helps.
 
 ## Latest results
 
-See the split test table here once it's finished (in progress when this was written).
+**The split test** (side by side, same seeds, 2 rounds of 21 games each):
+
+| Code | Lost per run | Avg lost | Wins of 42 | Lost/killed | Avg game |
+|---|---|---|---|---|---|
+| Phase 2 | 64.2k, 104.5k | 84.4k | 41 | 0.38 | 575 s |
+| Phase 2 + R02 only | 105.8k, 98.9k | 102.4k | 38 | 0.44 | 654 s |
+| All of phase 3 without R02 | 69.1k, 88.0k | 78.5k | 40 | 0.37 | 596 s |
+
+R02 alone costs about 18k more resources per 21 games, and games run longer. Why isn't proven. The likely reason: its "don't send
+spare squads to a site the sim rejects" removed pressure that was covering for the sim's pessimism (`todo.md` #21).
 
 ## Faster testing
 
@@ -57,7 +68,7 @@ and phase 3, divided by how much phase 2 varies between its own runs. Higher is 
 Also:
 - Three matchups (LeyLines, Ultralove and Magannatha vs Protoss) hold 43% of all losses, and they're the noisiest.
   LeyLines Protoss alone varies by ±15k, more than the whole Terran and Zerg signal.
-- Half of a game's run is spent after about 9 minutes of game time: the median game is 547 s, and ties take 1200 s.
+- The median game is 547 s of game time, 10% run past 828 s, and ties take 1200 s.
 - A full side-by-side costs 80 minutes because it plays 84 games, 28 of them long Protoss games.
 
 ### Ideas, most promising first
@@ -73,7 +84,7 @@ Also:
 4. **A fast benchmark of non-Protoss games only:** 14 games at 6 at a time is about 8-10 minutes. Protoss runs join in the
    nightly run, plus a dedicated check when working on ties.
 5. **Stop early when it's decided (SPRT, how chess engines test):** play game pairs and stop as soon as the result is
-   statistically clear. A +48% regression would stop within a few minutes, a neutral change takes longest.
+   statistically clear. A big regression stops early, a neutral change takes longest. Not measured here yet.
 6. **A game-time cap for the fast benchmark:** end games at 8-10 minutes and score the fight so far. Saves 12-23% of game
    time. This needs loss and kill snapshots over time, and it can't catch late-game ties.
 7. **Record scores over time** (every minute: lost, killed, supply, bases). This lets us compare at the same game minute,
