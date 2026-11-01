@@ -287,6 +287,13 @@ decision logic. Every fight, strike, raid and help judgement goes through one `c
   in the open) wins every run losing ~10. Check whether it's the sim itself or what we feed it (`needed()`
   grows the force in steps of 6, nearest first). Write the findings down (a short doc or this section), so
   the corrections below are based on what it actually does.
+- **Later: see if we can make our own version.** Once we understand exactly how the sim decides battles,
+  judge whether our own combat estimate would do better than correcting ares': one that knows what the sim
+  doesn't (how many zerglings fit around the reachable enemies, chokes and buildings splitting an army, the
+  approach under fire, minimum range, bunker cargo). Check it against real outcomes (the `efficiency_*` and
+  `wall_*` scenarios, and fights in benchmark games), and watch its step time: every fight, raid, help and
+  strike judgement calls it. It matters more than a single bug: raids, help and avoid zones all treat the
+  sim's verdict as law.
 
 - **Approach under fire:** the sim assumes everyone fights at once. Melee units first cross the ranged
   enemies' range: estimate the damage taken on the way (time to cross x their dps) and take those
