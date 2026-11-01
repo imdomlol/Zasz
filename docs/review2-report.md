@@ -10,7 +10,10 @@ Status report written while the tests run; **Latest results** is updated as they
 | 1, measurement tooling | `review2-phase1-measurement` | Done, pushed; bot unchanged |
 | 2, refactors with identical orders | `review2-phase2-refactors` | Done, pushed. 39 of 39 repeatable scenario runs matched command for command, debug on and off |
 | 3, behavior fixes | `review2-phase3-behavior` | Done: R01, R03, R07, R05, R06 kept; **R02 and R04 reverted and deferred** |
-| 4, runners and state owners | `review2-phase4-runners` | Implemented; being checked (see Latest results) |
+| 4, runners and state owners | `review2-phase4-rebased` | Done. 39 of 39 repeatable scenario runs identical to phase 3 (30,813 commands); 21 games ran with no crash |
+
+(`review2-phase4-runners` on GitHub is the older draft: I rebased after reverting R02, and overwriting a pushed branch
+needs your say-so. `review2-phase4-rebased` is the current one; `review2-drafts` can go too.)
 
 Nothing is merged into `squads` or `main`.
 
@@ -49,6 +52,12 @@ step, with one run, can't see a slow slide.** Compare against a fixed baseline, 
 
 R02 alone costs about 18k more resources per 21 games, and games run longer. Why isn't proven. The likely reason: its "don't send
 spare squads to a site the sim rejects" removed pressure that was covering for the sim's pessimism (`todo.md` #21).
+
+**Noise check:** phase 4's own run lost 113.5k, though its orders match the variant that lost 69.1k and 88.0k on the
+repeatable scenarios. A single 21-game total can swing that far on essentially the same bot, so never judge by one run.
+
+**Fine-tuning (running when this was written):** base, V1 (spare squads join a gathering raid at its staging point:
+R02's one part that shouldn't reduce pressure) and V2 (R04 again, fairly tested), side by side, 2 rounds.
 
 ## Faster testing
 
