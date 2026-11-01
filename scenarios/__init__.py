@@ -22,8 +22,9 @@ Debug quirks found so far:
 - The built-in AI controls spawned enemy units: it unsieges tanks and can lift off barracks (use
   engineering bays for walls). Enemy supply depots failed to spawn on our high ground.
 - A spawn that doesn't fit is moved to the nearest free spot (or dropped), so leave margin.
-- Each run uses a fixed game seed per side (`scenarios/seeds.py`), so it plays out the same way
-  every time; `--side both` covers both sides, `--random` gives random starts.
+- Each run uses a fixed game seed per side (`scenarios/seeds.py`): the `REPEATABLE` ones then play out
+  the same way every time, the rest nearly; `--side both` covers both sides, `--random` gives random
+  starts.
 
 Run them with `scripts/run_scenarios.py`.
 """
@@ -47,4 +48,22 @@ ALL: list[type[Scenario]] = [
     *walls.SCENARIOS,
 ]
 
-__all__ = ["ALL", "Outcome", "Scenario", "ScenarioBot", "failed", "passed"]
+# Scenarios that play out command for command the same on the same code and seed (the rest vary a little
+# even then, from the game itself): a refactor's order logs must match on these (`scripts/compare_orders.py`)
+REPEATABLE = [
+    "alternate_target",
+    "custom_decisions",
+    "efficiency_deep_base",
+    "efficiency_open_field",
+    "efficiency_ramp",
+    "expansion_baseline",
+    "expansion_hostile",
+    "expansion_rocks",
+    "expansion_walled",
+    "fight_winnable",
+    "retreat_losing_fight",
+    "spores_vs_air",
+    "wall_techlab",
+]
+
+__all__ = ["ALL", "REPEATABLE", "Outcome", "Scenario", "ScenarioBot", "failed", "passed"]

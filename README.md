@@ -39,6 +39,7 @@ Run from the repo root (ares reads `config.yml` from the working directory):
 ```sh
 uv run python run.py                                   # vs Easy, random race, PersephoneAIE_v4
 uv run python run.py --difficulty Hard --race Terran --map TorchesAIE_v4 --realtime
+uv run python run.py --difficulty Hard --overlay --slow 1  # watch: decisions drawn, at Faster speed (--slow 3: 3x slower)
 ```
 
 Replays are saved to `replays/`.
@@ -55,8 +56,9 @@ uv run python scripts/benchmark.py --games 30 --jobs 6  # 6 games at a time (~1 
 uv run python scripts/benchmark.py --record             # also save (observation, decision) pairs
 ```
 
-With `--jobs`, games run in parallel, but logs and results are still reported in matchup order, the same
-as a sequential run. Bot behavior doesn't depend on wall-clock speed (games aren't realtime), so results
+With `--jobs`, games run in parallel; each is reported as it finishes, labelled with its matchup number.
+A game still running far past its time limit (StarCraft II froze) is killed and recorded as a crash. Bot
+behavior doesn't depend on wall-clock speed (games aren't realtime), so results
 are comparable either way.
 
 Every game is appended to `benchmarks/results.csv` with the git commit, so you can compare versions.
@@ -70,7 +72,7 @@ over the limit with `--jobs 1`.
 
 If the bot crashes in a game, that game is recorded as `Crash` (with the error) and the run carries on.
 Replays are saved to `replays/benchmarks/<run>/`. By default (`--replays notable`) only losses, ties,
-crashes and unusually slow wins (over 1.5x the usual win time at that difficulty) are kept. Use
+crashes and unusually slow wins (over 1.5x the usual win time for that race and map) are kept. Use
 `--replays all` or `--replays none` to change that. Each crash also gets a `.log` with its traceback and
 game log.
 
@@ -104,12 +106,14 @@ uv run python scripts/run_scenarios.py --random --repeat 3   # random starts, to
 uv run python scripts/run_scenarios.py --list
 ```
 
-**Repeatable runs.** Every run uses a fixed game seed for its side, so the same code plays a
-scenario out exactly the same way every time (start location, the built-in AI's choices, and our
-own randomness: ares' creep spots and squad ids are seeded from it too). That makes runs comparable
-number for number, not just pass/fail: each result goes to `benchmarks/scenarios.csv` (units and
-resources lost, damage taken and dealt, game time, commit; `-dirty` for uncommitted code), and is
-printed next to the last earlier run of the same scenario, side, seed and StarCraft II build:
+**Repeatable runs.** Every run uses a fixed game seed for its side (start location, the built-in AI's
+choices, and our own randomness: ares' creep spots and Python's hash order follow it too). 13
+scenarios then play out command for command the same on the same code (`scenarios.REPEATABLE`); the
+rest still vary a little from run to run, from the game itself, so judge those over `--repeat 3` (how
+to judge a change: CLAUDE.md, "Judging a change"). Each result goes to `benchmarks/scenarios.csv` (units
+and resources lost, damage taken and dealt, game time, commit; `-dirty` for uncommitted code), and is
+printed next to the previous run of the same scenario, side, seed and StarCraft II build (the average of
+its repeats):
 
 ```
 PASS  efficiency_cramped_main[top]  ... (80s game; lost 22 units (550 resources), damage taken 732)
@@ -131,8 +135,9 @@ uv run python scripts/run_scenarios.py efficiency_cramped_main --side bottom --r
 
 Each one lives in `scenarios/` as a small class (`setup`, `check`, `on_timeout`); see
 `scenarios/__init__.py` for how to write one and the debug quirks to watch for. Replays of failed
-scenarios are kept in `replays/scenarios/`. If StarCraft II crashes or freezes mid-scenario, a
-watchdog reports it as an ERROR and the run carries on (`--watchdog SECONDS` to change the limit).
+scenarios are kept in `replays/scenarios/`. A scenario stuck on a crashed or frozen StarCraft II is
+killed (with its game) after far more real time than it could need, reported as an ERROR, and the run
+carries on (`--watchdog SECONDS` to change the limit).
 
 **Damage efficiency** (`efficiency_*` scenarios): 30 zerglings vs structures on open ground, in a
 4-deep base and up the enemy's main ramp. They pass when everything is dead and report kill time,

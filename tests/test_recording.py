@@ -118,3 +118,24 @@ def test_steps_stream_one_at_a_time(tmp_path):
         rec.record(loop, obs(loop), Decision())
     rec.close()
     assert [loop for loop, _, _ in iter_steps(path)] == [0, 22, 44]
+
+
+@pytest.mark.parametrize(
+    "lines, problem",
+    [
+        ([], "empty"),
+        ([header(decisions=[*DECISION_NAMES, "army.BOGUS"])], "unknown decisions"),
+        ([header(features=None)], "no features list"),
+        ([header(), header(version=99)], "second header"),
+        ([header(), {"type": "end", "result": "Victory"}, {"type": "end", "result": "Tie"}], "after the end"),
+        ([header(), {"type": "bogus"}], "unknown record type"),
+        ([header(), {"loop": 0}], "unknown record type"),
+        ([header(), {"type": "step", "loop": 0, "obs": {"renamed_feature": 1}, "decision": {}}], "unknown features"),
+        ([header(), {"type": "step", "loop": 0, "obs": {}, "decision": {"attack": "yes"}}], "attack"),
+    ],
+)
+def test_damaged_recordings_are_errors_with_their_line(tmp_path, lines, problem):
+    path = tmp_path / "game.jsonl"
+    write_lines(path, *lines)
+    with pytest.raises(ValueError, match=problem):
+        read_records(path)

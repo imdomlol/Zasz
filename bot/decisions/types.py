@@ -39,6 +39,16 @@ class Decision:
     spores_per_base: int = 0  # spore crawlers in each mineral line
 
     def __post_init__(self) -> None:
+        # Plain types, so the actions read what the policy meant (a string "false" is truthy: the army
+        # would attack) and the vector holds numbers
+        if not isinstance(self.build, Build):
+            raise ValueError(f"build: {self.build!r} is not a Build")
+        if type(self.attack) is not bool:
+            raise ValueError(f"attack: {self.attack!r} is not True or False")
+        for name in ("drone_target", "queens", "spores_per_base"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name}: {value!r} is not a whole number of at least 0")
         # Only what the fixed lists can express, so `to_dict`, `to_vector` and the actions agree on
         # what a decision contains
         if unknown := [unit for unit in self.army if unit not in ARMY_UNITS]:

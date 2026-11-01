@@ -73,19 +73,19 @@ def draw(ai: AresBot, army: Army) -> None:
         color = JOB_COLORS.get(squad.job, (200, 200, 200))
         client.debug_sphere_out(lifted(ai, center), radius, color)
         job = squad.job
-        if job == "raid" and squad.site in army.site_letters:
-            job = f"raid {army.site_letters[squad.site]}"
+        if job == "raid" and squad.site in army.job_state.site_letters:
+            job = f"raid {army.job_state.site_letters[squad.site]}"
         label = f"S{squad.id} {job} {len(units)}"
         if battle := army.battles.get(squad.id):
             label += f" | {battle.result.name} room {battle.room}"
         client.debug_text_world(label, lifted(ai, center, 1.5), color, 12)
         if squad.target is not None:
             client.debug_line_out(lifted(ai, center), lifted(ai, squad.target), color)
-    for center, text in army.site_notes:
+    for center, text in army.job_state.site_notes:
         client.debug_box2_out(lifted(ai, center, 0.5), 1.0, RAID_COLOR)
         client.debug_text_world(text, lifted(ai, center, 2.5), RAID_COLOR, 14)
     enemies = {e.tag: e for e in [*ai.enemy_units, *ai.enemy_structures]}
-    for strike in army.strikes:
+    for strike in army.strike_state.strikes:
         group = [enemies[t] for t in strike.targets if t in enemies]
         if not group:
             continue
@@ -96,11 +96,12 @@ def draw(ai: AresBot, army: Army) -> None:
         client.debug_text_world(f"strike {len(strike.lings)}: {state}", lifted(ai, center, 2.0), STRIKE_COLOR, 14)
         if strike.spot is not None:
             client.debug_box2_out(lifted(ai, strike.spot, 0.5), 0.6, STRIKE_COLOR)
-    for position, text, when in army.breach_notes.values():
+    for position, text, when in army.breach_state.notes.values():
         if ai.time - when < 3:
             client.debug_sphere_out(lifted(ai, position), 2.2, BREACH_COLOR)
             client.debug_text_world(text, lifted(ai, position, 2.0), BREACH_COLOR, 12)
-    from bot.army_notes import BACK_OFF_CIRCLES, CHOKE_NOTES, CHOKE_OPENERS, TARGET_NOTES, UNIT_NOTES
+    from bot.army_notes import BACK_OFF_CIRCLES, CHOKE_OPENERS, TARGET_NOTES, UNIT_NOTES
+    from bot.micro import CHOKE_VERDICTS
 
     # Each of our units: its squad, and what it was told to do this step and why
     squad_of = {t: sq.id for sq in army.book.squads.values() for t in sq.tags}
@@ -110,7 +111,7 @@ def draw(ai: AresBot, army: Army) -> None:
             client.debug_text_world(label, lifted(ai, u.position, 0.6), UNIT_COLOR, 10)
 
     # Choke fights judged this step: what killing it would cost against what it's worth
-    for tag, (lost, worth, taken) in CHOKE_NOTES.items():
+    for tag, (lost, worth, taken) in CHOKE_VERDICTS.items():
         if tag in enemies:
             verdict = "take" if taken else "skip"
             label = f"choke: lose ~{lost:.0f}, worth {worth:.0f} ({verdict})"
@@ -138,10 +139,10 @@ def draw(ai: AresBot, army: Army) -> None:
         client.debug_text_world(
             f"unseen fire: {damage:.0f} dmg, {hits} hits", lifted(ai, center, 1.5), UNSEEN_COLOR, 12
         )
-    for center, radius, until in army.turned_back_at:
+    for center, radius, until in army.avoid_state.areas:
         if until > ai.time:
             client.debug_sphere_out(lifted(ai, center), radius, AVOID_COLOR)
-            reason = army.avoid_reasons.get(center, "")
+            reason = army.avoid_state.reasons.get(center, "")
             client.debug_text_world(
                 f"avoid {until - ai.time:.0f}s ({reason})", lifted(ai, center, 1.0), AVOID_COLOR, 12
             )

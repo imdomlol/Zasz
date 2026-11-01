@@ -6,6 +6,8 @@ only compare loosely with later ones.
 
 | Date | Milestone | Code | Measured |
 |---|---|---|---|
+| 2026-11-01 | Avoid areas aren't law: each remembers its enemies and drops once the free squads clearly beat them; static defense keeps its area | `3ef2dec` | 21 vs Hard side by side, 3 rounds: 60 of 63 wins, avg 95.1k lost (base 55, 91.2k); scenarios x3 63/66 |
+| 2026-10-31 | Repository review 2 done: measurement tooling, CI, faster reach maps, runner deadlines, typed state owners, behavior fixes R01, R03, R05, R06, R07 (R02, R04 deferred) | `6c460c1` | 21 vs Hard side by side, 5 rounds: 96 of 105 wins, avg 88.6k lost (74.5-97.7k); scenarios x3 57/60 |
 | 2026-10-07 | `bot/army.py` split into parts (`jobs`, `strikes`, `breach`, `routes`, `avoid`, `micro`, `combat`, ...); order logs (`--order-log`, `scripts/compare_orders.py`) to prove a refactor changes no command | `679b123` | 21 vs Hard (`--seed 1`): 19 wins + 2 ties, 91.7k lost, 9.6 ms per game loop |
 | 2026-10-07 | Code review phase 5: recordings checked and streamed, decisions validated (+ `attacking` feature), efficiency rows with side/seed/status, ladder zip with only the ladder's binaries, one import-path setup | `8157e61` | scenarios unchanged; 6 vs Hard: 5 wins + 1 tie |
 | 2026-10-06 | Code review phase 4: route maps per squad strength, no push when nowhere is safe, per-attacker slot accounting, area maps per squad, one `combat_estimate`, stable injector pairs, efficiency metric fix | `d6e38de` | 21 vs Hard: 19 wins + 2 ties, 101k lost (-22%), 10.8 ms per game loop |

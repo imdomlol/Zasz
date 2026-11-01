@@ -17,11 +17,16 @@ Also here: reading and upgrading the result CSVs, which several machines append 
 import argparse
 import csv
 import os
+import platform
+import random
 import secrets
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 # Written by the runs themselves: changes here don't make the code dirty
@@ -73,6 +78,29 @@ def inherited() -> dict[str, str]:
     return {"commit": current_commit(), "sc2_build": "", "run_id": ""}
 
 
+def repeatable_workers() -> None:
+    """Worker processes started from now on hash strings the same way every run. Unit types hash by
+    their name, so with a random hash seed every game iterated sets of them in its own order, and the
+    same seed played out a little differently on our side. Set before the workers start (a running
+    interpreter's hash seed can't change)."""
+    os.environ.setdefault("PYTHONHASHSEED", "0")
+
+
+def make_repeatable(seed: int) -> None:
+    """Our side's randomness, seeded from the game seed (this worker process only; call it before the
+    bot is made): ares picks fallback creep tumor spots with Python's `random`, and names its squads
+    with `uuid4`. With `repeatable_workers`, the same seed and code play out the same way on our side;
+    StarCraft II and the built-in AI follow the game seed (a full game still varies a little)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    uuid.uuid4 = lambda: uuid.UUID(int=random.getrandbits(128), version=4)
+
+
+def run_context(jobs: int) -> dict[str, str]:
+    """What else a row's timing depends on: games at once (they slow each other down), machine, Python."""
+    return {"jobs": str(jobs), "host": platform.node(), "python": platform.python_version()}
+
+
 def at_least(minimum: int):
     """argparse type: an int no smaller than `minimum`."""
 
@@ -86,33 +114,59 @@ def at_least(minimum: int):
 
 
 def read_rows(path: Path) -> tuple[list[dict], list[str]]:
-    """A result CSV's rows and header. A header line left in the middle by a union merge (two
-    machines on different columns) is skipped rather than read as a row."""
+    """A result CSV's rows and columns. Several machines append to these files and git union-merges them,
+    so a file can hold header lines from different versions, in any order (one machine added a column,
+    another didn't yet). Columns are only ever added at the end, so every header is the start of the
+    longest one: each row is read by position against that, and a row from before a column existed just
+    has it blank. Rows are dicts over those columns; header lines are skipped."""
     if not path.exists():
         return [], []
     with path.open(newline="") as f:
-        reader = csv.DictReader(f)
-        header = list(reader.fieldnames or [])
-        rows = [r for r in reader if not header or r[header[0]] != header[0]]
-    return rows, header
+        lines = [line for line in csv.reader(f) if line]
+    if not lines:
+        return [], []
+    first = lines[0][0]  # e.g. "timestamp": no data row starts with the column's own name
+    headers = [line for line in lines if line[0] == first]
+    columns = max(headers, key=len)
+    if bad := [h for h in headers if columns[: len(h)] != h]:
+        sys.exit(f"{path}: header {','.join(bad[0])} isn't the start of {','.join(columns)}; merge it by hand")
+    rows = []
+    for number, line in enumerate(lines[1:], start=2):
+        if line[0] == first:
+            continue
+        if len(line) > len(columns):
+            sys.exit(f"{path}: row {number} has {len(line)} fields, the longest header {len(columns)}")
+        rows.append({name: line[i] if i < len(line) else "" for i, name in enumerate(columns)})
+    return rows, columns
 
 
 def ensure_header(path: Path, fields: list[str]) -> list[dict]:
     """Make the CSV's header `fields` (creating the file if needed) and return its rows.
 
     New columns go at the end, so older rows (and older copies of the file on other machines) still
-    parse; they're left blank. The upgraded file is written next to the original and swapped in,
-    so an interrupted upgrade leaves the original intact. Never drops a column."""
-    rows, header = read_rows(path)
-    if header == fields:
+    parse; they read as blank. Only the first line is rewritten: old rows stay byte for byte as they were,
+    so a union merge with another machine's copy doesn't duplicate them. The new file is written next to
+    the original and swapped in, so an interrupted upgrade leaves the original intact. Never drops a
+    column."""
+    rows, columns = read_rows(path)
+    if not path.exists() or not columns:
+        path.parent.mkdir(exist_ok=True)
+        with path.open("w", newline="") as f:
+            csv.writer(f).writerow(fields)
+        return []
+    with path.open(newline="") as f:
+        header = next(csv.reader(f))
+    if header == fields and columns == fields:
         return rows
-    if dropped := [c for c in header if c not in fields]:
+    if dropped := [c for c in columns if c not in fields]:
         sys.exit(f"{path}: the new columns would drop {', '.join(dropped)}; upgrade it by hand")
-    path.parent.mkdir(exist_ok=True)
+    if fields[: len(columns)] != columns:
+        sys.exit(f"{path}: columns {','.join(columns)} aren't the start of {','.join(fields)}; upgrade it by hand")
+    with path.open(newline="") as f:
+        text = f.read()
     temp = path.with_name(path.name + ".tmp")
     with temp.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields, restval="")
-        writer.writeheader()
-        writer.writerows(rows)
+        csv.writer(f).writerow(fields)
+        f.write(text.split("\n", 1)[1] if "\n" in text else "")
     os.replace(temp, path)
     return rows

@@ -90,51 +90,79 @@ def read_records(path: str | Path, skip_unfinished_line: bool = False) -> Record
     """The whole recording. `skip_unfinished_line`: ignore a last line cut off mid-write (a game
     killed while recording); otherwise that is an error, like any other unreadable line."""
     header, steps, result = {}, [], None
-    for line in _lines(path, skip_unfinished_line):
-        if line["type"] == "header":
-            header = line
-        elif line["type"] == "step":
-            steps.append(_step(line))
-        elif line["type"] == "end":
-            result = line["result"]
+    for kind, value in _records(path, skip_unfinished_line):
+        if kind == "header":
+            header = value
+        elif kind == "step":
+            steps.append(value)
+        else:
+            result = value
     return Recording(header, steps, result)
 
 
 def iter_steps(path: str | Path, skip_unfinished_line: bool = False) -> Iterator[tuple[int, Observation, Decision]]:
     """The recording's steps one at a time, without holding them all (for large datasets)."""
-    for line in _lines(path, skip_unfinished_line):
-        if line["type"] == "step":
-            yield _step(line)
+    for kind, value in _records(path, skip_unfinished_line):
+        if kind == "step":
+            yield value
 
 
-def _step(line: dict) -> tuple[int, Observation, Decision]:
-    return line["loop"], Observation.from_dict(line["obs"]), Decision.from_dict(line["decision"])
-
-
-def _lines(path: str | Path, skip_unfinished_line: bool) -> Iterator[dict]:
-    """The file's JSON lines, the header checked first. Errors name the file and line."""
+def _records(path: str | Path, skip_unfinished_line: bool) -> Iterator[tuple[str, object]]:
+    """("header", dict), then ("step", (loop, Observation, Decision)) per step, then ("end", result) if the
+    game finished: checked as they're read (the header's schema, the order of the records, each step's
+    names and values). Errors name the file and line."""
     path = Path(path)
+    ended = False
+    number = 0
     with path.open() as f:
         for number, raw in enumerate(f, start=1):
+            where = f"{path}:{number}"
             try:
                 line = json.loads(raw)
             except json.JSONDecodeError as e:
                 if skip_unfinished_line and not raw.endswith("\n"):
                     return  # the last line, cut off
-                raise ValueError(f"{path}:{number}: not a JSON line ({e})") from e
+                raise ValueError(f"{where}: not a JSON line ({e})") from e
+            kind = line.get("type") if isinstance(line, dict) else None
             if number == 1:
-                check_header(line, f"{path}:1")
-            yield line
+                check_header(line, where)
+                yield "header", line
+            elif kind == "header":
+                raise ValueError(f"{where}: a second header")
+            elif ended:
+                raise ValueError(f"{where}: a {kind!r} record after the end record")
+            elif kind == "step":
+                yield "step", _step(line, where)
+            elif kind == "end":
+                ended = True
+                yield "end", line.get("result")
+            else:
+                raise ValueError(f"{where}: unknown record type {kind!r}")
+    if number == 0:
+        raise ValueError(f"{path}: empty (no header)")
+
+
+def _step(line: dict, where: str) -> tuple[int, Observation, Decision]:
+    try:
+        unknown = [name for name in line["obs"] if name not in FEATURE_NAMES]
+        if unknown:
+            raise ValueError(f"unknown features {unknown}")
+        return line["loop"], Observation.from_dict(line["obs"]), Decision.from_dict(line["decision"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"{where}: bad step ({type(e).__name__}: {e})") from e
 
 
 def check_header(header: dict, where: str = "header") -> None:
-    """A recording this code can read: our version, and only feature names it knows. Fewer features
-    are fine (older recordings: missing ones take their defaults); unknown ones mean a renamed or
-    removed feature, which would otherwise be read as zeros."""
-    if header.get("type") != "header":
+    """A recording this code can read: our version, and only feature and decision names it knows. Fewer
+    names are fine (older recordings: missing features take their defaults, missing decision fields
+    theirs); unknown ones mean a renamed or removed name, which would otherwise be read as zeros."""
+    if not isinstance(header, dict) or header.get("type") != "header":
         raise ValueError(f"{where}: no header line")
     if header.get("version") != VERSION:
         raise ValueError(f"{where}: recording version {header.get('version')!r}, this code reads {VERSION}")
-    unknown = [name for name in header.get("features", []) if name not in FEATURE_NAMES]
-    if unknown:
-        raise ValueError(f"{where}: unknown features {unknown}")
+    for key, known in (("features", FEATURE_NAMES), ("decisions", DECISION_NAMES)):
+        names = header.get(key)
+        if not isinstance(names, list):
+            raise ValueError(f"{where}: the header has no {key} list")
+        if unknown := [name for name in names if name not in known]:
+            raise ValueError(f"{where}: unknown {key} {unknown}")

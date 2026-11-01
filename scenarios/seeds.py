@@ -1,8 +1,8 @@
 """Fixed game seeds per map and side, so scenario runs are repeatable.
 
 StarCraft II picks start locations (and the built-in AI's choices) from the game's random seed. With
-a fixed seed the same scenario plays out the same way every time, so runs can be compared number
-for number (resources lost, time), not just pass/fail.
+a fixed seed the same scenario plays out the same way (or nearly: see `scenarios.REPEATABLE`), so runs
+can be compared by their numbers (resources lost, time), not just pass/fail.
 
 A side is named after where the *enemy's* main is (where the efficiency scenarios fight): "top" or
 "bottom" on maps whose mains are above each other, "left" or "right" otherwise. `--side top` also

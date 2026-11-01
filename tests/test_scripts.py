@@ -145,3 +145,117 @@ def test_first_differing_order():
     assert first_difference(["a", "b"], ["a", "b"]) is None
     assert first_difference(["a", "b"], ["a", "c"]) == 1
     assert first_difference(["a", "b"], ["a"]) == 1  # one log ended early
+
+
+def order_run(path, logs: dict[str, list[str]], complete: bool = True, end: bool = True):
+    """An order-log directory as run_scenarios writes it: one log per label, and a manifest."""
+    import json
+
+    path.mkdir()
+    for label, lines in logs.items():
+        body = lines + ([f"# end PASS loop=10 commands={len(lines)}"] if end else [])
+        (path / f"{label}.orders").write_text("".join(line + "\n" for line in body))
+    (path / "manifest.json").write_text(json.dumps({"complete": complete, "runs": dict.fromkeys(logs, "PASS")}))
+    return path
+
+
+def test_order_comparison_needs_complete_evidence(tmp_path):
+    from scripts.compare_orders import compare
+
+    log = {"fight_winnable[top]": ["2 1 ZERGLING ATTACK #5"]}
+    assert compare(tmp_path / "missing", tmp_path / "also_missing")  # no directories
+    a, b = order_run(tmp_path / "a", log), order_run(tmp_path / "b", log)
+    assert compare(a, b, only=["fight_winnable"]) == []
+    assert compare(a, b)  # the other repeatable scenarios are in neither run
+    assert compare(a, order_run(tmp_path / "c", log, complete=False), only=["fight_winnable"])
+    assert compare(a, order_run(tmp_path / "d", log, end=False), only=["fight_winnable"])  # a crashed game
+    assert compare(a, order_run(tmp_path / "e", {}), only=["fight_winnable"])  # missing on one side
+    other = order_run(tmp_path / "f", {"fight_winnable[top]": ["2 1 ZERGLING ATTACK #6"]})
+    assert compare(a, other, only=["fight_winnable"]) == ["fight_winnable[top]: differs at line 1"]
+    empty_a, empty_b = order_run(tmp_path / "g", {}), order_run(tmp_path / "h", {})
+    assert compare(empty_a, empty_b, everything=True) == ["nothing to compare"]
+
+
+def test_benchmark_games_seed_our_side_from_the_game_seed(monkeypatch):
+    import os
+    import random
+    import uuid
+
+    import scripts.benchmark as benchmark
+
+    monkeypatch.setattr(uuid, "uuid4", uuid.uuid4)  # seeding replaces it: restored after the test
+    monkeypatch.setattr(benchmark, "play_game", lambda *args: random.random())
+    args = ("Map", "Terran", "Hard", 1200, {}, 7, None, "replay")
+    assert benchmark.play_game_in_worker(args) == random.Random(7).random()
+    assert {"jobs", "host", "python"} <= set(benchmark.FIELDS)
+    monkeypatch.delenv("PYTHONHASHSEED", raising=False)
+    from scripts import run_meta
+
+    run_meta.repeatable_workers()
+    assert os.environ["PYTHONHASHSEED"] == "0"
+
+
+def test_loss_columns_add_up_the_score_categories():
+    from types import SimpleNamespace
+
+    from scripts.benchmark import loss_columns
+
+    fields = {
+        f"lost_{r}_{k}": 0.0
+        for r in ("minerals", "vespene")
+        for k in ("none", "army", "economy", "technology", "upgrade")
+    }
+    fields |= {
+        "lost_minerals_army": 500,
+        "lost_vespene_army": 100,
+        "lost_minerals_technology": 200,
+        "lost_minerals_economy": 50,
+    }
+    columns = loss_columns(SimpleNamespace(**fields))
+    assert columns == {
+        "lost_minerals_total": 750,
+        "lost_vespene_total": 100,
+        "lost_army_total": 600,
+        "lost_tech_total": 200,
+    }
+
+
+def test_compared_with_all_repeats_of_the_previous_run():
+    history = [
+        scenario_row(run_id="earlier", army_lost="100"),
+        scenario_row(run_id="earlier", army_lost="100"),
+        scenario_row(run_id="earlier", army_lost="1000", status="FAIL"),
+        scenario_row(run_id="earlier", army_lost="", status="ERROR"),  # not a measurement
+    ]
+    line = compare(scenario_row(army_lost="150"), history)
+    assert "army lost 400 avg of 3 -> 150" in line
+    assert "1 ERROR, 1 FAIL, 2 PASS -> PASS" in line
+
+
+def test_slow_wins_are_judged_per_matchup_with_a_race_fallback():
+    from scripts.benchmark import is_notable, record_win, usual_win_times
+
+    times: dict = {}
+    for _ in range(5):
+        record_win(times, {"opponent_race": "Protoss", "map": "M", "sc2_build": "1", "game_time": "800"})
+        record_win(times, {"opponent_race": "Zerg", "map": "M", "sc2_build": "1", "game_time": "400"})
+    protoss = {"result": "Victory", "opponent_race": "Protoss", "map": "M", "sc2_build": "1", "game_time": 950}
+    assert not is_notable(protoss, usual_win_times(times, protoss))  # usual for Protoss (pooled: over 900)
+    zerg = {**protoss, "opponent_race": "Zerg", "map": "Other", "game_time": 700}  # new map: per race
+    assert is_notable(zerg, usual_win_times(times, zerg))
+
+
+def test_a_game_that_ended_keeps_its_result_when_saving_the_replay_fails(monkeypatch):
+    from sc2.data import Result
+
+    import scripts.benchmark as benchmark
+
+    def run_game(map_settings, players, **kwargs):
+        players[0].ai.game_result = Result.Tie  # on_end ran: the game is over
+        raise ConnectionError("Message size 4589430 exceeds limit 4194304")  # then the replay save fails
+
+    monkeypatch.setattr(benchmark, "run_game", run_game)
+    monkeypatch.setattr(benchmark.maps, "get", lambda name: name)
+    labels = {"commit": "abc", "sc2_build": "1", "run_id": "r"}
+    row, _, _ = benchmark.play_game("Map", "Protoss", "Hard", 1200, labels, 3, None, "replay.SC2Replay")
+    assert row["result"] == "Tie" and row["error"].startswith("after the game")

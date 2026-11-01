@@ -1,6 +1,5 @@
 """Run labels and result CSVs (`scripts/run_meta.py`) and benchmark planning (`scripts/benchmark.py`)."""
 
-import csv
 import subprocess
 from collections import Counter
 
@@ -88,8 +87,11 @@ def test_new_columns_go_at_the_end_and_old_rows_keep_their_values(tmp_path):
     write(path, ["timestamp,commit", "t1,abc"])
     rows = run_meta.ensure_header(path, ["timestamp", "commit", "run_id"])
     assert rows == [{"timestamp": "t1", "commit": "abc"}]
-    with path.open(newline="") as f:
-        assert list(csv.DictReader(f)) == [{"timestamp": "t1", "commit": "abc", "run_id": ""}]
+    assert run_meta.read_rows(path) == (
+        [{"timestamp": "t1", "commit": "abc", "run_id": ""}],
+        ["timestamp", "commit", "run_id"],
+    )
+    assert path.read_text().splitlines() == ["timestamp,commit,run_id", "t1,abc"]  # the old row as it was
     assert not path.with_name("r.csv.tmp").exists()
 
 
@@ -152,3 +154,24 @@ def test_same_seed_same_plan_other_seed_other_order():
 def test_summary_of_no_games_doesnt_divide_by_zero(capsys):
     print_summary([])
     assert "0/0" in capsys.readouterr().out
+
+
+def test_merged_segments_keep_every_value_in_either_order(tmp_path):
+    """Two machines' copies union-merged: the newer header can come before or after the older one."""
+    for lines in (
+        ["timestamp,commit", "t1,abc", "timestamp,commit,run_id", "t2,def,new-run"],
+        ["timestamp,commit,run_id", "t2,def,new-run", "timestamp,commit", "t1,abc"],
+    ):
+        path = tmp_path / "r.csv"
+        write(path, lines)
+        rows, columns = run_meta.read_rows(path)
+        assert columns == ["timestamp", "commit", "run_id"]
+        assert {r["timestamp"]: r["run_id"] for r in rows} == {"t1": "", "t2": "new-run"}
+        assert len(run_meta.ensure_header(path, ["timestamp", "commit", "run_id", "jobs"])) == 2
+
+
+def test_a_header_that_isnt_an_extension_stops_the_run(tmp_path):
+    path = tmp_path / "r.csv"
+    write(path, ["timestamp,commit", "t1,abc", "timestamp,run_id", "t2,r2"])
+    with pytest.raises(SystemExit):
+        run_meta.read_rows(path)

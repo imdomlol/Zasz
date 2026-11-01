@@ -1,0 +1,218 @@
+# Repository review 2: findings and faster testing
+
+Final report; all testing finished at 12:09am on 11/1. Deferred items and next work are in `todo.md`; this file can go
+once you've read it.
+
+## Short version
+
+- All 4 phases and R04 are merged into `squads`. R02 is deferred.
+- **R04 with your avoid-zone rule: kept (your call).** Same as base on resources lost, most wins and fewest ties. To watch: Zerg games.
+- The retest found a real crash, older than R04: a zergling formation past the map edge ended the game. Fixed.
+- Earlier, after 2 rounds, I called V2 a real lead on the Protoss ties. It wasn't; don't rely on 2-round results.
+
+## R04 retest with your avoid-zone rule
+
+Side by side, same seeds, 3 rounds of 21 games:
+
+| Code | Lost per run | Avg lost | Wins of 63 | Non-wins | Lost/killed | Avg game |
+|---|---|---|---|---|---|---|
+| Base | 79.3k, 94.4k, 99.8k | 91.2k | 55 | 8 ties | 0.42 | 635 s |
+| R04, cannon part only (V2) | 81.7k, 117.5k, 96.5k | 98.6k | 52 | 10 ties, 1 crash | 0.45 | 677 s |
+| **R04 with your rule** (`3ef2dec`) | 74.1k, 97.0k, 114.3k | 95.1k | 60 | 3 ties | 0.42 | 617 s |
+
+- **Against base:** 3.9k more lost per run on average, 95% range from 28.7k less to 34.9k more. Worse in 12 of 21 matchups.
+  Same on average, so it passes your regression rule.
+- **Wins and ties:** 3 ties against 8 looks good, but it's 3 rounds, so it's a lead rather than a result.
+- **Protoss vs the rest:** Protoss games lost less (43.2k vs 48.1k per run), other games more (51.9k vs 43.1k).
+- **To watch:** Ultralove vs Zerg lost 4.5k, 9.9k, 13.8k against base's 0.8k, 1.1k, 1.4k, and Pylon vs Zerg 6.6k, 3.6k, 7.0k
+  against 3.6k, 1.2k, 4.2k. All were wins. Possibly squads walking into enemies the zone used to keep them from.
+- **Cannon part alone:** 8.4k better over its first 5 rounds, 7.4k worse over these 3. It does nothing measurable by itself.
+- **Scenarios x3:** 63 of 66 pass, only the expected `wall_bunker` fails. R04 with your rule had no crash in 84 games.
+
+**How often the rule fires** (21 extra games with a temporary log): 453 zones dropped, about 22 per game: 323 "no help
+possible", 113 "nothing to do safely", 10 "choke not worth it", 7 "army can't beat". Typically 3 remembered enemies against 24
+free zerglings, and **at least half the zones were dropped almost as soon as they were made** (median 45 s of 45 s left). So those zones have
+nearly stopped blocking anything: one squad's bad fight no longer closes a site to the army, as you wanted. The cost is
+that the zone no longer protects that squad either, which may be the Zerg losses above.
+
+**Data note:** I wiped the 63 result rows and 66 scenario rows for `3ef2dec` while setting up the extra games, a mistake
+on my part. The numbers here were read before that, but they aren't in `benchmarks/`. The base and V2 rows are.
+
+## Where things stand
+
+| Phase | Last commit | State |
+|---|---|---|
+| 1, measurement tooling | `f75b348` | Done, pushed; bot unchanged |
+| 2, refactors with identical orders | `c7e1f8f` | Done, pushed. 39 of 39 repeatable scenario runs matched command for command, debug on and off |
+| 3, behavior fixes | `ab9c9b1` | Done: R01, R03, R07, R05, R06 kept; **R02 and R04 reverted and deferred** |
+| 4, runners and state owners | `5f2c0e7` | Done. 39 of 39 repeatable scenario runs identical to phase 3 (30,813 commands); 21 games ran with no crash |
+
+All of this is merged into `squads`; the separate branches are deleted.
+
+`main` is still behind `squads`.
+
+## The first finding: phase 3 with R02 looked much worse, and one-run checks missed it
+
+Phase 2 and all of phase 3 ran side by side, same machine, same seeds, 21 games, two rounds each:
+
+| Code | Resources lost per run | Total | Wins of 42 |
+|---|---|---|---|
+| Phase 2 | 64.2k, 104.5k | 168.7k | 41 |
+| Phase 3 (R02, R01, R03, R07, R05, R06) | 104.6k, 144.7k | 249.3k (+48%) | 36 |
+
+Phase 3 is worse in 15 of 21 matchups, and kills about the same, so it's trading worse. Each fix had looked "within
+noise" against the fix before it, and that's how the drift got through: **comparing each step only to the previous
+step, with one run, can't see a slow slide.** Compare against a fixed baseline, in the same conditions.
+
+How sure is this? It's 2 rounds a side. The full stack's gap (+48%, 5 fewer wins) is large, but the later runs show 2 rounds
+can mislead, so treat it as likely, not proven.
+
+## Decisions so far
+
+- **R04 reverted and deferred.** It looked worse in its first test, on thin evidence. The fair retest (V2 below, 5 rounds)
+  shows no harm and perhaps a small gain, so it's yours to decide.
+- **R05 kept without more testing (your call).** It only touches overlords.
+- **R06: no effect seen.** No game logged a blocked or reopened expansion, so it changed no decision in those runs.
+- **R02 reverted and deferred** (see below; it looked good in its first run, and worse side by side over 2 rounds). Its
+  harm isn't proven either, but nothing shows it helps.
+- **V1 and V3 dropped.** Neither beats base, so R02's one safe-looking part isn't worth adding now.
+- **R01, R03, R07 kept as a group:** without R02 the stack matches phase 2 on average. They weren't separated from
+  each other, so this says "no harm together", not that each one helps.
+
+## Latest results
+
+**The split test** (side by side, same seeds, 2 rounds of 21 games each):
+
+| Code | Lost per run | Avg lost | Wins of 42 | Lost/killed | Avg game |
+|---|---|---|---|---|---|
+| Phase 2 | 64.2k, 104.5k | 84.4k | 41 | 0.38 | 575 s |
+| Phase 2 + R02 only | 105.8k, 98.9k | 102.4k | 38 | 0.44 | 654 s |
+| All of phase 3 without R02 | 69.1k, 88.0k | 78.5k | 40 | 0.37 | 596 s |
+
+Over these 2 rounds, R02 alone cost about 18k more resources per 21 games, and games ran longer. That 18k is within the
+range of noise found below, so it's a lead, not a measurement. Why isn't proven. The likely reason: its "don't send
+spare squads to a site the sim rejects" removed pressure that was covering for the sim's pessimism (`todo.md` #21).
+
+**Noise check:** phase 4's own run lost 113.5k, though its orders match the variant that lost 69.1k and 88.0k on the
+repeatable scenarios. A single 21-game total can swing that far on essentially the same bot, so never judge by one run.
+
+**Fine-tuning** (side by side, same seeds, 21 games per run, 9 games at once):
+
+| Code | Lost per run | Avg lost | Wins | Lost/killed | Avg game |
+|---|---|---|---|---|---|
+| Base (phase 4) | 88.2k, 97.7k, 74.5k, 86.6k, 96.2k | 88.6k | 96 of 105 | 0.42 | 628 s |
+| V2: R04 again (static defense keeps the avoid area it made) | 88.8k, 58.0k, 59.9k, 100.4k, 94.0k | 80.2k | 97 of 105 | 0.38 | 607 s |
+| V3: V2 + V1 | 121.8k, 85.0k, 90.0k | 98.9k | 58 of 63 | 0.43 | 636 s |
+| V1: spare squads join a gathering raid at its staging point (2 rounds only) | 72.0k, 92.5k | 82.3k | 36 of 42 | 0.37 | 642 s |
+
+Comparing per matchup against base (bootstrap over the 21 matchups):
+- **V2:** 8.4k less lost, 95% range from 26.2k less to 6.4k more. Worse in 11 of 21 matchups. **Not distinguishable from base.**
+- **V3:** 10.3k more lost, 95% range from 13.7k less to 35.7k more. Worse in 12 of 21. **Not distinguishable from base.**
+- V1 wasn't compared this way. It has only 2 rounds, and adding it to V2 didn't help.
+- Scenarios x3, V2 and V3: both 57/60 (only `wall_bunker` fails), 2,717 and 2,700 summed lost, in the usual range. No new
+  FAIL, and no game crashed.
+
+**The Protoss-ties lead faded.** After 2 rounds, base and V1 had tied all 8 of their Ultralove and Persephone vs Protoss
+games, and V2 had won all 4 of its own. After 5 rounds:
+
+| Matchup | Base (wins, ties) | V2 (wins, ties) |
+|---|---|---|
+| Ultralove vs Protoss | 2, 3 | 3, 2 |
+| Persephone vs Protoss | 2, 3 | 3, 2 |
+
+A 1-game edge on each matchup. V2 also traded new problems for it: 2 Magannatha vs Protoss ties (base had none), and a
+20.6k game on LeyLines vs Terran (base never lost more than 2.8k there).
+
+**What this means for testing:** one code's 21-game total swung from 58k to 100k. Even 5 rounds a side (about 5 hours
+including V3) can't see a 10k difference. Small tuning changes can't be judged by full-game benchmarks at this sample
+size, so they need the cheaper, more direct checks below.
+
+**Noise check:** phase 4's own earlier run lost 113.5k, though its orders match on the repeatable scenarios. Base here
+averages 88.6k, the same range as phase 2's 84.4k.
+
+## Faster testing
+
+### What the data says
+
+From the runs above (few runs, so treat these as a strong lead, not a proof). "Signal" is the difference between phase 2
+and phase 3, divided by how much phase 2 varies between its own runs. Higher is better.
+
+| What you measure | Signal | Note |
+|---|---|---|
+| Total resources lost, all games (what we use now) | 2.6 | |
+| Average of log(resources lost) per game | 4.1 | One 30k game no longer dominates |
+| Average lost / killed per game | 4.7 | Nearly twice the signal, same games |
+| Lost in **non-Protoss games only** (14 games) | 5.6 | Fewer, shorter games, and far more signal |
+| Lost in Protoss games only (7 games) | 0.8 | The slowest games tell us almost nothing |
+
+Also:
+- Three matchups (LeyLines, Ultralove and Magannatha vs Protoss) hold 43% of all losses, and they're the noisiest.
+  LeyLines Protoss alone varies by ±15k, more than the whole Terran and Zerg signal.
+- The median game is 547 s of game time, 10% run past 828 s, and ties take 1200 s.
+- A full side-by-side costs 80 minutes because it plays 84 games, 28 of them long Protoss games.
+
+### Ideas, most promising first
+
+**Change what we measure (no new machinery)**
+1. **Judge by lost/killed or log(lost), not total lost.** Same games, about twice the signal: often half the runs.
+2. **Automatic verdict tool:** given two sets of runs, print the per-matchup difference with a confidence range, "worse",
+   "same" or "not enough data". This replaces reading tables by eye, which is how a +48% slide slipped by.
+3. **Keep a fixed baseline** (5+ runs in `benchmarks/`), so a test only plays the new code. Halves every comparison,
+   if machine conditions are matched or corrected for: a few canary games would detect a slower machine.
+
+**Play fewer, better games (5-15 minutes)**
+4. **A fast benchmark of non-Protoss games only:** 14 games at 6 at a time is about 8-10 minutes. Protoss runs join in the
+   nightly run, plus a dedicated check when working on ties.
+5. **Stop early when it's decided (SPRT, how chess engines test):** play game pairs and stop as soon as the result is
+   statistically clear. A big regression stops early, a neutral change takes longest. Not measured here yet.
+6. **A game-time cap for the fast benchmark:** end games at 8-10 minutes and score the fight so far. Saves 12-23% of game
+   time. This needs loss and kill snapshots over time, and it can't catch late-game ties.
+7. **Record scores over time** (every minute: lost, killed, supply, bases). This lets us compare at the same game minute,
+   see when a change starts hurting, and supports (6).
+
+**Test the part that changed (seconds to 5 minutes)**
+8. **Check if the change even fires.** Count how often the new code path changes an outcome. R06 fired zero times in 21
+   games, and R05 touches only overlords: neither needed an 80-minute run. A 2-minute order-log run plus counters says
+   whether any test is needed at all.
+9. **Tiered gate:** unit tests (1 s), order-log diff of repeatable scenarios (2 min, says if behavior changed at all),
+   relevant scenarios (under 5 min), fast benchmark (15 min), full run (nightly or before merging only).
+10. **Mid-game scenarios, the biggest gap today.** All 20 scenarios were unchanged while full games got 48% worse, because they
+    stage a single fight. Nothing covers raid allocation or spare squads. New staged starts: a 60-zergling army at 8:00
+    against 2-3 enemy bases with defenders, a sim-rejected site next to a soft one, a defended site being reinforced. Each
+    takes 1-2 minutes. Directly tests R02-type changes.
+11. **Fights from real games:** when a benchmark game loses a lot at once, save the units and positions, and re-stage that
+    as a scenario. The suite then grows from real failures, focused on what actually costs resources.
+12. **Offline decision replay:** save game state snapshots to disk, then re-run only the planning code on them in seconds:
+    how many raid, help and patrol decisions change, and where? No StarCraft II needed, thousands of situations per minute.
+    It shows what changed, not whether it's better, but that's often the question.
+
+**Less noise in the games themselves**
+13. **Find out why fixed-seed games diverge.** 13 scenarios repeat exactly, but full games don't, though seeds are fixed.
+    If we find and remove the cause on our side, one paired game shows a change's exact effect from the first differing
+    command. This could be the highest payoff of all, and it may be impossible if the built-in AI itself varies.
+14. **Paired games with the same seed, judged per pair:** already partly done. Formalizing it (see 2 and 5) removes much of
+    the between-map variance.
+
+**More raw speed**
+15. **More cores when needed:** games need about 1 core and 1.5 GB each. A rented 32-core machine could play 84 games in
+    around 15 minutes for little money. Your Windows PC could also help, but its build isn't comparable, so only as its
+    own baseline.
+16. **Nightly and on-merge full runs only:** the 80-minute version runs unattended, and daytime uses the tiers above.
+17. **Our own light battle simulator** (ties into `todo.md` #21): thousands of fights per second without StarCraft II, for
+    tuning fight logic. A big project, and only as good as its match with the real game.
+
+### What I'd do first
+
+1. The verdict tool with lost/killed and log(lost) (idea 1 and 2): half a day, immediate gain.
+2. The non-Protoss fast benchmark with early stopping (4 and 5): 8-10 minutes for most changes.
+3. Change-fires counters and the tiered gate (8 and 9): skips the benchmark entirely for changes like R05 and R06.
+4. Mid-game scenarios (10): covers the blind spot that let this regression through.
+
+The result: most checks take under 15 minutes, many under 5, and the full run moves to nightly.
+
+**A warning from the fine-tuning:** the "signal" table is itself based on 2-round results, and they fooled me once already.
+Lost/killed did favor V2 (0.38 vs 0.42), but with no way yet to say that's real. Ties also need their own check, so a fast
+benchmark should keep a few Protoss matchups (Ultralove and Persephone at least) rather than drop them all.
+
+**Validate first:** the "signal" numbers come from 4 phase 2 runs and 2 phase 3 runs. Before relying on the non-Protoss
+subset, check that it also detects a regression other than this one.

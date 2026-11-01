@@ -8,8 +8,9 @@ Run this before and after a change to catch regressions:
 
 Each game's stats are appended to benchmarks/results.csv (tracked in git, union-merged across
 machines) with the commit ("-dirty" for uncommitted changes), StarCraft II build, game seed and run
-id (`scripts/run_meta.py`). With --jobs, games run in parallel but their logs and results are
-reported in matchup order, exactly as a sequential run would.
+id (`scripts/run_meta.py`). With --jobs, games run in parallel; each game's log and row come as it
+finishes (labelled with its matchup number), and the summary covers them all. A game still running far
+past its time limit (StarCraft II froze) is killed and recorded as a Crash.
 
 Matchups go through every map x race pair, in an order fixed by --seed (random if not given; printed,
 so a run can be repeated: the same seed plays the same matchups with the same game seeds). A --games
@@ -33,7 +34,6 @@ import argparse
 import csv
 import io
 import itertools
-import multiprocessing
 import os
 import random
 import re
@@ -41,7 +41,6 @@ import statistics
 import sys
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -60,13 +59,17 @@ from sc2.player import Bot, Computer
 
 from bot import ZaszBot
 from bot.recording import DecisionRecorder
-from scripts import run_meta
+from scripts import run_meta, supervise
 
 RESULTS_FILE = ROOT / "benchmarks" / "results.csv"
 REPLAYS_DIR = ROOT / "replays" / "benchmarks"
 RECORDINGS_DIR = ROOT / "data" / "decisions"
-# A win counts as slow (its replay is kept) past this multiple of the usual win time at that difficulty
+# A win counts as slow (its replay is kept) past this multiple of the usual win time (`usual_win_times`)
 SLOW_WIN_FACTOR = 1.5
+# A game still running after this many real seconds (its game-time limit x the factor, plus the margin)
+# is stuck (StarCraft II froze): it's killed and recorded as a Crash
+GAME_DEADLINE_FACTOR = 2
+GAME_DEADLINE_MARGIN = 300
 SLOW_WIN_MIN_HISTORY = 5
 # AI Arena limits, from its match controller (aiarena/sc2-ai-match-controller, checked 2026-10-01):
 # a bot that takes longer than this to answer loses the game by timeout (enforced)
@@ -97,6 +100,15 @@ FIELDS = [
     "seed",
     "sc2_build",
     "run_id",
+    "jobs",  # games at once (they slow each other down: compare step times only at the same count)
+    "host",
+    "python",
+    # What we lost, by the game's score (minerals + gas unless named): `lost_value` above is minerals only, in
+    # army and economy (kept as it was, so history compares); `killed_value` is minerals + gas of everything
+    "lost_minerals_total",
+    "lost_vespene_total",
+    "lost_army_total",
+    "lost_tech_total",
 ]
 
 
@@ -163,6 +175,7 @@ class BenchmarkZasz(ZaszBot):
 
     async def on_end(self, game_result: Result) -> None:
         await super().on_end(game_result)
+        self.game_result = game_result  # the game's own result, kept if saving its replay fails afterwards
         score = self.state.score
         self.stats = {
             "game_time": round(self.time),
@@ -170,6 +183,7 @@ class BenchmarkZasz(ZaszBot):
             "collected_minerals": score.collected_minerals,
             "killed_value": score.killed_value_units + score.killed_value_structures,
             "lost_value": score.lost_minerals_army + score.lost_minerals_economy,
+            **loss_columns(score),
             "max_drones": self.max_drones,
         }
         self.stats |= self.step_stats(self.state.game_loop)
@@ -185,6 +199,17 @@ class BenchmarkZasz(ZaszBot):
             "max_step_ms": round(1000 * self.step_max, 1),
             "startup_s": round(self.startup_seconds, 2),
         }
+
+
+def loss_columns(score) -> dict[str, float]:
+    """The explicit loss columns (see FIELDS) from a game's score."""
+    kinds = ("none", "army", "economy", "technology", "upgrade")
+    return {
+        "lost_minerals_total": sum(getattr(score, f"lost_minerals_{k}") for k in kinds),
+        "lost_vespene_total": sum(getattr(score, f"lost_vespene_{k}") for k in kinds),
+        "lost_army_total": score.lost_minerals_army + score.lost_vespene_army,
+        "lost_tech_total": score.lost_minerals_technology + score.lost_vespene_technology,
+    }
 
 
 def installed_maps() -> list[str]:
@@ -247,8 +272,14 @@ def play_game(
         )
         row["result"] = result.name if isinstance(result, Result) else str(result)
     except Exception as e:
-        row["result"] = "Crash"
-        row["error"] = f"{type(e).__name__}: {e}"
+        if (ended := getattr(bot, "game_result", None)) is not None:
+            # The game ended (on_end ran); what failed came after, e.g. saving the replay (a 20-minute
+            # game's can be over python-sc2's 4 MB message limit). Keep the result, note the error
+            row["result"] = ended.name if isinstance(ended, Result) else str(ended)
+            row["error"] = f"after the game: {type(e).__name__}: {e}"
+        else:
+            row["result"] = "Crash"
+            row["error"] = f"{type(e).__name__}: {e}"
         logger.error(traceback.format_exc())
     finally:
         logger.remove(capture)
@@ -269,45 +300,40 @@ def game_row(map_name: str, race: str, difficulty: str, labels: dict, seed: int)
         "seed": seed,
         "sc2_build": labels["sc2_build"],
         "run_id": labels["run_id"],
+        "jobs": labels.get("jobs", ""),
+        "host": labels.get("host", ""),
+        "python": labels.get("python", ""),
     }
 
 
 def play_game_in_worker(game_args: tuple) -> tuple[dict, float, str]:
-    """play_game in a worker process: log only to the buffer, so the parent can print it in order."""
+    """play_game in a fresh worker process: log only to the buffer, so the parent can print it in order;
+    our side's randomness seeded from the game seed first, as in the scenarios."""
     logger.remove()
+    run_meta.make_repeatable(game_args[5])
     return play_game(*game_args)
 
 
-def run_matchups(game_args: list[tuple], jobs: int):
-    """Yield (row, real_time, log) per game, in matchup order."""
-    if jobs == 1:
-        for a in game_args:
-            yield play_game(*a)
-        return
-
-    # One fresh process per game (python-sc2 keeps per-process state). Results are taken in submission
-    # order, so a game that finishes early waits for the ones before it to be reported.
-    with ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"), max_tasks_per_child=1) as pool:
-        futures = [pool.submit(play_game_in_worker, a) for a in game_args]
-        try:
-            for i, a in enumerate(game_args):
-                future, futures[i] = futures[i], None  # a reported game's log isn't kept around
-                try:
-                    row, real_time, log = future.result()
-                except Exception as e:  # the worker process itself died
-                    map_name, race, difficulty, _, labels, seed, _, _ = a
-                    row = {
-                        "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        **game_row(map_name, race, difficulty, labels, seed),
-                        "result": "Crash",
-                        "error": f"worker died: {type(e).__name__}: {e}",
-                    }
-                    real_time, log = 0.0, traceback.format_exc()
-                sys.stdout.write(log)
-                yield row, real_time, log
-        except KeyboardInterrupt:
-            pool.shutdown(wait=False, cancel_futures=True)
-            raise
+def run_matchups(game_args: list[tuple], jobs: int, deadline: float):
+    """Yield (index, row, real time, log) per game as it finishes. Each game runs in a fresh process
+    (python-sc2 keeps per-process state, and a fresh process is the only way to give a game a fixed hash
+    seed), --jobs 1 too, killed with its StarCraft II if it takes over `deadline` real seconds
+    (`scripts.supervise`): a frozen game can't hold up the run, nor the results of the games after it."""
+    run_meta.repeatable_workers()
+    for outcome in supervise.run(play_game_in_worker, [(a,) for a in game_args], jobs, lambda i: deadline):
+        if outcome.result is not None:
+            row, real_time, log = outcome.result
+        else:  # killed at its deadline, or the worker itself died
+            map_name, race, difficulty, _, labels, seed, _, _ = game_args[outcome.index]
+            row = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                **game_row(map_name, race, difficulty, labels, seed),
+                "result": "Crash",
+                "error": outcome.error.strip().splitlines()[-1],
+            }
+            real_time, log = outcome.real_time, outcome.error
+        sys.stdout.write(log)
+        yield outcome.index, row, real_time, log
 
 
 def over_ladder_limits(row: dict) -> list[str]:
@@ -320,6 +346,28 @@ def over_ladder_limits(row: dict) -> list[str]:
     if row.get("startup_s", 0) >= LADDER_TIMEOUT_S:
         over.append(f"startup took {row['startup_s']} s >= {LADDER_TIMEOUT_S} s")
     return over
+
+
+def win_history(history: list[dict], difficulty: str) -> dict[tuple, list[float]]:
+    """Win times at this difficulty, per matchup (race, map, build) and per race (`usual_win_times`)."""
+    times: dict[tuple, list[float]] = {}
+    for r in history:
+        if r["difficulty"] == difficulty and r["result"] == "Victory" and r["game_time"]:
+            record_win(times, r)
+    return times
+
+
+def record_win(times: dict[tuple, list[float]], row: dict) -> None:
+    seconds = float(row["game_time"])
+    times.setdefault((row["opponent_race"], row["map"], row.get("sc2_build", "")), []).append(seconds)
+    times.setdefault((row["opponent_race"],), []).append(seconds)
+
+
+def usual_win_times(times: dict[tuple, list[float]], row: dict) -> list[float]:
+    """The win times to judge this game against: the same matchup and build if there are enough of them,
+    else every win against that race (Protoss games run longer than Zerg ones)."""
+    exact = times.get((row["opponent_race"], row["map"], row.get("sc2_build", "")), [])
+    return exact if len(exact) >= SLOW_WIN_MIN_HISTORY else times.get((row["opponent_race"],), [])
 
 
 def is_notable(row: dict, win_times: list[float]) -> bool:
@@ -378,11 +426,7 @@ def main() -> None:
         print(f"  {i:02d} {race:<8} {map_name}  (game seed {seed + i})")
 
     history = run_meta.ensure_header(RESULTS_FILE, FIELDS)
-    win_times = [
-        float(r["game_time"])
-        for r in history
-        if r["difficulty"] == args.difficulty and r["result"] == "Victory" and r["game_time"]
-    ]
+    wins = win_history(history, args.difficulty)
     labels = run_meta.start_run(run_meta.sc2_build())
     print(f"Run {labels['run_id']} on {labels['commit']} (StarCraft II build {labels['sc2_build']})", flush=True)
     run_name = labels["run_id"]
@@ -408,23 +452,26 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
 
         jobs = max(1, min(args.jobs, len(matchups)))
-        for i, (row, real_time, log) in enumerate(run_matchups(game_args, jobs), 1):
-            replay = Path(game_args[i - 1][-1])
+        labels |= run_meta.run_context(jobs)
+        deadline = args.time_limit * GAME_DEADLINE_FACTOR + GAME_DEADLINE_MARGIN
+        for done, (index, row, real_time, log) in enumerate(run_matchups(game_args, jobs, deadline), 1):
+            replay = Path(game_args[index][-1])
             if row["result"] == "Crash":
                 replay.with_suffix(".log").write_text(re.sub(r"\x1b\[[0-9;]*m", "", log))  # drop colors
-            if args.replays == "all" or (args.replays == "notable" and is_notable(row, win_times)):
+            if args.replays == "all" or (args.replays == "notable" and is_notable(row, usual_win_times(wins, row))):
                 if replay.exists():
                     row["replay"] = str(replay.relative_to(ROOT))
             else:
                 replay.unlink(missing_ok=True)
             if row["result"] == "Victory" and "game_time" in row:
-                win_times.append(row["game_time"])
+                record_win(wins, row)
 
             writer.writerow(row)
             f.flush()
             rows.append(row)
             logger.success(
-                f"[{i}/{len(matchups)}] {row['result']} vs {row['opponent_race']} on {row['map']} "
+                f"[{done}/{len(matchups)}] game {index + 1:02d}: {row['result']} vs {row['opponent_race']}"
+                f" on {row['map']} "
                 f"({row.get('game_time', '?')}s game, {real_time:.0f}s real"
                 + (f", step avg {row['avg_step_ms']} ms / max {row['max_step_ms']} ms" if "max_step_ms" in row else "")
                 + ")"

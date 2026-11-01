@@ -12,6 +12,7 @@ from sc2.position import Point2
 
 import bot.routes
 from bot.army import Army
+from bot.micro import spread_move
 from bot.settings import PLAN_SECONDS
 from fakes import marine, unit, zergling
 
@@ -150,8 +151,8 @@ SPOT = (30.5, 5.5)  # the one enemy expansion to look at
 def scouting_army(monkeypatch):
     """An army with a squad held back by a partly seen position (so it wants to scout), no danger."""
     army = Army()
-    army.turned_back_at = [(Point2((15, 15)), 5.0, 999.0)]
-    army.avoid_reasons[Point2((15, 15))] = "scout needed"
+    army.avoid_state.areas = [(Point2((15, 15)), 5.0, 999.0)]
+    army.avoid_state.reasons[Point2((15, 15))] = "scout needed"
     monkeypatch.setattr(army, "dangerous_for", lambda ai, units, spot: False)
     monkeypatch.setattr(army, "route_map", lambda ai, units: SimpleNamespace(distance=lambda a, b: a.distance_to(b)))
     return army
@@ -169,7 +170,7 @@ def test_a_squad_waiting_on_an_overlord_scouts_an_expansion(monkeypatch):
     s = squad(army)
     army.send_squad_scout(ai, s)
     assert (s.job, s.target) == ("scout", Point2(SPOT))
-    assert army.squad_scouts[s.id][0] == Point2(SPOT)
+    assert army.job_state.squad_scouts[s.id][0] == Point2(SPOT)
 
 
 def test_a_spot_being_scouted_isnt_given_to_a_second_squad(monkeypatch):
@@ -177,7 +178,7 @@ def test_a_spot_being_scouted_isnt_given_to_a_second_squad(monkeypatch):
     first, second = squad(army), squad(army)
     army.send_squad_scout(ai, first)
     army.send_squad_scout(ai, second)
-    assert second.id not in army.squad_scouts and second.job != "scout"
+    assert second.id not in army.job_state.squad_scouts and second.job != "scout"
 
 
 def test_a_dead_scouts_spot_can_be_scouted_again(monkeypatch):
@@ -199,10 +200,10 @@ def test_normal_games_dont_keep_debug_counts_or_timings():
     army._control = lambda ai, attacking: COUNTS.update({"a decision": 1})
     try:
         army.control(None, False)
-        assert army.step_ms == [] and not COUNTS
+        assert army.debug_state.step_ms == [] and not COUNTS
         army.debug = True
         army.control(None, False)
-        assert len(army.step_ms) == 1 and COUNTS["a decision"] == 1
+        assert len(army.debug_state.step_ms) == 1 and COUNTS["a decision"] == 1
     finally:
         COUNTS.clear()
 
@@ -219,23 +220,73 @@ def test_a_new_game_starts_with_no_counts_left():
 # --- avoid areas ---
 
 
+def test_a_spread_move_row_past_the_map_edge_goes_to_the_anchor():
+    anchor = Point2((10.0, 1.0))
+    moved = []
+    units = [SimpleNamespace(position=Point2((x, 8.0)), move=moved.append) for x in (9.0, 11.0)]
+
+    def in_pathing_grid(p):
+        assert p.y >= 0  # like the real grid, which raises off the map
+        return True
+
+    ai = SimpleNamespace(
+        mediator=SimpleNamespace(get_ground_grid=None, find_path_next_point=lambda **_: anchor),
+        game_info=SimpleNamespace(map_size=SimpleNamespace(width=40, height=40)),
+        in_pathing_grid=in_pathing_grid,
+    )
+    # Heading along the map's edge, so the rows across it reach below y = 0
+    spread_move(ai, units * 6, Point2((20.0, 1.0)), Point2((0.0, 1.0)))
+    assert anchor in moved
+
+
+def test_an_avoid_area_the_free_squads_beat_is_dropped_seen_or_not():
+    army, ai = Army(), fake_ai()
+    army.turned_back(ai, [marine(20.5, 20.5)], "no help possible")
+    army.drop_beatable_avoid_areas(ai, lings(STRONG - 1))
+    assert army.blocked(ai, Point2((20.5, 21)))
+    army.drop_beatable_avoid_areas(ai, lings(STRONG))
+    assert not army.blocked(ai, Point2((20.5, 21)))
+    assert not army.avoid_state.reasons and not army.avoid_state.threats
+
+
+def test_an_avoid_area_with_no_known_enemies_is_never_dropped_for_strength():
+    army, ai = Army(), fake_ai()
+    army.mark_avoid(ai, Point2((20, 20)), 6.0, "unseen fire")
+    army.mark_avoid(ai, Point2((5, 30)), 6.0, "scout needed", seconds=20)
+    army.drop_beatable_avoid_areas(ai, lings(STRONG * 3))
+    assert army.blocked(ai, Point2((20, 20))) and army.blocked(ai, Point2((5, 30)))
+
+
+def test_a_visible_cannon_keeps_its_avoid_area_but_a_gone_army_does_not():
+    cannon = unit(20.5, 20.5, type_id=UnitTypeId.PHOTONCANNON, structure=True, can_attack_ground=True, is_memory=False)
+    army, ai = Army(), fake_ai()
+    ai.is_visible = lambda p: True
+    ai.enemy_units, ai.enemy_structures = [], [cannon]
+    army.mark_avoid(ai, Point2((20.5, 20.5)), 6.0, "no help possible")
+    army.clear_empty_avoid_areas(ai)
+    assert army.blocked(ai, Point2((20.5, 21)))
+    ai.enemy_structures = []
+    army.clear_empty_avoid_areas(ai)
+    assert not army.blocked(ai, Point2((20.5, 21)))
+
+
 def test_avoid_areas_expire_and_take_their_reasons_with_them():
     army, ai = Army(), fake_ai(time=10.0)
     army.turned_back(ai, [marine(20.5, 20.5)], "army can't beat")
     army.mark_avoid(ai, Point2((5, 30)), 4.0, "scout needed", seconds=100)
     assert army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
-    assert set(army.avoid_reasons.values()) == {"army can't beat", "scout needed"}
+    assert set(army.avoid_state.reasons.values()) == {"army can't beat", "scout needed"}
     ai.time += 60  # past AVOID_SECONDS, not past the scout's 100 s
     assert not army.blocked(ai, Point2((20.5, 21))) and army.blocked(ai, Point2((5, 31)))
-    assert list(army.avoid_reasons.values()) == ["scout needed"]
+    assert list(army.avoid_state.reasons.values()) == ["scout needed"]
 
 
 def test_a_new_area_on_an_old_one_replaces_it_and_its_reason():
     army, ai = Army(), fake_ai(time=10.0)
     army.mark_avoid(ai, Point2((20, 20)), 6.0, "army can't beat")
     army.mark_avoid(ai, Point2((21, 20)), 6.0, "unseen fire")
-    assert [(p, r) for p, r, _ in army.turned_back_at] == [(Point2((21, 20)), 6.0)]
-    assert army.avoid_reasons == {Point2((21, 20)): "unseen fire"}
+    assert [(p, r) for p, r, _ in army.avoid_state.areas] == [(Point2((21, 20)), 6.0)]
+    assert army.avoid_state.reasons == {Point2((21, 20)): "unseen fire"}
 
 
 # --- one combat estimate ---
@@ -251,3 +302,88 @@ def test_raid_sizing_knows_a_sieged_tank_we_are_on_top_of_cant_shoot():
     assert wins(ai, on_top, [tank])  # left out of the sim: nothing left that shoots
     assert not wins(ai, lings(4, 30.5, 30.5), [tank])  # far away: it's in the sim
     assert needed(ai, on_top, [tank], tank.position, judge=wins) is not None
+
+
+def test_a_dead_units_memory_is_dropped():
+    army, ai = Army(), fake_ai()
+    ai._units_previous_map = {}
+    army.last_damaged[7] = 1.0
+    army.enemy_state[8] = (Point2((1, 1)), 0.0, 1.0)
+    army.enemy_moved[8] = 1.0
+    army.on_death(ai, 7)
+    army.on_death(ai, 8)
+    assert 7 not in army.last_damaged and 8 not in army.enemy_state and 8 not in army.enemy_moved
+
+
+def test_help_counts_a_helper_already_in_the_fight_once(monkeypatch):
+    from ares.consts import EngagementResult
+
+    import bot.jobs
+    from bot.squads import Battle
+
+    army = Army()
+
+    def squad_of(n, x, job="patrol"):
+        s = army.book.new()
+        s.units, s.job = lings(n, x, x), job
+        s.tags = {u.tag for u in s.units}
+        return s
+
+    fighting, helper, spare = squad_of(2, 10), squad_of(2, 12, "help"), squad_of(4, 14)
+    helper.helping = fighting.id
+    present = fighting.units + helper.units  # what `Army.members` gives the fight: the helper included
+    army.battles[fighting.id] = Battle(Point2((20, 20)), [marine(20, 20)], present, EngagementResult.LOSS_CLOSE, 10)
+    seen = {}
+
+    def choose(present, enemies, candidates, wins_with, room, wins_at_all=None):
+        seen["tags"], seen["room"] = [u.tag for u in present], room
+
+    monkeypatch.setattr(bot.jobs, "choose_helpers", choose)
+    monkeypatch.setattr(army, "turned_back", lambda *args, **kwargs: None)
+    army.coordinate_help(fake_ai(), [fighting, helper, spare])
+    assert sorted(seen["tags"]) == sorted(u.tag for u in present)  # nobody twice
+    assert seen["room"] == 10  # the fight's room already counts the helper
+
+
+@pytest.mark.parametrize("route_open", [True, False])
+def test_a_patrol_whose_route_gets_cut_picks_another_spot(monkeypatch, route_open):
+    import bot.jobs
+
+    army, ai = Army(), fake_ai()
+    patrol = army.book.new()
+    patrol.units = lings(4)
+    patrol.tags = {u.tag for u in patrol.units}
+    old, new = Point2((40, 40)), Point2((5, 40))
+    patrol.target = old
+    monkeypatch.setattr(bot.jobs, "rally_point", lambda ai: Point2((5, 5)))
+    monkeypatch.setattr(bot.jobs, "enemy_groups", lambda ai: [])
+    monkeypatch.setattr(army, "patrol", SimpleNamespace(fresh=lambda p, t: False, pick=lambda *args: new))
+    monkeypatch.setattr(army, "blocked", lambda ai, p: False)
+    monkeypatch.setattr(army, "can_walk_to", lambda ai, p: True)
+    monkeypatch.setattr(army, "route_map", lambda ai, units: SimpleNamespace(reaches_from=lambda a, b: True))
+    monkeypatch.setattr(army, "route_ok", lambda ai, units, p: route_open or p != old)
+    target, _ = army.squad_goal(ai, patrol, [patrol])
+    assert target == (old if route_open else new)
+
+
+# --- widening plans, per fight ---
+
+
+def test_another_fights_evaluation_keeps_a_widening_plan():
+    import numpy as np
+
+    from bot.breach import WidenPlan
+
+    army = Army()
+    ai = SimpleNamespace(time=100.0, time_formatted="01:40")
+    army.breach_state.widening = {111: WidenPlan(222, 95.0, ("A",), 99.0)}  # fight A's plan on target 111
+    army.assignments.deferred = {111}
+    reach = SimpleNamespace(
+        regions=lambda: np.zeros((4, 4), int), reached=np.zeros((4, 4), bool), walkable=np.ones((4, 4), bool)
+    )
+    # Fight B is evaluated and has no options: A's plan and its deferred target stay, with their start time
+    assert army.widen_plan(ai, reach, [], [], {}, SimpleNamespace(health_max=35), ("B",)) == {}
+    assert army.breach_state.widening[111].started == 95.0 and army.assignments.deferred == {111}
+    # Nothing re-evaluates A for a while: its fight is over, the plan goes
+    army.forget_stale_widening(99.0 + 11)
+    assert army.breach_state.widening == {} and army.assignments.deferred == set()

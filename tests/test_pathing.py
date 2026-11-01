@@ -58,6 +58,7 @@ def fake_ai(reachable=True):
         structures=Group([structure(1)]),
         enemy_structures=Group(),
         destructables=Group(),
+        mineral_field=Group(),
     )
     return ai, built
 
@@ -93,3 +94,19 @@ def test_creep_tumors_dont_clear_the_answers():
         ai.structures.append(structure(10 + i, kind))
         assert access.is_reachable(ai, BASES[0])
     assert built == ["fresh"]
+
+
+def test_a_depot_raised_in_place_is_checked_again():
+    """Same tag, another type: a lowered depot is walkable, a raised one isn't."""
+    ai, built = fake_ai()
+    depot = structure(50, UnitTypeId.SUPPLYDEPOTLOWERED, x=12, y=12)
+    ai.enemy_structures.append(depot)
+    ai.mediator.get_map_data_object.pathfind = lambda s, g, grid: (
+        None if depot.type_id == UnitTypeId.SUPPLYDEPOT else [g]
+    )
+    access = ExpansionAccess()
+    assert access.is_reachable(ai, BASES[0])
+    depot.type_id = UnitTypeId.SUPPLYDEPOT
+    ai.state.game_loop += 2
+    ai.time += 1
+    assert not access.is_reachable(ai, BASES[0])  # not the cached answer from a second ago

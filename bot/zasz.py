@@ -14,6 +14,7 @@ from bot.actions.macro import macro_plan
 from bot.actions.pathing import ExpansionAccess
 from bot.actions.queens import build_queens, control_queens
 from bot.actions.scouting import Scouting
+from bot.actions.state import ActionState
 from bot.actions.upgrades import remaining_gas, upgrade_plan, workers_per_gas
 from bot.combat import ARMY_TYPES
 from bot.decisions import Decision, Decisions, ScriptedDecisions
@@ -48,6 +49,7 @@ class ZaszBot(AresBot):
         self.workers_per_gas: int = 3
         self.army = army.Army()
         self.scouting = Scouting()
+        self.action_state = ActionState()  # what the scripted actions remember between steps
         self.expansions = ExpansionAccess()  # which expansions we can walk to, and why not
         self.damage = DamageTracker(ARMY_TYPES)  # how much of the army's damage lands
 

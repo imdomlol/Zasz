@@ -2,10 +2,19 @@
 behind it (`TargetSlots`, `Assignments`).
 """
 
+import numpy as np
 import pytest
 from sc2.position import Point2
 
-from bot.targeting import Assignments, BlockTracker, TargetSlots, attack_capacity, melee_share, pick_tiered
+from bot.targeting import (
+    Assignments,
+    BlockTracker,
+    ReachMap,
+    TargetSlots,
+    attack_capacity,
+    melee_share,
+    pick_tiered,
+)
 from fakes import bay, marine, unit, zergling
 
 ORIGIN = Point2((0, 0))
@@ -350,3 +359,67 @@ def test_buildings_touching_at_a_corner_still_leave_a_gap():
     grid[5, 5:9] = 1.0  # (4, 5) and (5, 4) both buildings/terrain: the corner gap is walkable
     reach = ReachMap(grid, [zergling(1.5, 4.5)], [unit(5.5, 8.5, is_memory=False)], margin=20)
     assert reach.reached[5, 5] and reach.regions()[4, 4] == reach.regions()[5, 5]
+
+
+# --- the reach map's flood fill (labelled regions instead of a step-by-step search) ---
+
+
+def stepwise_reached(reach: ReachMap, own: list) -> np.ndarray:
+    """The step-by-step search the reach map used before (the reference for `_flood`)."""
+    from collections import deque
+
+    walkable = reach.walkable
+    reached = np.zeros_like(walkable, dtype=bool)
+    queue = deque()
+    for u in own:
+        cell = (int(u.position.x) - reach.x0, int(u.position.y) - reach.y0)
+        if 0 <= cell[0] < walkable.shape[0] and 0 <= cell[1] < walkable.shape[1] and not reached[cell]:
+            reached[cell] = True
+            queue.append(cell)
+    w, h = walkable.shape
+    while queue:
+        cx, cy = queue.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = cx + dx, cy + dy
+            if 0 <= nx < w and 0 <= ny < h and walkable[nx, ny] and not reached[nx, ny]:
+                if dx and dy and reach._squeezed(cx, cy, dx, dy):
+                    continue
+                reached[nx, ny] = True
+                queue.append((nx, ny))
+    return reached
+
+
+def test_flood_fill_matches_the_step_by_step_search_on_random_grids():
+    rng = np.random.default_rng(0)
+    for _ in range(300):
+        grid = np.ones((80, 80))
+        grid[rng.random(grid.shape) < rng.uniform(0.2, 0.45)] = np.inf
+        own = [zergling(10 + rng.random() * 25, 10 + rng.random() * 50) for _ in range(int(rng.integers(1, 6)))]
+        enemies = [
+            marine(30 + rng.random() * 30, 10 + rng.random() * 50, is_memory=False)
+            for _ in range(int(rng.integers(0, 60)))
+        ]
+        reach = ReachMap(grid, own, enemies)
+        assert np.array_equal(reach.reached, stepwise_reached(reach, own))
+
+
+def test_flood_fill_corner_rules():
+    """A wall across the map whose only way through is a diagonal step past the cell (11, 9): open when
+    terrain blocks that cell (SC2 units squeeze between corners), closed when an enemy unit does."""
+
+    def walled(corner_blocked_by_terrain: bool) -> np.ndarray:
+        grid = np.ones((24, 24))
+        grid[:, 10] = np.inf
+        grid[11, 10] = 1  # the gap, reached only diagonally from (10, 9) or (12, 9)
+        if corner_blocked_by_terrain:
+            grid[11, 9] = np.inf
+        return grid
+
+    own = [zergling(5.5, 5.5)]
+    far_side = Point2((11.5, 15.5))
+    terrain = ReachMap(walled(True), own, [], margin=12)
+    assert terrain.reached[terrain.cell(far_side)]
+    assert np.array_equal(terrain.reached, stepwise_reached(terrain, own))
+    unit_plug = ReachMap(walled(False), own, [marine(11.5, 9.5, is_memory=False)], margin=12)
+    assert not unit_plug.reached[unit_plug.cell(far_side)]
+    assert np.array_equal(unit_plug.reached, stepwise_reached(unit_plug, own))

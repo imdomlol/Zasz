@@ -14,7 +14,8 @@ but narrow or indirect; **Low** = nice to have / tooling.
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
-| R | `review2-phase1..4` | **Next.** The 2026-10-07 repository review, in 4 phases (section below) | High | - |
+| R | `review2-deferred` | R02, left over from the repository review | High | - |
+| T | `faster-testing` | Judge a change in 15 minutes, not 80 | High | - |
 | 20 | `squads-polish` | Open squad behaviors: help flip-flop, raids that leave, pushes into the unknown, strike sizing | High | - |
 | 21 | `combat-estimates` | Fix the sim's blind spots: approach under fire, chokes, fog, bunkers; enemy groups | High | - |
 | 24 | `protoss-ties` | Find out why games vs Protoss (Ultralove, Magannatha) tie at 20 minutes | High | - |
@@ -36,176 +37,32 @@ but narrow or indirect; **Low** = nice to have / tooling.
 | 6 | `static-defense-placement` | Better spore / spine placement | Low-Medium | - |
 | 7 | `drone-escape-building` | Drone saves itself by starting a building | Low-Medium | - |
 
-## Repository review 2026-10-07 (R01-R21), in phases
+## `review2-deferred`: R02, left over from the 2026-10-07 repository review
 
-A review of `79f1097`, each finding checked against the code with offline probes. Planned order (starting waits for the user): phases
-1 -> 4, one branch per phase (`review2-phase1-measurement`, `review2-phase2-refactors`,
-`review2-phase3-behavior`, `review2-phase4-runners`). Rank = expected impact (1 = most). Within a phase, one
-commit per item; judge each as in CLAUDE.md ("Judging a change").
+The review's other items are done (merged into `squads`). Full results:
+`docs/review2-report.md`. Each measured side by side against base `6c460c1`, same seeds, 21 games per run.
 
-### Phase 1: trust the measurements (tooling only; the bot doesn't change)
+- **R02 (spare squads join only staffed raids), reverted in `476f5c8`.** 2 rounds: phase 2 84.4k lost, 41 of 42 wins, 0.38
+  lost/killed; phase 2 + R02 102.4k, 38 of 42, 0.44; all of phase 3 without R02 78.5k, 40 of 42, 0.37. Longer games too
+  (654 s vs 575 s). Not shown to help, and possibly harmful; 2 rounds can't prove harm. R02 had four parts (no spares for
+  sim-rejected sites, spares at the staging point, patrol rather than push when nothing was raided, rejected site marks
+  raids "not going well"). The staging part alone (V1, `971dccb`) showed no gain: 82.3k over 2 rounds, and 98.9k over 3
+  when combined with R04 (`e80fa92`). Likely the sim's pessimism (#21): spares at a "rejected" site may cover for wrong
+  verdicts. Retry after #21.
 
-R13 before R14/R15 (they add CSV columns). Ends with a **new baseline**: scenarios `--repeat 3` and
-`benchmark.py --games 21 --seed 1 --jobs 6`; later phases compare against it (R14 changes benchmark variance).
+## `faster-testing`: Judge a change in 15 minutes, not 80
 
-- **R11 (rank 5): the order-log check can pass with no evidence.** `scripts/compare_orders.py` exits 0 when
-  both directories are missing or empty, two empty logs read "same (0 commands)", and a crashed game leaves a
-  partial log that looks complete. Fix: `ScenarioBot` writes an end line (`# end <status> loop=<n>
-  commands=<k>`) when the outcome is decided; `run_scenarios` writes `DIR/manifest.json` (run id, commit,
-  build, each run's status, `complete`); add `REPEATABLE` (the 13 scenarios in CLAUDE.md) to the scenarios
-  package. `compare_orders` defaults to that set (`--only NAME...` for a subset) and fails on a missing
-  directory, an incomplete manifest, a missing expected scenario, a log without its end line, or nothing
-  compared; it ends with "N scenarios, M commands compared". Also: `scenarios/army.py` reads the same
-  `ZASZ_ORDER_LOG` variable as a "1" flag; give one of them another name. Tests: each failure exits 1; two
-  complete identical logs exit 0.
-- **R13 (rank 6): merged CSVs are read with the first header only.** `run_meta.read_rows` skips embedded
-  header lines but keeps the first header: an old-then-new merge reads new rows as `{None: [...]}`, and
-  `ensure_header` then crashes on startup. A real git union merge also duplicated old rows (an upgraded
-  header pads old rows with a trailing comma, so they no longer match the other machine's copy). No CSV has an
-  embedded header today; the next new column would cause one. Fix: track the active header per segment and
-  map rows to the union of known columns by name; exit with a clear message on unknown fields; on upgrade
-  rewrite only the header line (don't pad old rows). Tests: old->new and new->old merges keep every value;
-  `ensure_header` succeeds; a reordered embedded header maps by name.
-- **R20 (rank 7): no CI.** Add `.github/workflows/ci.yml`: checkout with the `ares-sc2` submodule, Python
-  3.12, `uv sync --locked` (needs GitHub access for the git-pinned python-sc2 and map_analyzer), `uv run ruff
-  check .`, `uv run ruff format --check .`, `uv run python -m pytest -q`. No StarCraft II. Add each fixed
-  bug's regression test as it lands.
-- **R14 (rank 10): benchmark games aren't seeded on our side.** Scenarios fix the hash seed and seed
-  `random` (`run_scenarios.make_repeatable`); the benchmark seeds only the game. The main source of
-  run-to-run difference is Python's hash order (unit-type enums hash by name, so sets of them iterate
-  differently per process); `random` matters in one place (ares' fallback creep-tumor spot); `uuid` and NumPy
-  random don't affect play. Fix: one shared seeding setup for both runners, applied before the bot is
-  created, with `PYTHONHASHSEED=0` for workers; `--jobs 1` needs a fresh process per game (comes with R12).
-  New columns at the end: `jobs`, `host`, `python` (step times from `--jobs 6` and `--jobs 1` look alike in
-  the CSV today). Test: both modes see `random` seeded from the game seed; workers see `PYTHONHASHSEED=0`.
-- **R15 (rank 12): loss columns measure different things.** Benchmark `lost_value` = minerals lost in army +
-  economy only (no gas, no technology); `killed_value` = the game's minerals+gas value of everything killed;
-  scenario `army_lost` = minerals+gas of our army units and queens. Comparisons over time are fine (same
-  definition throughout); a killed/lost ratio isn't, and it matters once gas units arrive (#2). Fix: keep
-  `lost_value`, document it; add `lost_minerals_total`, `lost_vespene_total`, `lost_army_total`,
-  `lost_tech_total` at the end. Test: a fake score gives the expected columns, `lost_value` unchanged.
-- **R16 (rank 15): comparisons use one row, or the wrong pool.** `run_scenarios.compare` shows only the
-  previous run's last repeat (an ERROR row can be the baseline, its blanks read as 0). The benchmark's
-  slow-win replay rule pools every Hard win across races, maps and builds (Protoss wins are kept too often,
-  slow Zerg wins missed). Fix: compare against the previous run's group (n, fails, mean/median lost, damage,
-  time); key win times by (difficulty, race, map, build) with a (difficulty, race) fallback under 5 samples.
-  Tests: repeats 10/10/100 report mean 40, n=3; an ERROR row is never the baseline.
-- **R21 (rank 20): docs overstate guarantees.** README says scenarios play "exactly the same way every time"
-  (only 13 do) and that a watchdog reports freezes (it doesn't fire; R12); `bot/settings.py` says it holds all
-  tunables, but `bot/efficiency.py`, `bot/actions/upgrades.py` (`GAS_PER_EXTRACTOR`), `bot/micro.py`
-  (`DIVE_FIRST`, `PRIORITY_STRUCTURES`) and some inline numbers (`strikes.py`, `routes.py`) live elsewhere.
-  Fix the README wording (link CLAUDE.md's "Judging a change"); say the settings hold the strategy tunables.
+**Idea:** The 17 ideas and the suggested order are in `docs/review2-report.md` ("Faster testing"; move them here if that
+file goes). First: a verdict tool with confidence ranges, a fast benchmark with a few Protoss matchups and early stopping,
+counters for whether a change fires, mid-game scenarios.
 
-### Phase 2: speed and refactors that change no order
-
-Check: the order logs of the 13 repeatable scenarios identical (with R11's checks), plus a `--jobs 1`
-benchmark for timing.
-
-- **R18 (rank 3): reach-map flood fill in a Python loop** (`ReachMap.__init__`, `bot/targeting.py`), built
-  per squad, per enemy group for strikes (every 0.5 s, uncached) and for breach evaluation: 1.5 / 5.8 / 13 ms
-  at 40x40 / 80x80 / 120x120. An exact replacement: `scipy.ndimage.label` with side neighbours, joined across
-  allowed diagonal steps (the `_squeezed` rule) with `csgraph.connected_components`, seeds from units on
-  blocked cells kept as now. Identical on 700 random grids (226 of them exercised the corner rule); 8-30x
-  faster. Add an equivalence test against the old loop (corners blocked by units vs buildings, both sides of
-  a wall). Likely part of the 0.5-0.9 s worst steps (#22). Don't retry sharing maps between squads (#22).
-- **R17 (rank 19): debug notes built every step.** `fight()` always calls `note_options()`, `note()` always
-  formats and stores text, `_control` copies notes into `last_note`: ~0.1 ms per game loop at 100 zerglings
-  (~1%). Careful: `note_options` calls `slots.capacity()` for targets in every tier, which settles the shared
-  per-step capacity cache for later squads and strikes: removing that call changes orders. Fix: keep the
-  capacity calls (comment why), gate only the note writes, the `name_of` strings and the `last_note` copy on
-  `Army.diagnostics`; move `CHOKE_NOTES` (a real decision cache) out of `army_notes` as e.g.
-  `CHOKE_VERDICTS`. Scenarios read the notes with debug on, so they keep working. Order logs identical with
-  debug on and off.
-- **R09 (rank 18): observation counts can be changed.** `Observation` is frozen but `own_units` etc. are
-  plain dicts the policy could change before the recorder writes them. (Changing the constructor's input
-  already can't.) Fix: wrap the dict `__post_init__` already builds in `MappingProxyType`, as `Decision.army`
-  does (~0.1 us per step). Test: assigning into `own_units` raises; `to_dict()` still plain numbers.
-- **R08 (rank 17): `Decision` validates only `army` and `upgrades`.** `Decision(build='pool')`,
-  `attack='false'` (truthy: the army attacks, and it's copied into the next observation),
-  `drone_target=nan`, `queens=-1` are all accepted. Fix: require a `Build`, a real bool for `attack`, ints
-  (not bool) >= 0 for the counts, with the field named in the error; `from_dict` stays strict (no coercion).
-  Test: each case raises, directly and via `from_dict`.
-- **R10 (rank 16): the recording reader accepts damaged files.** An empty file reads as an empty recording;
-  `decisions` in the header isn't checked; a renamed body feature silently reads as 0; unknown or missing
-  record types are skipped or raise a bare `KeyError`; a second header mid-file replaces the first; a step
-  after the end record is accepted; body errors have no file:line. Fix: require a header and both name lists
-  (decisions against `DECISION_NAMES`); enforce header, steps, at most one end; reject unknown `obs` keys
-  (missing ones stay allowed for older files); wrap step errors with file:line; keep `skip_unfinished_line`.
-- **R19, first step (rank 21):** replace the queen/spore state attached through `ai.__dict__.setdefault`
-  (`bot/actions/queens.py`, `bot/actions/defense.py`) with a small object owned by the bot; prune histories
-  of dead tags that never shrink (`last_damaged`, `enemy_state`, `enemy_moved`, `most_hitting`,
-  `breach_notes`, `scouted_at`).
-
-### Phase 3: behavior fixes, one benchmark run each
-
-In this order; each judged against the previous fix (scenarios `--repeat 3` + 21 games `--seed 1`). Worse:
-one reworked try, else revert and note why here. Watch passivity (R04, R02, R03 make the army more cautious)
-and `efficiency_open_army_free`'s fail rate over ~18 runs (the reverted experiments failed there).
-
-1. **R04 (rank 1): avoid areas made by a cannon or bunker clear the next step.** `clear_empty_avoid_areas`
-   (`bot/avoid.py`) checks only `ai.enemy_units`, which never contains structures. Areas from "choke not
-   worth it", "nothing to do safely" and "no help possible" can be made by static defense; their center is
-   usually visible from the back-off line, so they last ~1 step, the site unblocks, and raids walk back into
-   its range. ("Army can't beat" areas come from army units only; "scout needed" and "unseen fire" have their
-   own rules.) Fix: count visible (not memory), armed enemy structures for those threat-based areas only
-   (stricter: store each area's threat tags). Test: an area made by a cannon stays until the cannon is gone
-   or 45 s pass. Risk: an unloaded bunker counts as armed; a cannon at a base the army could take holds it
-   off 45 s.
-2. **R02 (rank 2): rejected raid sites still get spare squads.** `assign_raids` skips a site the sim says
-   can't be staffed, but `no_idle_squads` gets the full site list and sends spare squads to the nearest site's
-   *center*: they bounce off it every 2 s plan. A skipped site also doesn't mark raids "not going well", and
-   spares joining a gathering raid walk to the center, not its staging point. Fix: pass only staffed raids
-   (with their current target, staging if gathering) to the fallback; if every site was rejected, keep
-   patrolling; set `raids_ok = False` on a skip. Tests: an unstaffable site gets no raiders; a spare joining
-   a gathering raid gets the staging point.
-3. **R01 (rank 4): help counts helpers on their way twice.** `Army.members` already puts squads helping a
-   fight into `Battle.present` (and `room()` subtracts them); `coordinate_help` then adds the en-route
-   helpers' units to `present` again and subtracts their count from `room` again. Doubled health makes help
-   stop too early; doubled room makes "no help possible" (freeing the fighting squad, marking an avoid area)
-   more likely. Fix: combine by unit tag; subtract only newly added units. Not the main cause of #20's help
-   flip-flop (that's no hysteresis around the help bar). Test: no duplicate tags reach `choose_helpers`,
-   `room == battle.room`.
-4. **R03 (rank 9): patrols keep walking at danger that cut their route.** On "no route",
-   `control_squad` falls back to ares' path (danger only a cost). A patrol's spot is route-checked only when
-   picked, so a group moving across the way makes it bounce. Fix: re-pick a patrol's spot when the route to
-   it is cut (same for squad scouts). Not "hold on no route": the route map also says "no route" for any
-   target more than 4 cells inside danger, which is every raid on a defended site; holding would stop raids
-   from arriving. Raids/scouts: route to the nearest danger edge (wider search), hold only if that edge is
-   unreachable; fighting squads untouched. Tests: a patrol facing a new barrier gets a new spot; a raid deep in
-   danger still gets a waypoint.
-5. **R07 (rank 8): breach widening plans are shared across fights.** `self.widening` and
-   `assignments.deferred` (`bot/breach.py`) are army-wide while breach results are cached per fight area. A
-   second fight's evaluation wipes the first fight's plan (an ordinary breach clears both; no options drops
-   every plan not among its own; no options clears deferred); the first recreates it a second later with a
-   new start time, so the 30 s give-up never fires, and its cached result still sends zerglings to the
-   building while the target is no longer deferred. Rare (needs a partly walled, still target); unmeasured.
-   Fix: key plans by fight area, expire each on its own, build `deferred` from all live plans. Single-fight
-   scenarios keep identical order logs. Test: A's plan and timer survive B's evaluation.
-6. **R05 (rank 13): an overlord scout abandoned under fire keeps flying to its old spot.** `Scouting.on_damage`
-   drops the assignment, but the go-home branch needs `is_idle`; with no danger on the air grid (cloaked or
-   burrowed shooter, splash) the old move continues. A finished or expired request also leaves the overlord
-   flying onto the spot. Fix: a `returning` set, sent home once safe. Test: a non-idle overlord gets a home
-   path after `on_damage`.
-7. **R06 (rank 14): expansion checks miss a depot raising or lowering.** `ExpansionAccess` fingerprints
-   blocker tags only; a raised depot keeps its tag, so a cached "reachable" lasts up to 10 s. Mined-out
-   minerals aren't in the fingerprint either. Fix: fingerprint `(tag, type_id, position)` plus the mineral
-   count; keep creep tumors excluded. Test: raising a depot triggers a recheck next step.
-
-### Phase 4: runner robustness
-
-- **R12 (rank 11): no deadline enforced from outside a game.** The scenario watchdog calls
-  `_thread.interrupt_main()`, which can't wake `asyncio.run` waiting on SC2's socket (probe: still hung 7 s
-  later): it never fires. Parents wait on `future.result()` with no timeout; the benchmark has no wall-clock
-  limit and runs `--jobs 1` games in the parent; results are read in submission order, so games finished
-  behind a stuck one aren't written, and one dead worker breaks the pool. Fix: one subprocess per game under a
-  parent-side deadline (kill the process group, SC2 included); write rows as games finish, keyed by game
-  index, ordered summary at the end; same path for `--jobs 1` (gives R14 its fresh process). Includes #23's
-  replay-save crash. Test: a fake worker blocking on a socket returns ERROR within its deadline, leaves no
-  child process, and later games are still recorded.
-- **R19, the rest:** typed state owners for routes and fight plans, one subsystem at a time, order logs
-  identical for each move. Low priority.
+**Impact:** High: a change under about 20k can't be seen today, even in 5 rounds (5 hours).
 
 ## Watch list (not branches)
+
+- **Avoid areas dropped by the free squads' strength (R04):** fires about 22 times a game, mostly right after the area is
+  made, and Ultralove and Pylon vs Zerg lost more in its 3-round retest (all wins). If that holds, keep areas up for the squad
+  that made them or for patrols, and drop them for raids only (`drop_beatable_avoid_areas`).
 
 - **`wall_bunker` fails, expected**: a tight race even played optimally. Ideas for it are under #20.
 - **`efficiency_open_army_free` fails now and then on any code** (about 1 run in 6: the squad leaves the
@@ -248,6 +105,36 @@ the behaviors still seen going wrong in scenarios and games.
 
 **Impact:** High: these are where zerglings die for nothing. **Blockers:** each needs its scenario; judge
 on the regression set (`--repeat 3`) and a 21-game benchmark.
+- **Scout requests on every lost tank:** an overlord scout is requested whenever a tank drops out of
+  vision, including during an ordinary retreat. Request one only when we lose vision of it *and* none of
+  our units has been near it for a while, so a tank shooting from the dark is told apart from a fight we
+  just backed out of. (Seen in Hard/Very Hard games, 2026-10-05.)
+- **Retreat into a trap:** back-off picks a direction away from the threat without checking where it
+  leads. Several times an enemy army ran out of its main and down the ramp, and our scouts retreated into
+  the natural's mineral line and were trapped. Retreat toward open ground with a way out (`cornered`
+  already knows when there's none; use the same view to choose the direction).
+- **Scouts parked at avoid areas:** a scouting squad that backs off from an avoid area just sits on its
+  edge, waiting up to ~45 s for the area to expire, then dives the same units it was avoiding. Instead,
+  reassign its scout target to one it can reach without crossing an avoid area (`route_ok`).
+- **Unseen fire triggers far too often in fights** (CheatInsane game, 2026-10-05). `Army.on_damage` counts a
+  hit as unseen unless an armed enemy seen in the last `UNSEEN_EXPLAIN_SECONDS` (1 s) has the zergling's
+  position *when the damage lands* within its weapon reach + 1 tile; 2 such hits worth 25% of nearby health
+  in 8 s make the squad back off and mark a 12-tile avoid area. Likely false positives (from the code, not
+  yet measured):
+  - **Splash** (tanks, banelings, hellbats, colossi...) lands beyond the shooter's reach + 1.
+  - **Projectiles in flight**: a retreating zergling hit by a shot fired earlier is already out of reach.
+  - **Spells/effects** (storm, fungal, ...) have no armed shooter; `ai.state.effects` isn't consulted.
+  - **Big fights** clear the 2-hit / 25% bar in a second, turning a winning fight into a retreat.
+  Real cases (cloaked/burrowed units, shots from high ground or the fog) must still count. Ideas: allow
+  each weapon's splash radius and the distance a zergling covers while a shot flies (or check its position
+  ~0.5 s earlier); explain damage with active effects; don't count unseen hits while the force is in a
+  fight with visible armed enemies around it, or require the unseen damage to persist after they're gone.
+  **First measure:** log each unseen hit (amount, nearest seen enemy and its distance vs its reach, our
+  unit's movement) in a real game with army debug on, to see which cause dominates. Related: the tank
+  scout-request item above.
+- **(low priority) Enemy memory in their base:** a unit last seen in the enemy's base is probably still
+  there. Keep (or refresh) the memory of units last seen in the main/natural longer instead of letting it
+  fade like units seen in the field. Small cost today.
 
 ## `combat-estimates` (#21): Fix the combat sim's blind spots
 
@@ -255,10 +142,32 @@ on the regression set (`--repeat 3`) and a 21-game benchmark.
 decision logic. Every fight, strike, raid and help judgement goes through one `combat_estimate`
 (`bot/combat.py`: tank neutralization and the bunker path); correct it further where we can estimate better.
 
+- **First: investigate how ares' combat sim works and what it takes into account.** Read its code
+  (`mediator.can_win_fight` and what it calls in `ares-sc2`) and probe it offline where possible: which
+  unit stats it uses (health, shields, armor, damage, attack speed, bonuses vs light/armored, ranges,
+  multi-hit attacks like the zealot's), whether upgrades count, how positions and spread count (if at all),
+  how it scales with numbers (48 small melee units vs a few big ones), and how its verdict tiers map to
+  outcomes. A concrete puzzle to explain: it calls 48 zerglings vs 6 zealots + 4 stalkers (the
+  `efficiency_cramped_more_zealots` setup) a loss, yet `efficiency_open_army` (48 vs 4 zealots + 4 stalkers
+  in the open) wins every run losing ~10. Check whether it's the sim itself or what we feed it (`needed()`
+  grows the force in steps of 6, nearest first). Write the findings down (a short doc or this section), so
+  the corrections below are based on what it actually does.
+- **Later: see if we can make our own version.** Once we understand exactly how the sim decides battles,
+  judge whether our own combat estimate would do better than correcting ares': one that knows what the sim
+  doesn't (how many zerglings fit around the reachable enemies, chokes and buildings splitting an army, the
+  approach under fire, minimum range, bunker cargo). Check it against real outcomes (the `efficiency_*` and
+  `wall_*` scenarios, and fights in benchmark games), and watch its step time: every fight, raid, help and
+  strike judgement calls it. It matters more than a single bug: raids, help and avoid zones all treat the
+  sim's verdict as law.
+
 - **Approach under fire:** the sim assumes everyone fights at once. Melee units first cross the ranged
   enemies' range: estimate the damage taken on the way (time to cross x their dps) and take those
   zerglings off before judging. The sim called 2 zerglings vs 2 sieged tanks VICTORY_EMPHATIC.
 - **Sieged tanks:** splash and the long approach.
+- **Sieged vs unsieged tanks:** an unsieged tank seems to be treated as if it does sieged damage (or the
+  verdict is otherwise too pessimistic): squads give up trades they'd win. Check how the sim and our threat
+  code (`weapon_range`, `dps_vs`, the threat lookup out to a sieged tank's reach) tell `SIEGETANK` from
+  `SIEGETANKSIEGED`, and use the unsieged numbers for an unsieged tank. (Seen 2026-10-05.)
 - **Chokes:** only as many zerglings as fit around the reachable enemies fight at once (a ramp held by
   zealots). A first try broke the gateway grid by calling sealed fights hopeless: leave free work and
   breaches alone, and only judge *entering* a choke. Per target, `choke_worth` already refuses melee units
@@ -349,6 +258,13 @@ scenario can check every point on the path has creep after N minutes.
   `efficiency_ramp`.
 - **Idle ~24% everywhere** is mostly the melee wind-up; a better "swinging" signal would make it meaningful.
 - **Stutter step during cooldown**: not tried; the metric can decide.
+- **Focus fire on low health:** in fights a lot of the enemy is left on 1 HP (seen 2026-10-05). Target
+  choice (`fight` tiers -> `pick_tiered`) ignores health entirely: tier, then depth/distance, and a
+  zergling keeps its target while it has room; the slot caps spread zerglings over targets on purpose.
+  Within a tier, prefer the target that dies soonest (remaining health + shields over the damage we can
+  put on it), so its damage leaves the fight quickly; unit type still sets the tier (tanks first). Keep
+  the slot caps (finishing a target needs room on it) and don't switch so eagerly that zerglings walk
+  back and forth. Measure with `efficiency_open_army` (zerglings lost, kill time).
 - **Mutalisks** (#12): an overkill cap for ranged attackers in `attack_capacity`, and a scenario
   (mutalisks vs workers/structures) to measure bounce and spread.
 - **Real games read lower than scenarios** (45% vs 60-70%): maybe real congestion in messy fights; worth a

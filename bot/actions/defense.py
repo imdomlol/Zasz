@@ -37,7 +37,7 @@ async def build_spores(ai: AresBot, per_base: int) -> None:
     spores = ai.structures(UnitTypeId.SPORECRAWLER)
     # Bases where a spore couldn't be placed (or no drone found) lately: the next base gets a go, and the
     # placement query isn't repeated every step
-    failed: dict[int, float] = ai.__dict__.setdefault("spore_failed_at", {})
+    failed = ai.action_state.spore_failed_at
     for hatch in ai.townhalls.ready:
         if spores.closer_than(8, hatch).amount >= per_base:
             continue

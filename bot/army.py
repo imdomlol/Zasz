@@ -40,11 +40,10 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sc2.unit import Unit
 
-from bot import overlay
-from bot.army_debug import ArmyDebug
+from bot import army_notes, overlay
+from bot.army_debug import ArmyDebug, DebugState
 from bot.army_notes import (
     BACK_OFF_CIRCLES,
-    CHOKE_NOTES,
     CHOKE_OPENERS,
     COUNTS,
     REACH_DUMPED,
@@ -52,8 +51,8 @@ from bot.army_notes import (
     UNIT_NOTES,
     note,
 )
-from bot.avoid import AvoidAreas
-from bot.breach import Breaches
+from bot.avoid import AvoidAreas, AvoidState
+from bot.breach import Breaches, BreachState
 from bot.combat import (
     ARMY_TYPES,
     IGNORED_THREATS,
@@ -67,9 +66,9 @@ from bot.combat import (
     reach_of,
     weapon_range,
 )
-from bot.jobs import SquadJobs
-from bot.micro import back_off, fight, move, spread_move
-from bot.routes import Routes
+from bot.jobs import JobState, SquadJobs
+from bot.micro import CHOKE_VERDICTS, back_off, fight, move, spread_move
+from bot.routes import Routes, RouteState
 from bot.settings import (
     ACTIVE_MOVE,
     ACTIVE_TURN,
@@ -95,22 +94,16 @@ from bot.settings import (
 )
 from bot.squads import (
     Battle,
-    EnemyGroup,
     Patrol,
-    Rally,
-    ScoutPlan,
     Squad,
     SquadBook,
-    Strike,
     center_of,
 )
-from bot.strikes import Strikes
+from bot.strikes import Strikes, StrikeState
 from bot.targeting import (
     Assignments,
     BlockTracker,
     Detours,
-    ReachMap,
-    RouteMap,
     TargetSlots,
     attack_capacity,
 )
@@ -119,14 +112,11 @@ from bot.targeting import (
 class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
     """Squad jobs (`bot.squads`) and the per-unit memory that stops squads flip-flopping between
     fight and retreat. Its parts live in their own modules (`bot.jobs`, `bot.strikes`, `bot.breach`,
-    `bot.routes`, `bot.avoid`, `bot.army_debug`); all the state is set up here, in `__init__`."""
+    `bot.routes`, `bot.avoid`, `bot.army_debug`), each with a state object saying what it keeps between
+    steps; what several parts share (the fights, target slots, enemy activity) is set up in `__init__`."""
 
     def __init__(self) -> None:
         self.last_damaged: dict[int, float] = {}  # unit tag -> last time it took damage
-        # Where squads were turned back by a fight the sim says we'd lose: (enemy position, until).
-        # Sites and patrol spots near these are skipped for a while, so squads try elsewhere
-        # instead of walking back into the same wall as soon as the enemy leaves vision.
-        self.turned_back_at: list[tuple[Point2, float, float]] = []  # (center, radius, until)
         self.book = SquadBook()  # which zergling is in which squad
         self.patrol = Patrol()  # where we've had no vision the longest
         self.battles: dict[int, Battle] = {}  # squad id -> its fight, last step
@@ -134,64 +124,28 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.settled: dict[tuple[int, float], int | None] = {}  # (target, attacker radius) -> capacity (`TargetSlots`)
         self.cells_taken: set[tuple[float, float]] = set()  # attack spots claimed this step (`spot_key`)
         self.assignments = Assignments()  # each zergling's target, kept across steps
-        # Map-wide routes around danger (`route_map`), per PLAN_SECONDS window: the enemy groups and avoid areas
-        # as the window began; per squad (its units' tags), which of those groups it can't beat; and one
-        # route map per set of groups to avoid (squads that lose to the same groups share it)
-        self.route_groups: list[EnemyGroup] = []
-        self.route_zones: list[tuple[Point2, float]] = []
-        self.route_losing: dict[frozenset[int], frozenset[int]] = {}
-        self.route_maps: dict[frozenset[int], RouteMap] = {}
-        self.squad_scouts: dict[int, ScoutPlan] = {}  # squads scouting while waiting on an overlord
-        self.scouted_at: dict[Point2, float] = {}  # expansion spots our scouts have looked at -> when
-        self.routes_at = -99.0
+        self.route_state = RouteState()  # routes around danger, walkable regions, area reach maps (`bot.routes`)
+        self.breach_state = BreachState()  # breach and widening plans (`bot.breach`)
+        self.job_state = JobState()  # raids, rallies, squad scouts, plan timers (`bot.jobs`)
+        self.strike_state = StrikeState()  # enemies shooting us, and who's sent for them (`bot.strikes`)
+        self.avoid_state = AvoidState()  # areas to keep out of (`bot.avoid`)
+        self.debug_state = DebugState()  # what only the debug log reads (`bot.army_debug`)
         self.enemy_state: dict[int, tuple[Point2, float, float]] = {}  # tag -> (where, facing, last active)
         self.enemy_moved: dict[int, float] = {}  # enemy unit tag -> when it last moved (or was first seen)
-        # Widening plans: target tag -> (building to break, when the plan started); given up: tag -> until
-        self.widening: dict[int, tuple[int, float]] = {}
-        self.widen_given_up: dict[int, float] = {}
-        self.rallies: dict[int, Rally] = {}  # losing squad id -> where it and its helpers gather
-        self.breach_kept: dict[int, float] = {}  # the breach targets we're committed to -> last confirmed
-        self.breach_evals: dict[tuple[int, int], tuple[float, dict[int, int]]] = {}  # fight area -> (when, caps)
-        self.strikes: list[Strike] = []  # enemy groups shooting us, and the zerglings sent for them
         self.recent_shooters: dict[int, tuple[Point2, float, float]] = {}  # armed enemy -> (where, reach, seen)
         self.shooters_at = -1.0
         self.unseen_hits: list[tuple[Point2, float, float]] = []  # damage nobody seen could have dealt
         self.backed_off: dict[int, float] = {}  # squad id -> until when it holds outside the back-off line
         self.fighting: set[int] = set()  # squads that took a fight (they stay until DISENGAGE_AT)
-        self.partly_seen: set[int] = set()  # enemies seen on ground we have no vision of (`find_partly_seen`)
-        self.struck_at = -999.0
-        self.planned_at = -999.0
-        # For the debug overlay (`bot.overlay`) only: what was decided, to draw
-        self.site_notes: list[tuple[Point2, str]] = []  # raid sites: (center, 'raid A: 16/24 in')
-        self.site_letters: dict[Point2, str] = {}  # raid site center -> its letter (kept across plans)
-        self.breach_notes: dict[int, tuple[Point2, str, float]] = {}  # structure -> (where, text, when)
-        self.avoid_reasons: dict[Point2, str] = {}  # avoid area center -> why
-        self.regions = None  # labelled walkable regions of the ground grid (`can_walk_to`)
-        self.regions_at = -999.0
-        self.helped_at = -999.0
-        self.gathered: set[Point2] = set()  # defended sites (centers) whose raiders have gathered
-        self.staging_since: dict[Point2, float] = {}  # defended site -> when its raiders started gathering
-        self.raids_ok = True  # every raid staffed, gathered and not short of the bar (patrols allowed)
         self.blocks = BlockTracker()  # which zerglings are stuck behind others, per target
         self.detours = Detours()  # routes around our own crowd for blocked zerglings
-        # (area, the squad's unit tags) -> (built at, map, the enemy tags it was built with)
-        self.reach_cache: dict[tuple, tuple[float, ReachMap, frozenset[int]]] = {}
         # Debug: count what zerglings decide, logged every few seconds (scenarios switch this on)
         self.debug = False
-        self.last_note: dict[int, tuple[float, str]] = {}  # our unit -> (when, its last decision), kept
-        # Enemy building -> (most zerglings in range of it at once, the room it had then, its name) (`note_hitting`)
-        self.most_hitting: dict[int, tuple[int, int | None, str]] = {}
-        self.hitting_now: dict[int, int] = {}  # armed building -> zerglings in range of it last step
-        self.step_ms: list[float] = []  # army time per step (ms), logged and reset with the debug counts
-        self.route_ms: list[float] = []  # time spent on route checks (ms), same
-        self.counts = COUNTS
         # A new game starts with no counts or reach dumps left from an earlier one in this process
         # (`benchmark.py --jobs 1` plays its games in one process)
         COUNTS.clear()
         REACH_DUMPED.clear()
         self.diagnostics = False  # debug or the overlay is on this step: build what only they read
-        self.counts_logged_at = 0.0
-        self.helps: list[tuple[float, int, int]] = []  # (time, helper squad, helped squad), for scenarios
         # Committed: attack and keep fighting whatever the combat sim says (no avoid areas, no
         # retreats). Off in games; scenarios that test execution against a fight the sim calls a
         # loss switch it on
@@ -291,10 +245,10 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
             self._control(ai, attacking)
         finally:
             if self.debug:
-                self.step_ms.append((time.perf_counter() - started) * 1000)
+                self.debug_state.step_ms.append((time.perf_counter() - started) * 1000)
             else:
                 # Nothing reads the counts without debug (`log_debug`): don't let them pile up all game
-                self.counts.clear()
+                self.debug_state.counts.clear()
 
     def _control(self, ai: AresBot, attacking: bool) -> None:
         """Every squad does its job (`bot.squads`): defend if enemies are at our bases; otherwise
@@ -302,14 +256,17 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         the rest of the time."""
         alive = {u.tag for u in ai.units}
         self.diagnostics = self.debug or overlay.enabled()
+        army_notes.enabled = self.diagnostics
         self.clear_empty_avoid_areas(ai)
-        self.breach_kept = {t: when for t, when in self.breach_kept.items() if ai.time - when < BREACH_KEEP_SECONDS}
+        self.breach_state.kept = {
+            t: when for t, when in self.breach_state.kept.items() if ai.time - when < BREACH_KEEP_SECONDS
+        }
         self.remember_shooters(ai)
         self.track_activity(ai)
-        self.partly_seen = self.find_partly_seen(ai)
+        self.avoid_state.partly_seen = self.find_partly_seen(ai)
         BACK_OFF_CIRCLES.clear()
         TARGET_NOTES.clear()
-        CHOKE_NOTES.clear()
+        CHOKE_VERDICTS.clear()
         CHOKE_OPENERS.clear()
         UNIT_NOTES.clear()
         self.blocks.forget_dead(alive)
@@ -322,9 +279,13 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         busy = set(self.battles) | {s.id for s in self.book.squads.values() if s.job == "help"}
         squads = self.book.update(lings, busy)
         # Scouting plans of squads that died or were merged away: their spot is free to scout again
-        self.squad_scouts = {i: plan for i, plan in self.squad_scouts.items() if i in self.book.squads}
+        self.job_state.squad_scouts = {
+            i: plan for i, plan in self.job_state.squad_scouts.items() if i in self.book.squads
+        }
         # Area maps not used for a while: rebuilt on next use anyway (`reach_map`), so don't keep them
-        self.reach_cache = {k: v for k, v in self.reach_cache.items() if ai.time - v[0] < REACH_KEEP_SECONDS}
+        self.route_state.reach_cache = {
+            k: v for k, v in self.route_state.reach_cache.items() if ai.time - v[0] < REACH_KEEP_SECONDS
+        }
         self.log_debug(ai, squads)
 
         home_threats = [
@@ -338,13 +299,17 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
             for squad in squads:
                 if squad.job == "defend" or (squad.job in ("raid", "push") and not attacking):
                     squad.free()
-            if attacking and ai.time - self.planned_at >= PLAN_SECONDS:
-                self.planned_at = ai.time
+            if attacking and ai.time - self.job_state.planned_at >= PLAN_SECONDS:
+                self.job_state.planned_at = ai.time
                 if not self.committed:
+                    free = [
+                        s for s in squads if s.job in ("patrol", "raid", "scout", "push") and s.id not in self.battles
+                    ]
+                    self.drop_beatable_avoid_areas(ai, [u for s in free for u in s.units])
                     self.avoid_armies_we_cannot_beat(ai, lings)
                 self.assign_raids(ai, squads)
-            if ai.time - self.helped_at >= HELP_SECONDS:
-                self.helped_at = ai.time
+            if ai.time - self.job_state.helped_at >= HELP_SECONDS:
+                self.job_state.helped_at = ai.time
                 self.coordinate_help(ai, squads)
 
         self.update_rallies(ai, squads)
@@ -356,7 +321,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
             self.assignments.taken_over = 0
         self.assignments.start(ai.time, {u.tag for u in ai.units if u.type_id in ARMY_TYPES})
         self.update_strikes(ai, lings)
-        striking = {t for s in self.strikes for t in s.lings}
+        striking = {t for s in self.strike_state.strikes for t in s.lings}
         battles: dict[int, Battle] = {}
         for squad in squads:
             # Zerglings on a strike are the strike's this step; the squad runs the rest
@@ -370,8 +335,9 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         self.execute_strikes(ai)
         if self.debug:
             self.note_hitting(ai, lings)
-        for tag, text in UNIT_NOTES.items():
-            self.last_note[tag] = (ai.time, text)
+        if self.debug:  # (read by `on_death`'s debug log only)
+            for tag, text in UNIT_NOTES.items():
+                self.debug_state.last_note[tag] = (ai.time, text)
         if overlay.enabled():
             overlay.draw(ai, self)
 
@@ -415,7 +381,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
 
         if threats:
             near_home = ai.townhalls.closest_distance_to(squad.squad_position) < DEFEND_RADIUS
-            if not near_home and not self.committed and any(t.tag in self.partly_seen for t in threats):
+            if not near_home and not self.committed and any(t.tag in self.avoid_state.partly_seen for t in threats):
                 # Only part of their position is seen (something fired from the fog): don't fight
                 # what we can see; back off until an overlord shows us the rest
                 COUNTS["partly seen: back off"] += len(units)
@@ -467,7 +433,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
                         self.detours,
                         self.diagnostics,
                     )
-                refused = [t for t in threats if t.tag in CHOKE_NOTES and not CHOKE_NOTES[t.tag][2]]
+                refused = [t for t in threats if t.tag in CHOKE_VERDICTS and not CHOKE_VERDICTS[t.tag][2]]
                 if not busy and not (near_home or self.committed):
                     # Every zergling came up empty: the targets are choke fights not worth their cost,
                     # or out of reach with no breach worth making and nothing safe to break. Leave them
@@ -519,7 +485,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
             started = time.perf_counter()
             step = routes.waypoint(squad.squad_position, target)
             if self.debug:
-                self.route_ms.append((time.perf_counter() - started) * 1000)
+                self.debug_state.route_ms.append((time.perf_counter() - started) * 1000)
             if step is not None and step.distance_to(target) > 3:
                 target = step
 
@@ -577,7 +543,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
         with this one, zerglings on a strike at these enemies, and queens there (they defend without a
         squad). Not a squad that only happens to be near (fighting something else, passing by)."""
         tags = {t.tag for t in threats}
-        striking = {t for s in self.strikes for t in s.lings}
+        striking = {t for s in self.strike_state.strikes for t in s.lings}
         ids: set[int] = set()
         if squad.helping is not None:
             ids.add(squad.helping)
@@ -587,7 +553,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
             if (
                 s.helping == squad.id
                 or (squad.site is not None and s.site == squad.site and s.job in ("raid", "push"))
-                or any(squad.id in r.squads and s.id in r.squads for r in self.rallies.values())
+                or any(squad.id in r.squads and s.id in r.squads for r in self.job_state.rallies.values())
                 or (s.id in self.battles and tags & {t.tag for t in self.battles[s.id].threats})
             ):
                 ids.add(s.id)
@@ -597,7 +563,7 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
                 for u in s.units:
                     if u.tag not in striking:
                         found[u.tag] = u
-        lings = {t for s in self.strikes if s.targets & tags for t in s.lings}
+        lings = {t for s in self.strike_state.strikes if s.targets & tags for t in s.lings}
         for u in ai.units.tags_in(lings):
             found[u.tag] = u
         if threats:

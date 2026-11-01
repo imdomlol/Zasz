@@ -1,12 +1,14 @@
 """Squad jobs (`bot.squads`): where each squad goes (`squad_goal`), raids sized by the combat sim, help for losing
 fights, rallies, pushes and squad scouts."""
 
+from dataclasses import dataclass, field
+
 from ares import AresBot
 from sc2.position import Point2
 from sc2.unit import Unit
 
 from bot.army_notes import COUNTS, note
-from bot.combat import weapon_range, wins
+from bot.combat import ARMY_TYPES, weapon_range, wins
 from bot.micro import rally_point
 from bot.settings import (
     FIGHT_AT,
@@ -38,6 +40,24 @@ from bot.squads import (
     needed,
 )
 from bot.targeting import attack_capacity
+
+
+@dataclass
+class JobState:
+    """What `SquadJobs` keeps between steps (owned by `Army` as `job_state`)."""
+
+    rallies: dict[int, Rally] = field(default_factory=dict)  # losing squad id -> where it and its helpers gather
+    squad_scouts: dict[int, ScoutPlan] = field(default_factory=dict)  # squads scouting while waiting on an overlord
+    scouted_at: dict[Point2, float] = field(default_factory=dict)  # expansions our scouts have looked at -> when
+    gathered: set[Point2] = field(default_factory=set)  # defended sites (centers) whose raiders have gathered
+    staging_since: dict[Point2, float] = field(default_factory=dict)  # defended site -> when raiders began gathering
+    raids_ok: bool = True  # every raid staffed, gathered and not short of the bar (patrols allowed)
+    planned_at: float = -999.0
+    helped_at: float = -999.0
+    helps: list[tuple[float, int, int]] = field(default_factory=list)  # (time, helper, helped squad), for scenarios
+    # For the debug overlay (`bot.overlay`) only: what was decided, to draw
+    site_notes: list[tuple[Point2, str]] = field(default_factory=list)  # raid sites: (center, 'raid A: 16/24 in')
+    site_letters: dict[Point2, str] = field(default_factory=dict)  # raid site center -> its letter (kept across plans)
 
 
 class SquadJobs:
@@ -80,12 +100,15 @@ class SquadJobs:
         if squad.job == "raid" and squad.target is not None:
             return squad.target, True
         # Patrol: keep the current spot until we get there or something of ours has seen it lately (or
-        # it turns dangerous), then the next
+        # it turns dangerous, or the way there gets cut: an enemy group moved across it after the spot was
+        # picked, and the squad would bounce off its edge), then the next. The rally point, picked when
+        # nothing else qualifies, is kept even without a route (re-picking every step finds nothing better)
         if (
             squad.target is None
             or squad.squad_position.distance_to(squad.target) < 4
             or self.patrol.fresh(squad.target, ai.time)
             or self.blocked(ai, squad.target)
+            or (squad.units and squad.target != rally_point(ai) and not self.route_ok(ai, squad.units, squad.target))
         ):
             claimed = [s.target for s in squads if s is not squad and s.job == "patrol" and s.target is not None]
             # Stay out of reach of enemy groups this squad can't beat (ones it beats are fair game), and
@@ -122,7 +145,7 @@ class SquadJobs:
         # loses zerglings to whatever sits there, e.g. a sieged tank)
         main = ai.enemy_start_locations[0]
         sites.sort(key=lambda s: -s.center.distance_to(main))
-        self.site_notes = []
+        self.job_state.site_notes = []
         self.label_sites(sites)
 
         # Sites move a little as structures die or get found (the center shifts): a raid follows its
@@ -149,23 +172,25 @@ class SquadJobs:
                     squad.site_tags = {u.tag for u in site.defenders + site.structures}
         raiding = [s.site for s in squads if s.job == "raid"]
         # Everyone who gathered at a site is gone: gather again first
-        self.gathered = {
-            site.center for g in self.gathered if (site := same_site(g)) is not None and site.center in raiding
+        self.job_state.gathered = {
+            site.center
+            for g in self.job_state.gathered
+            if (site := same_site(g)) is not None and site.center in raiding
         }
         # A raid's gather clock follows its site too: an army in the field is a site whose center moves every
         # time it shifts, and a clock keyed by the old center restarted, so the raid gathered forever
         staging: dict[Point2, float] = {}
-        for c, since in self.staging_since.items():
+        for c, since in self.job_state.staging_since.items():
             if (site := same_site(c)) is not None:
                 staging[site.center] = min(since, staging.get(site.center, since))
-        self.staging_since = staging
+        self.job_state.staging_since = staging
         for s in squads:
             if s.job == "push":
                 s.free()  # re-planned below: joins a raid if there's one now, else pushes on
         free = [s for s in squads if s.job in ("patrol", "raid", "scout") and s.id not in self.battles]
         # Spare capacity only exists if every raid is going well (staffed, gathered, its fights at the
         # engage bar or better); otherwise spare squads join a raid instead of patrolling
-        self.raids_ok = all(
+        self.job_state.raids_ok = all(
             b.result >= FIGHT_AT
             for sid, b in self.battles.items()
             if (sq := self.book.squads.get(sid)) is not None and sq.job in ("raid", "help", "engage", "gather")
@@ -208,11 +233,11 @@ class SquadJobs:
                     break
                 s.job, s.site, s.helping = "raid", site.center, None
                 s.site_tags = {u.tag for u in site.defenders + site.structures}
-                self.squad_scouts.pop(s.id, None)
+                self.job_state.squad_scouts.pop(s.id, None)
                 on_it.append(s)
                 staffed += len(s.tags)
             target = site.center
-            if site.defenders and site.center not in self.gathered:
+            if site.defenders and site.center not in self.job_state.gathered:
                 # Gather outside the defenders' range, then go in together
                 group = EnemyGroup(
                     site.defenders,
@@ -223,13 +248,13 @@ class SquadJobs:
                 )
                 staging = group.outside(rally_point(ai), STAGING_MARGIN)
                 there = sum(1 for s in on_it for u in s.units if u.position.distance_to(staging) < 12)
-                since = self.staging_since.setdefault(site.center, ai.time)
+                since = self.job_state.staging_since.setdefault(site.center, ai.time)
                 if there >= GATHERED_FRACTION * staffed or ai.time - since > RALLY_SECONDS:
                     # Gathered, or waited RALLY_SECONDS (some can't get there): go in with what's there
                     if there < GATHERED_FRACTION * staffed:
                         COUNTS["raid staging timed out"] += 1
-                    self.gathered.add(site.center)
-                    self.staging_since.pop(site.center, None)
+                    self.job_state.gathered.add(site.center)
+                    self.job_state.staging_since.pop(site.center, None)
                 else:
                     target = staging
             for s in on_it:
@@ -237,15 +262,17 @@ class SquadJobs:
             free = [s for s in free if s not in on_it]
             state = "gathering" if target != site.center else "in"
             if staffed < demand or state == "gathering":
-                self.raids_ok = False
-            self.site_notes.append((site.center, f"raid {self.site_letters[site.center]}: {staffed}/{demand} {state}"))
-        self.staging_since = {c: t for c, t in self.staging_since.items() if c in raiding}
+                self.job_state.raids_ok = False
+            self.job_state.site_notes.append(
+                (site.center, f"raid {self.job_state.site_letters[site.center]}: {staffed}/{demand} {state}")
+            )
+        self.job_state.staging_since = {c: t for c, t in self.job_state.staging_since.items() if c in raiding}
         self.no_idle_squads(ai, squads, sites, free)
 
     def label_sites(self, sites: list[Site]) -> None:
         """Letters for the overlay: a site keeps the letter of the previous plan's site within
         SITE_RADIUS of it (sites shift a little as structures die), new ones get the next free one."""
-        old = self.site_letters
+        old = self.job_state.site_letters
         new: dict[Point2, str] = {}
         for site in sites:
             near = [c for c in old if c.distance_to(site.center) < SITE_RADIUS and old[c] not in new.values()]
@@ -258,7 +285,7 @@ class SquadJobs:
                 letter = next((x for x in letters if x not in used), "?")
                 new[site.center] = letter
                 used.add(letter)
-        self.site_letters = new
+        self.job_state.site_letters = new
 
     def no_idle_squads(self, ai: AresBot, squads: list[Squad], sites: list[Site], free: list[Squad]) -> None:
         """While attacking, squads with nothing to do don't sit around: at most MAX_PATROLS_ATTACKING
@@ -267,7 +294,7 @@ class SquadJobs:
         nothing known to raid, push toward their natural, then their main, then other bases, all to
         the same place so they go as one group."""
         idle = [s for s in free if s.job == "patrol"]
-        keep = MAX_PATROLS_ATTACKING if len(squads) >= PATROL_MIN_SQUADS and self.raids_ok else 0
+        keep = MAX_PATROLS_ATTACKING if len(squads) >= PATROL_MIN_SQUADS and self.job_state.raids_ok else 0
         patrols = sorted(idle, key=lambda s: len(s.tags))[:keep]
         spare = [s for s in idle if s not in patrols]
         if not spare:
@@ -310,9 +337,9 @@ class SquadJobs:
         it becomes a scout for an enemy expansion we haven't looked at lately (the closest one it can get
         to and back from, along the route around danger, before the overlord's vision arrives; one spot
         per squad). See `scout_goal` for coming back."""
-        if squad.id in self.squad_scouts or not squad.units:
+        if squad.id in self.job_state.squad_scouts or not squad.units:
             return
-        areas = [(c, r, u) for c, r, u in self.turned_back_at if self.avoid_reasons.get(c) == "scout needed"]
+        areas = [(c, r, u) for c, r, u in self.avoid_state.areas if self.avoid_state.reasons.get(c) == "scout needed"]
         if not areas:
             return
         center, _, until = min(areas, key=lambda x: x[0].distance_to(squad.squad_position))
@@ -326,12 +353,12 @@ class SquadJobs:
             return
         units = squad.units
         routes = self.route_map(ai, units)
-        busy = [plan[0] for i, plan in self.squad_scouts.items() if i in self.book.squads]
+        busy = [plan[0] for i, plan in self.job_state.squad_scouts.items() if i in self.book.squads]
         speed = max(min(u.real_speed for u in units), 0.1)
         sight = min(u.sight_range for u in units)
         position = squad.squad_position
         for spot, _ in sorted(ai.mediator.get_enemy_expansions, key=lambda e: e[0].distance_to(position)):
-            if ai.is_visible(spot) or ai.time - self.scouted_at.get(spot, -999) < SCOUTED_SECONDS:
+            if ai.is_visible(spot) or ai.time - self.job_state.scouted_at.get(spot, -999) < SCOUTED_SECONDS:
                 COUNTS["squad scout: skip seen"] += 1
                 continue
             if any(spot.distance_to(b) < 10 for b in busy):
@@ -346,7 +373,7 @@ class SquadJobs:
                 COUNTS[f"squad scout: too far ({2 * walk / speed:.0f}s > {budget:.0f}s)"] += 1
                 continue
             before = (squad.job, squad.target, squad.site, set(squad.site_tags), squad.helping)
-            self.squad_scouts[squad.id] = ScoutPlan(spot, ai.time + budget, ai.time, before)
+            self.job_state.squad_scouts[squad.id] = ScoutPlan(spot, ai.time + budget, ai.time, before)
             squad.job, squad.target = "scout", spot
             COUNTS[f"squad scout sent ({2 * walk / speed:.0f}s of {budget:.0f}s)"] += 1
             return
@@ -355,7 +382,7 @@ class SquadJobs:
         """A scouting squad heads for its spot; once it has seen it, half its time is gone, or it's being
         shot, it's done: the spot counts as looked at and the squad goes back to what it was doing before
         (its job, target, site; a push whose target turned dangerous re-plans itself)."""
-        plan = self.squad_scouts.get(squad.id)
+        plan = self.job_state.squad_scouts.get(squad.id)
         if plan is None:
             squad.free()
             return self.squad_goal(ai, squad, list(self.book.squads.values()))
@@ -367,11 +394,13 @@ class SquadJobs:
             and ai.time - self.last_damaged[u.tag] < UNDER_FIRE_SECONDS
             for u in squad.units
         )
-        if seen or hit or ai.time >= started + (deadline - started) / 2:
+        # The way there cut (an enemy group moved across it): done too, as for a patrol
+        cut = not seen and not self.route_ok(ai, squad.units, spot)
+        if seen or hit or cut or ai.time >= started + (deadline - started) / 2:
             if seen:
-                self.scouted_at[spot] = ai.time
-            del self.squad_scouts[squad.id]
-            COUNTS["squad scout done (seen)" if seen else "squad scout done (time or hit)"] += 1
+                self.job_state.scouted_at[spot] = ai.time
+            del self.job_state.squad_scouts[squad.id]
+            COUNTS["squad scout done (seen)" if seen else "squad scout done (time, hit or route cut)"] += 1
             squad.job, squad.target, squad.site, squad.site_tags, squad.helping = before
             return self.squad_goal(ai, squad, list(self.book.squads.values()))
         note(squad.units, f"scout: {spot.x:.0f},{spot.y:.0f} (back by {deadline - ai.time:.0f}s)")
@@ -390,7 +419,7 @@ class SquadJobs:
                 and squad.squad_position.distance_to(squad.target) < 10
             ):
                 squad.free()  # went in together, and it's over
-        gathering = {i for r in self.rallies.values() for i in r.squads}
+        gathering = {i for r in self.job_state.rallies.values() for i in r.squads}
         taken: set[int] = set(gathering)
         by_id = {s.id: s for s in squads}
         for fighting_id, battle in sorted(self.battles.items(), key=lambda kv: kv[1].result):
@@ -403,8 +432,12 @@ class SquadJobs:
                     if s.id not in self.battles:
                         s.free()  # doing fine, or no room for more: patrol on
                 continue
-            present = battle.present + [u for s in en_route for u in s.units]
-            room = battle.room - sum(len(s.tags) for s in en_route)
+            # Squads already helping are in the fight's own count (`Army.members`: present and room both);
+            # only units it doesn't have yet are added, once
+            counted = {u.tag for u in battle.present}
+            coming = [u for s in en_route for u in s.units if u.tag not in counted]
+            present = battle.present + coming
+            room = battle.room - sum(1 for u in coming if u.type_id in ARMY_TYPES)
             candidates = sorted(
                 (
                     s
@@ -439,7 +472,7 @@ class SquadJobs:
                 for s in chosen:
                     s.job, s.helping, s.site, s.target = "help", fighting_id, None, battle.center
                     taken.add(s.id)
-                    self.helps.append((ai.time, s.id, fighting_id))
+                    self.job_state.helps.append((ai.time, s.id, fighting_id))
                     COUNTS["help sent"] += 1
                 taken.update(s.id for s in en_route)
                 continue
@@ -452,12 +485,12 @@ class SquadJobs:
                 ai, battle.center.towards(fighting.squad_position, reach + STAGING_MARGIN), battle.center
             )
             members = [fighting, *chosen, *en_route]
-            self.rallies[fighting_id] = Rally(spot, battle.center, [s.id for s in members], ai.time)
+            self.job_state.rallies[fighting_id] = Rally(spot, battle.center, [s.id for s in members], ai.time)
             for s in members:
                 s.job, s.helping, s.site, s.target = "gather", None, None, spot
                 taken.add(s.id)
             for s in chosen:
-                self.helps.append((ai.time, s.id, fighting_id))
+                self.job_state.helps.append((ai.time, s.id, fighting_id))
             COUNTS[f"rally ({len(chosen)} squads coming)"] += 1
 
     def update_rallies(self, ai: AresBot, squads: list[Squad]) -> None:
@@ -465,10 +498,10 @@ class SquadJobs:
         at the spot, all of them go in at once; a rally that takes longer than RALLY_SECONDS is
         called off (the fight gets judged again from scratch)."""
         by_id = {s.id: s for s in squads}
-        for key, rally in list(self.rallies.items()):
+        for key, rally in list(self.job_state.rallies.items()):
             members = [by_id[i] for i in rally.squads if i in by_id and by_id[i].job == "gather"]
             if not members:
-                del self.rallies[key]
+                del self.job_state.rallies[key]
                 continue
             total = sum(len(s.tags) for s in members)
             there = sum(1 for s in members for u in s.units if u.position.distance_to(rally.spot) < 8)
@@ -476,9 +509,9 @@ class SquadJobs:
                 for s in members:
                     s.job, s.target = "engage", rally.enemy
                 COUNTS["rally: go"] += 1
-                del self.rallies[key]
+                del self.job_state.rallies[key]
             elif ai.time - rally.since > RALLY_SECONDS:
                 for s in members:
                     s.free()
                 COUNTS["rally: called off"] += 1
-                del self.rallies[key]
+                del self.job_state.rallies[key]
