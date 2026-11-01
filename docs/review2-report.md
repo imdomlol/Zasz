@@ -1,7 +1,16 @@
 # Repository review 2: findings and faster testing
 
-Status report written while the tests run; **Latest results** is updated as they finish. The backlog itself is
-`todo.md`; this file can go once you've read it.
+Final report; all testing finished at 12:09am on 11/1. Deferred items and next work are in `todo.md`; this file can go
+once you've read it.
+
+## Short version
+
+- All 4 phases are done and pushed. Nothing is merged. R02 and R04 are deferred; everything else is in.
+- The fine-tuning found no change worth adopting. V1, V2 and V3 are all within noise of base.
+- **I got something wrong on the way:** after 2 rounds I called V2 "the first real lead on the Protoss ties". After 5
+  rounds that lead was mostly gone. Don't rely on 2-round results, including the R02 result below.
+- **Your decision:** whether to take R04 (V2). It passes your regression rule (same on average, possibly slightly
+  better), but I wouldn't take it for the win rate. Branch: `review2-exp-r04-retest`.
 
 ## Where things stand
 
@@ -17,7 +26,7 @@ needs your say-so. `review2-phase4-rebased` is the current one; `review2-drafts`
 
 Nothing is merged into `squads` or `main`.
 
-## The main finding: R02 made the bot worse, and one-run checks missed it
+## The first finding: phase 3 with R02 looked much worse, and one-run checks missed it
 
 Phase 2 and all of phase 3 ran side by side, same machine, same seeds, 21 games, two rounds each:
 
@@ -30,13 +39,18 @@ Phase 3 is worse in 15 of 21 matchups, and kills about the same, so it's trading
 noise" against the fix before it, and that's how the drift got through: **comparing each step only to the previous
 step, with one run, can't see a slow slide.** Compare against a fixed baseline, in the same conditions.
 
+How sure is this? It's 2 rounds a side. The full stack's gap (+48%, 5 fewer wins) is large, but the later runs show 2 rounds
+can mislead, so treat it as likely, not proven.
+
 ## Decisions so far
 
-- **R04 reverted and deferred, now being retested.** It looked worse in its first test, on thin evidence (3 games a side).
-  The fair retest (V2 below) points the other way.
+- **R04 reverted and deferred.** It looked worse in its first test, on thin evidence. The fair retest (V2 below, 5 rounds)
+  shows no harm and perhaps a small gain, so it's yours to decide.
 - **R05 kept without more testing (your call).** It only touches overlords.
 - **R06: no effect seen.** No game logged a blocked or reopened expansion, so it changed no decision in those runs.
-- **R02 reverted and deferred** (see below; it had looked fine, even good, in its first run).
+- **R02 reverted and deferred** (see below; it looked good in its first run, and worse side by side over 2 rounds). Its
+  harm isn't proven either, but nothing shows it helps.
+- **V1 and V3 dropped.** Neither beats base, so R02's one safe-looking part isn't worth adding now.
 - **R01, R03, R07 kept as a group:** without R02 the stack matches phase 2 on average. They weren't separated from
   each other, so this says "no harm together", not that each one helps.
 
@@ -50,33 +64,46 @@ step, with one run, can't see a slow slide.** Compare against a fixed baseline, 
 | Phase 2 + R02 only | 105.8k, 98.9k | 102.4k | 38 | 0.44 | 654 s |
 | All of phase 3 without R02 | 69.1k, 88.0k | 78.5k | 40 | 0.37 | 596 s |
 
-R02 alone costs about 18k more resources per 21 games, and games run longer. Why isn't proven. The likely reason: its "don't send
+Over these 2 rounds, R02 alone cost about 18k more resources per 21 games, and games ran longer. That 18k is within the
+range of noise found below, so it's a lead, not a measurement. Why isn't proven. The likely reason: its "don't send
 spare squads to a site the sim rejects" removed pressure that was covering for the sim's pessimism (`todo.md` #21).
 
 **Noise check:** phase 4's own run lost 113.5k, though its orders match the variant that lost 69.1k and 88.0k on the
 repeatable scenarios. A single 21-game total can swing that far on essentially the same bot, so never judge by one run.
 
-**Fine-tuning, round 1 of testing (side by side, same seeds, 2 rounds of 21 games each):**
+**Fine-tuning** (side by side, same seeds, 21 games per run, 9 games at once):
 
-| Code | Lost per run | Avg lost | Wins of 42 | Lost/killed | Avg game |
+| Code | Lost per run | Avg lost | Wins | Lost/killed | Avg game |
 |---|---|---|---|---|---|
-| Base (phase 4) | 88.2k, 97.7k | 93.0k | 37 | 0.42 | 661 s |
-| V1: spare squads join a gathering raid at its staging point (the one safe part of R02) | 72.0k, 92.5k | 82.3k | 36 | 0.37 | 642 s |
-| V2: R04 again (static defense keeps the avoid area it made) | 88.8k, 58.0k | 73.4k | 41 | 0.34 | 572 s |
+| Base (phase 4) | 88.2k, 97.7k, 74.5k, 86.6k, 96.2k | 88.6k | 96 of 105 | 0.42 | 628 s |
+| V2: R04 again (static defense keeps the avoid area it made) | 88.8k, 58.0k, 59.9k, 100.4k, 94.0k | 80.2k | 97 of 105 | 0.38 | 607 s |
+| V3: V2 + V1 | 121.8k, 85.0k, 90.0k | 98.9k | 58 of 63 | 0.43 | 636 s |
+| V1: spare squads join a gathering raid at its staging point (2 rounds only) | 72.0k, 92.5k | 82.3k | 36 of 42 | 0.37 | 642 s |
 
-**V2 is the first real lead on the Protoss ties.** Ultralove and Persephone vs Protoss tied in all 8 games on base and
-V1. On V2 they won all 4, losing far less:
+Comparing per matchup against base (bootstrap over the 21 matchups):
+- **V2:** 8.4k less lost, 95% range from 26.2k less to 6.4k more. Worse in 11 of 21 matchups. **Not distinguishable from base.**
+- **V3:** 10.3k more lost, 95% range from 13.7k less to 35.7k more. Worse in 12 of 21. **Not distinguishable from base.**
+- V1 wasn't compared this way. It has only 2 rounds, and adding it to V2 didn't help.
+- Scenarios x3, V2 and V3: both 57/60 (only `wall_bunker` fails), 2,717 and 2,700 summed lost, in the usual range. No new
+  FAIL, and no game crashed.
 
-| Matchup | Base | V1 | V2 |
-|---|---|---|---|
-| Ultralove vs Protoss | 16.8k tie, 18.8k tie | 14.1k tie, 13.2k tie | 3.1k win, 3.0k win |
-| Persephone vs Protoss | 6.8k tie, 8.1k tie | 7.2k tie, 6.5k tie | 5.0k win, 2.9k win |
+**The Protoss-ties lead faded.** After 2 rounds, base and V1 had tied all 8 of their Ultralove and Persephone vs Protoss
+games, and V2 had won all 4 of its own. After 5 rounds:
 
-That's the same change I deferred as "possibly harmful" after R04's first test, which was one run and only 3 games a side.
-That verdict looks wrong. V2 isn't clean everywhere: LeyLines gave one 25.8k win vs Protoss and one 20.6k win vs Terran.
-V2's non-Protoss losses match base (34.5k vs 34.3k); all of its gain is in Protoss games.
+| Matchup | Base (wins, ties) | V2 (wins, ties) |
+|---|---|---|
+| Ultralove vs Protoss | 2, 3 | 3, 2 |
+| Persephone vs Protoss | 2, 3 | 3, 2 |
 
-**Still running:** 3 more rounds of base, V2 and V3 (V2 + V1 together, `e80fa92`), plus scenarios x3 for V2 and V3.
+A 1-game edge on each matchup. V2 also traded new problems for it: 2 Magannatha vs Protoss ties (base had none), and a
+20.6k game on LeyLines vs Terran (base never lost more than 2.8k there).
+
+**What this means for testing:** one code's 21-game total swung from 58k to 100k. Even 5 rounds a side (about 5 hours
+including V3) can't see a 10k difference. Small tuning changes can't be judged by full-game benchmarks at this sample
+size, so they need the cheaper, more direct checks below.
+
+**Noise check:** phase 4's own earlier run lost 113.5k, though its orders match on the repeatable scenarios. Base here
+averages 88.6k, the same range as phase 2's 84.4k.
 
 ## Faster testing
 
@@ -158,9 +185,9 @@ Also:
 
 The result: most checks take under 15 minutes, many under 5, and the full run moves to nightly.
 
-**A warning already:** V2's whole gain is in Protoss games, so the non-Protoss fast benchmark (idea 4) would have called it
-"no change", and the table above rates Protoss games as nearly worthless. They're noisy, not worthless: the fast
-benchmark needs a few Protoss matchups (Ultralove and Persephone at least), or it needs a separate tie check.
+**A warning from the fine-tuning:** the "signal" table is itself based on 2-round results, and they fooled me once already.
+Lost/killed did favor V2 (0.38 vs 0.42), but with no way yet to say that's real. Ties also need their own check, so a fast
+benchmark should keep a few Protoss matchups (Ultralove and Persephone at least) rather than drop them all.
 
 **Validate first:** the "signal" numbers come from 4 phase 2 runs and 2 phase 3 runs. Before relying on the non-Protoss
 subset, check that it also detects a regression other than this one.

@@ -32,7 +32,9 @@ changes), SC2 build and run id: run on committed code, and commit the CSVs (unio
 - **Regression rule (the user's):** results needn't be identical. A change is fine if it's the same *on
   average*. It's a regression if it's clearly worse on average, worse across the board (most scenarios or
   matchups, even a little), or adds a FAIL or crash. Resources lost matter most, time less.
-- **Benchmarks:** compare per matchup with the same `--seed` (same matchups and game seeds), over 21 games.
+- **Benchmarks:** compare per matchup with the same `--seed` (same matchups and game seeds), over 21 games, side by side
+  against a fixed baseline: one run, or a chain of step-to-step checks, misleads. The same code's 21-game total swings
+  58-100k, so 2 rounds can fool you and even 5 can't see a 10k change.
   Windows runs (SC2 build 97563) don't compare with Linux (75689).
 - **Scenarios:** 13 give the same result every run: alternate_target, custom_decisions, the four
   expansion_*, efficiency_deep_base/open_field/ramp, fight_winnable, retreat_losing_fight, spores_vs_air,
@@ -43,14 +45,18 @@ changes), SC2 build and run id: run on committed code, and commit the CSVs (unio
   (`--order-log` before and after, then `scripts/compare_orders.py`).
 - A 20-minute tie can be logged as "Crash" by the benchmark (the replay is too big to save): check the log.
 
-**Reference numbers** (Linux, bot code `679b123`): 21 vs Hard `--seed 1`: 19 wins + 2 Protoss ties, ~92-101k
-resources lost, ~10 ms per game loop; scenarios `--repeat 3`: ~2,700-2,720 summed resources lost.
+**Reference numbers** (Linux, bot code `6c460c1`): 21 vs Hard `--seed 1`, 5 side-by-side rounds: 96 of 105 wins, the rest
+Protoss ties (mostly), 74.5-97.7k resources lost, avg 88.6k; ~10 ms per game loop alone (`679b123`); scenarios `--repeat 3`:
+~2,700-2,720 summed resources lost.
 
 ## Previous session work
 
 Newest first, at most 3 entries. When you push a branch, add an entry at the top (date, branch, the few
 outcomes that matter next time) and drop the oldest; details belong in commits, `todo.md` and `docs/progress.md`.
 
+- **2026-11-01, `review2-phase1-measurement` to `review2-phase4-rebased` (pushed, not merged):** repository review done
+  except R02 and R04 (deferred, `todo.md`; R04 is the user's call, branch `review2-exp-r04-retest`). Fine-tuning found
+  nothing to adopt, and full-game noise is the main obstacle: `docs/review2-report.md` has the results and faster-testing ideas.
 - **2026-10-07, `docs-consolidate` (merged into `squads`):** `todo.md` is now the one backlog (review
   leftovers, old notes and the watch list folded in), with the verified 2026-10-07 repository review
   (R01-R21) at the top in 4 phases, **next**, waiting for the user's go; `notes.md`, `CODE_REVIEW.md` and the
@@ -59,6 +65,3 @@ outcomes that matter next time) and drop the oldest; details belong in commits, 
   review is finished. `bot/army.py` is split into parts (`jobs`, `strikes`, `breach`, `routes`, `avoid`,
   `micro`, `combat`, `army_notes`, `army_debug`) with identical orders; recordings and decisions validated;
   ladder zip slimmed. 21 vs Hard: 19 wins + 2 ties, 91.7k lost, 9.6 ms per game loop.
-- **2026-10-06, `review-phase4-behavior` (merged):** the review's behavior fixes, -22% resources lost.
-  Reverted: connected-component enemy groups and strict safe corners (both made `efficiency_open_army_free`'s
-  army leave the fight); see `todo.md` #21 before retrying.
