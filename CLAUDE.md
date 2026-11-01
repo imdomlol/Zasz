@@ -54,8 +54,8 @@ Protoss ties (mostly), 74.5-97.7k resources lost, avg 88.6k; ~10 ms per game loo
 Newest first, at most 3 entries. When you push a branch, add an entry at the top (date, branch, the few
 outcomes that matter next time) and drop the oldest; details belong in commits, `todo.md` and `docs/progress.md`.
 
-- **2026-11-01, `review2-phase1-measurement` to `review2-phase4-rebased` (pushed, not merged):** repository review done
-  except R02 and R04 (deferred, `todo.md`; R04 is the user's call, branch `review2-exp-r04-retest`). Fine-tuning found
+- **2026-11-01, `review2-r04-zones` (pushed, not merged):** repository review done
+  except R02 and R04 (deferred, `todo.md`; R04 with the avoid-zone rule is being retested on that branch). Fine-tuning found
   nothing to adopt, and full-game noise is the main obstacle: `docs/review2-report.md` has the results and faster-testing ideas.
 - **2026-10-07, `docs-consolidate` (merged into `squads`):** `todo.md` is now the one backlog (review
   leftovers, old notes and the watch list folded in), with the verified 2026-10-07 repository review

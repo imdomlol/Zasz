@@ -39,7 +39,7 @@ but narrow or indirect; **Low** = nice to have / tooling.
 
 ## `review2-deferred`: Left over from the 2026-10-07 repository review
 
-The review's other items are done (`review2-phase1-measurement` to `review2-phase4-rebased`). Full results:
+The review's other items are done (all on `review2-r04-zones`). Full results:
 `docs/review2-report.md`. Each measured side by side against base `6c460c1`, same seeds, 21 games per run.
 
 - **R04 (avoid areas: static defense keeps its area, and areas aren't law), being retested on `review2-r04-zones`.** Two

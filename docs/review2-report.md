@@ -10,19 +10,18 @@ once you've read it.
 - **I got something wrong on the way:** after 2 rounds I called V2 "the first real lead on the Protoss ties". After 5
   rounds that lead was mostly gone. Don't rely on 2-round results, including the R02 result below.
 - **Your decision:** whether to take R04 (V2). It passes your regression rule (same on average, possibly slightly
-  better), but I wouldn't take it for the win rate. Branch: `review2-exp-r04-retest`.
+  better), but I wouldn't take it for the win rate. Now with your avoid-zone rule on `review2-r04-zones`.
 
 ## Where things stand
 
-| Phase | Branch | State |
+| Phase | Last commit | State |
 |---|---|---|
-| 1, measurement tooling | `review2-phase1-measurement` | Done, pushed; bot unchanged |
-| 2, refactors with identical orders | `review2-phase2-refactors` | Done, pushed. 39 of 39 repeatable scenario runs matched command for command, debug on and off |
-| 3, behavior fixes | `review2-phase3-behavior` | Done: R01, R03, R07, R05, R06 kept; **R02 and R04 reverted and deferred** |
-| 4, runners and state owners | `review2-phase4-rebased` | Done. 39 of 39 repeatable scenario runs identical to phase 3 (30,813 commands); 21 games ran with no crash |
+| 1, measurement tooling | `f75b348` | Done, pushed; bot unchanged |
+| 2, refactors with identical orders | `c7e1f8f` | Done, pushed. 39 of 39 repeatable scenario runs matched command for command, debug on and off |
+| 3, behavior fixes | `ab9c9b1` | Done: R01, R03, R07, R05, R06 kept; **R02 and R04 reverted and deferred** |
+| 4, runners and state owners | `5f2c0e7` | Done. 39 of 39 repeatable scenario runs identical to phase 3 (30,813 commands); 21 games ran with no crash |
 
-(`review2-phase4-runners` on GitHub is the older draft: I rebased after reverting R02, and overwriting a pushed branch
-needs your say-so. `review2-phase4-rebased` is the current one; `review2-drafts` can go too.)
+All of this is on `review2-r04-zones`; the separate phase branches were deleted once it contained them.
 
 Nothing is merged into `squads` or `main`.
 
