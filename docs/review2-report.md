@@ -5,12 +5,39 @@ once you've read it.
 
 ## Short version
 
-- All 4 phases are done and pushed. Nothing is merged. R02 and R04 are deferred; everything else is in.
-- The fine-tuning found no change worth adopting. V1, V2 and V3 are all within noise of base.
-- **I got something wrong on the way:** after 2 rounds I called V2 "the first real lead on the Protoss ties". After 5
-  rounds that lead was mostly gone. Don't rely on 2-round results, including the R02 result below.
-- **Your decision:** whether to take R04 (V2). It passes your regression rule (same on average, possibly slightly
-  better), but I wouldn't take it for the win rate. Now with your avoid-zone rule on `review2-r04-zones`.
+- All 4 phases and the new R04 are on `review2-r04-zones`, pushed, not merged. R02 is deferred.
+- **R04 with your avoid-zone rule: I recommend keeping it.** It's the same as base on resources lost, has the most wins
+  and fewest ties of the three, and it does what you asked. **Keeping it is your call.** One thing to watch: Zerg games.
+- The retest found a real crash, older than R04: a zergling formation past the map edge ended the game. Fixed.
+- Earlier, after 2 rounds, I called V2 a real lead on the Protoss ties. It wasn't; don't rely on 2-round results.
+
+## R04 retest with your avoid-zone rule
+
+Side by side, same seeds, 3 rounds of 21 games:
+
+| Code | Lost per run | Avg lost | Wins of 63 | Non-wins | Lost/killed | Avg game |
+|---|---|---|---|---|---|---|
+| Base | 79.3k, 94.4k, 99.8k | 91.2k | 55 | 8 ties | 0.42 | 635 s |
+| R04, cannon part only (V2) | 81.7k, 117.5k, 96.5k | 98.6k | 52 | 10 ties, 1 crash | 0.45 | 677 s |
+| **R04 with your rule** (`3ef2dec`) | 74.1k, 97.0k, 114.3k | 95.1k | 60 | 3 ties | 0.42 | 617 s |
+
+- **Against base:** 3.9k more lost per run on average, 95% range from 9.6k less to 11.6k more. Worse in 12 of 21 matchups.
+  Same on average, so it passes your regression rule.
+- **Wins and ties:** 3 ties against 8 looks good, but it's 3 rounds, so it's a lead rather than a result.
+- **Protoss vs the rest:** Protoss games lost less (43.2k vs 48.1k per run), other games more (51.9k vs 43.1k).
+- **To watch:** Ultralove vs Zerg lost 4.5k, 9.9k, 13.8k against base's 0.8k, 1.1k, 1.4k, and Pylon vs Zerg 6.6k, 3.6k, 7.0k
+  against 3.6k, 1.2k, 4.2k. All were wins. Possibly squads walking into enemies the zone used to keep them from.
+- **Cannon part alone:** 8.4k better over its first 5 rounds, 7.4k worse over these 3. It does nothing measurable by itself.
+- **Scenarios x3:** 63 of 66 pass, only the expected `wall_bunker` fails. R04 with your rule had no crash in 84 games.
+
+**How often the rule fires** (21 extra games with a temporary log): 453 zones dropped, about 22 per game: 323 "no help
+possible", 113 "nothing to do safely", 10 "choke not worth it", 7 "army can't beat". Typically 3 remembered enemies against 24
+free zerglings, and **most zones were dropped almost as soon as they were made** (median 45 s of 45 s left). So those zones have
+nearly stopped blocking anything: one squad's bad fight no longer closes a site to the army, as you wanted. The cost is
+that the zone no longer protects that squad either, which may be the Zerg losses above.
+
+**Data note:** I wiped the 63 result rows and 60-odd scenario rows for `3ef2dec` while setting up the extra games, a mistake
+on my part. The numbers here were read before that, but they aren't in `benchmarks/`. The base and V2 rows are.
 
 ## Where things stand
 

@@ -42,14 +42,13 @@ but narrow or indirect; **Low** = nice to have / tooling.
 The review's other items are done (all on `review2-r04-zones`). Full results:
 `docs/review2-report.md`. Each measured side by side against base `6c460c1`, same seeds, 21 games per run.
 
-- **R04 (avoid areas: static defense keeps its area, and areas aren't law), being retested on `review2-r04-zones`.** Two
-  parts: (1) a cannon or bunker we can see keeps the area it made instead of it clearing the next step
-  (`clear_empty_avoid_areas`); (2) the user's rule: each area remembers the enemies that made it, and at each raid plan one
-  the free squads clearly beat (`AVOID_DROP_AT`) is dropped, seen or not (`drop_beatable_avoid_areas`), so one squad
-  backing off doesn't block a raid the army can win. Areas with no known enemies (unseen fire, scout needed) keep their
-  rules. Part 1 alone (`4a84697`, 5 rounds): 80.2k lost, 97 of 105 wins, 0.38 lost/killed; base 88.6k, 96 of 105, 0.42;
-  difference -8.4k, 95% range -26.2k to +6.4k: same on average. Its first test (`3d4715b`, 3 Magannatha games a side) was
-  too thin to count against it.
+- **R04 (avoid areas: static defense keeps its area, and areas aren't law), on `review2-r04-zones`: the user's decision.**
+  Two parts: a cannon or bunker we can see keeps the area it made (`clear_empty_avoid_areas`); each area remembers the
+  enemies that made it, and at each raid plan one the free squads clearly beat (`AVOID_DROP_AT`) is dropped, seen or not
+  (`drop_beatable_avoid_areas`). Areas with no known enemies (unseen fire, scout needed) keep their rules. 3 rounds side by
+  side: 95.1k lost, 60 of 63 wins, 0.42 lost/killed; base 91.2k, 55 of 63, 0.42. Same on average. It fires about 22 times a
+  game, mostly right after the zone is made. Watch: Ultralove and Pylon vs Zerg lost more. If that holds, keep zones up for
+  the squad that made them or for patrols, and drop them for raids only. Details: `docs/review2-report.md`.
 - **R02 (spare squads join only staffed raids), reverted in `476f5c8`.** 2 rounds: phase 2 84.4k lost, 41 of 42 wins, 0.38
   lost/killed; phase 2 + R02 102.4k, 38 of 42, 0.44; all of phase 3 without R02 78.5k, 40 of 42, 0.37. Longer games too
   (654 s vs 575 s). Not shown to help, and possibly harmful; 2 rounds can't prove harm. R02 had four parts (no spares for
