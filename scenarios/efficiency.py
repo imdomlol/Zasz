@@ -221,6 +221,59 @@ class OpenField(StructureAssault):
         return positions, positions[0] + side * 5 + back * 12
 
 
+class AvoidAreaBeaten(OpenField):
+    """An avoid area over a raid site, made by enemies the free squads clearly beat (as if one squad had backed
+    off): it must end at the next plan, not after AVOID_SECONDS, and the raid goes ahead."""
+
+    name = "avoid_area_beaten"
+    description = "30 zerglings drop an avoid area 2 marines made, and raid the site inside it"
+    KEEP = {*StructureAssault.KEEP, UnitTypeId.MARINE}
+    MARINES = 2
+    DROP_BY = 25  # seconds: well before AVOID_SECONDS
+
+    def enemy_spawns(self, bot: ScenarioBot) -> list[tuple[UnitTypeId, Point2]]:
+        spawns = super().enemy_spawns(bot)
+        positions, _ = self.planned(bot)
+        middle = Point2((sum(p.x for p in positions) / len(positions), sum(p.y for p in positions) / len(positions)))
+        return [*spawns, *[(UnitTypeId.MARINE, middle) for _ in range(self.MARINES)]]
+
+    def fight_starting(self, bot: ScenarioBot) -> None:
+        bot.army.turned_back(bot, list(bot.enemy_units(UnitTypeId.MARINE)), "no help possible")
+
+    def upkeep(self, bot: ScenarioBot) -> None:
+        for marine in bot.enemy_units(UnitTypeId.MARINE):
+            marine.hold_position()
+
+    def zone_up(self, bot: ScenarioBot) -> bool:
+        return "no help possible" in bot.army.avoid_state.reasons.values()
+
+    def check(self, bot: ScenarioBot) -> Outcome | None:
+        if self.phase == "fight" and self.elapsed(bot) > self.DROP_BY and self.zone_up(bot):
+            return self.report(bot, failed, f"the avoid area is still up after {self.DROP_BY}s")
+        return super().check(bot)
+
+
+class AvoidAreaHeld(AvoidAreaBeaten):
+    """The same, with an army that can't beat the enemies: the area stays and the zerglings stay out."""
+
+    name = "avoid_area_held"
+    description = "6 zerglings keep out of an avoid area 10 marines made"
+    LINGS = 6
+    MARINES = 10
+    HOLD_FOR = 25  # seconds
+
+    def check(self, bot: ScenarioBot) -> Outcome | None:
+        if self.phase != "fight":
+            return StructureAssault.check(self, bot)
+        if not self.zone_up(bot):
+            return self.report(bot, failed, "the avoid area was dropped by an army that can't beat it")
+        if bot.units(UnitTypeId.ZERGLING).amount < self.LINGS:
+            return self.report(bot, failed, "zerglings walked in and died")
+        if self.elapsed(bot) > self.HOLD_FOR:
+            return self.report(bot, passed, f"area held and no zergling lost after {self.HOLD_FOR}s")
+        return None
+
+
 class DeepBase(StructureAssault):
     name = "efficiency_deep_base"
     description = "30 zerglings vs 12 engineering bays packed 4 rows deep, 1-tile gaps (breadth-first spread)"
@@ -508,6 +561,8 @@ class OpenArmyFree(OpenArmy):
 
 
 SCENARIOS = [
+    AvoidAreaBeaten,
+    AvoidAreaHeld,
     OpenField,
     DeepBase,
     Ramp,

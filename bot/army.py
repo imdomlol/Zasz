@@ -302,6 +302,10 @@ class Army(SquadJobs, Strikes, Breaches, Routes, AvoidAreas, ArmyDebug):
             if attacking and ai.time - self.job_state.planned_at >= PLAN_SECONDS:
                 self.job_state.planned_at = ai.time
                 if not self.committed:
+                    free = [
+                        s for s in squads if s.job in ("patrol", "raid", "scout", "push") and s.id not in self.battles
+                    ]
+                    self.drop_beatable_avoid_areas(ai, [u for s in free for u in s.units])
                     self.avoid_armies_we_cannot_beat(ai, lings)
                 self.assign_raids(ai, squads)
             if ai.time - self.job_state.helped_at >= HELP_SECONDS:

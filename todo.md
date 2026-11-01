@@ -14,7 +14,7 @@ but narrow or indirect; **Low** = nice to have / tooling.
 
 | # | Branch | Idea | Impact | Depends on |
 |---|---|---|---|---|
-| R | `review2-deferred` | **Next.** Your call on R04; R02 and avoid zones left over from the repository review | High | - |
+| R | `review2-deferred` | **Next.** R04 being retested with the avoid-zone rule; R02 left over from the repository review | High | - |
 | T | `faster-testing` | Judge a change in 15 minutes, not 80 | High | - |
 | 20 | `squads-polish` | Open squad behaviors: help flip-flop, raids that leave, pushes into the unknown, strike sizing | High | - |
 | 21 | `combat-estimates` | Fix the sim's blind spots: approach under fire, chokes, fog, bunkers; enemy groups | High | - |
@@ -42,9 +42,13 @@ but narrow or indirect; **Low** = nice to have / tooling.
 The review's other items are done (`review2-phase1-measurement` to `review2-phase4-rebased`). Full results:
 `docs/review2-report.md`. Each measured side by side against base `6c460c1`, same seeds, 21 games per run.
 
-- **R04 (static defense keeps its avoid area): the user's decision.** Retest `4a84697` (branch `review2-exp-r04-retest`), 5
-  rounds: 80.2k lost, 97 of 105 wins, 0.38 lost/killed; base 88.6k, 96 of 105, 0.42. Difference -8.4k, 95% range -26.2k
-  to +6.4k: same on average, not shown to help or harm. Its first test (`3d4715b`, worse, 3 Magannatha games a side) was
+- **R04 (avoid areas: static defense keeps its area, and areas aren't law), being retested on `review2-r04-zones`.** Two
+  parts: (1) a cannon or bunker we can see keeps the area it made instead of it clearing the next step
+  (`clear_empty_avoid_areas`); (2) the user's rule: each area remembers the enemies that made it, and at each raid plan one
+  the free squads clearly beat (`AVOID_DROP_AT`) is dropped, seen or not (`drop_beatable_avoid_areas`), so one squad
+  backing off doesn't block a raid the army can win. Areas with no known enemies (unseen fire, scout needed) keep their
+  rules. Part 1 alone (`4a84697`, 5 rounds): 80.2k lost, 97 of 105 wins, 0.38 lost/killed; base 88.6k, 96 of 105, 0.42;
+  difference -8.4k, 95% range -26.2k to +6.4k: same on average. Its first test (`3d4715b`, 3 Magannatha games a side) was
   too thin to count against it.
 - **R02 (spare squads join only staffed raids), reverted in `476f5c8`.** 2 rounds: phase 2 84.4k lost, 41 of 42 wins, 0.38
   lost/killed; phase 2 + R02 102.4k, 38 of 42, 0.44; all of phase 3 without R02 78.5k, 40 of 42, 0.37. Longer games too
@@ -53,18 +57,6 @@ The review's other items are done (`review2-phase1-measurement` to `review2-phas
   raids "not going well"). The staging part alone (V1, `971dccb`) showed no gain: 82.3k over 2 rounds, and 98.9k over 3
   when combined with R04 (`e80fa92`). Likely the sim's pessimism (#21): spares at a "rejected" site may cover for wrong
   verdicts. Retry after #21.
-- **Avoid zones shouldn't be law (the user's rule, for R04 and the avoid areas generally).** If the army
-  has enough to beat what a zone was made for, the zone should go, vision or not: a raid shouldn't be
-  blocked because a scout or one squad couldn't take it on. Today `assign_raids` drops every site inside
-  any avoid zone, and three zones come from one squad's view: "no help possible" (`bot/jobs.py`: the free
-  squads nearby couldn't turn a losing fight), "choke not worth it" and "nothing to do safely"
-  (`Army.control_squad`: one squad's zerglings all came up empty). They block the whole army for up to
-  `AVOID_SECONDS` (45 s) unless seen empty. Even "army can't beat" zones aren't re-checked as the army
-  grows. (A plain back-off from a losing sim makes no zone: one squad losing isn't the army losing.)
-  Fix idea: at each raid plan, drop (or ignore for raids) a zone whose recorded threats the raid's pool
-  beats (`needed` / `wins` with the threats stored on the zone), so only zones the army as a whole can't
-  handle keep blocking. That would also give R04 a way back: a cannon's zone holds only while the army
-  can't take the cannon with what defends it.
 
 ## `faster-testing`: Judge a change in 15 minutes, not 80
 

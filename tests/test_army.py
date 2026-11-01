@@ -219,6 +219,37 @@ def test_a_new_game_starts_with_no_counts_left():
 # --- avoid areas ---
 
 
+def test_an_avoid_area_the_free_squads_beat_is_dropped_seen_or_not():
+    army, ai = Army(), fake_ai()
+    army.turned_back(ai, [marine(20.5, 20.5)], "no help possible")
+    army.drop_beatable_avoid_areas(ai, lings(STRONG - 1))
+    assert army.blocked(ai, Point2((20.5, 21)))
+    army.drop_beatable_avoid_areas(ai, lings(STRONG))
+    assert not army.blocked(ai, Point2((20.5, 21)))
+    assert not army.avoid_state.reasons and not army.avoid_state.threats
+
+
+def test_an_avoid_area_with_no_known_enemies_is_never_dropped_for_strength():
+    army, ai = Army(), fake_ai()
+    army.mark_avoid(ai, Point2((20, 20)), 6.0, "unseen fire")
+    army.mark_avoid(ai, Point2((5, 30)), 6.0, "scout needed", seconds=20)
+    army.drop_beatable_avoid_areas(ai, lings(STRONG * 3))
+    assert army.blocked(ai, Point2((20, 20))) and army.blocked(ai, Point2((5, 30)))
+
+
+def test_a_visible_cannon_keeps_its_avoid_area_but_a_gone_army_does_not():
+    cannon = unit(20.5, 20.5, type_id=UnitTypeId.PHOTONCANNON, structure=True, can_attack_ground=True, is_memory=False)
+    army, ai = Army(), fake_ai()
+    ai.is_visible = lambda p: True
+    ai.enemy_units, ai.enemy_structures = [], [cannon]
+    army.mark_avoid(ai, Point2((20.5, 20.5)), 6.0, "no help possible")
+    army.clear_empty_avoid_areas(ai)
+    assert army.blocked(ai, Point2((20.5, 21)))
+    ai.enemy_structures = []
+    army.clear_empty_avoid_areas(ai)
+    assert not army.blocked(ai, Point2((20.5, 21)))
+
+
 def test_avoid_areas_expire_and_take_their_reasons_with_them():
     army, ai = Army(), fake_ai(time=10.0)
     army.turned_back(ai, [marine(20.5, 20.5)], "army can't beat")

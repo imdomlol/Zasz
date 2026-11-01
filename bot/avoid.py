@@ -11,7 +11,14 @@ from sc2.unit import Unit
 
 from bot.army_notes import COUNTS
 from bot.combat import armed, weapon_range, wins
-from bot.settings import AVOID_MARGIN, AVOID_SECONDS, PARTLY_SEEN_MARGIN, PARTLY_SEEN_RANGE, PARTLY_SEEN_SECONDS
+from bot.settings import (
+    AVOID_DROP_AT,
+    AVOID_MARGIN,
+    AVOID_SECONDS,
+    PARTLY_SEEN_MARGIN,
+    PARTLY_SEEN_RANGE,
+    PARTLY_SEEN_SECONDS,
+)
 from bot.squads import center_of, enemy_groups
 
 
@@ -24,6 +31,7 @@ class AvoidState:
     # the same wall as soon as the enemy leaves vision
     areas: list[tuple[Point2, float, float]] = field(default_factory=list)
     reasons: dict[Point2, str] = field(default_factory=dict)  # area center -> why
+    threats: dict[Point2, list[Unit]] = field(default_factory=dict)  # area center -> the enemies that made it
     partly_seen: set[int] = field(default_factory=set)  # enemies seen on ground we have no vision of
 
 
@@ -44,7 +52,7 @@ class AvoidAreas:
         center = center_of(threats)
         spread = max(t.position.distance_to(center) for t in threats)
         radius = spread + max(weapon_range(t) + t.radius for t in threats) + AVOID_MARGIN
-        self.mark_avoid(ai, center, radius, reason)
+        self.mark_avoid(ai, center, radius, reason, threats=threats)
 
     def find_partly_seen(self, ai: AresBot) -> set[int]:
         """Armed enemies we can see standing on ground we have no vision of: revealed by firing at us
@@ -105,13 +113,22 @@ class AvoidAreas:
         return True
 
     def mark_avoid(
-        self, ai: AresBot, center: Point2, radius: float, reason: str, seconds: float = AVOID_SECONDS
+        self,
+        ai: AresBot,
+        center: Point2,
+        radius: float,
+        reason: str,
+        seconds: float = AVOID_SECONDS,
+        threats: list[Unit] | None = None,
     ) -> None:
-        """An avoid area of a given size (`turned_back` works it out from the enemies seen)."""
+        """An avoid area of a given size (`turned_back` works it out from the enemies seen). `threats`, the
+        enemies that made it, let `drop_beatable_avoid_areas` end it early; without them it can't be."""
         COUNTS[f"avoid area ({reason})"] += 1
         self.set_avoid_areas([(p, r, t) for p, r, t in self.avoid_state.areas if p.distance_to(center) > radius / 2])
         self.avoid_state.areas.append((center, radius, ai.time + seconds))
         self.avoid_state.reasons[center] = reason
+        if threats:
+            self.avoid_state.threats[center] = list(threats)
 
     def set_avoid_areas(self, areas: list[tuple[Point2, float, float]]) -> None:
         """Replace the avoid areas, forgetting why the dropped ones were made (unless another area has the
@@ -119,6 +136,7 @@ class AvoidAreas:
         if len(areas) < len(self.avoid_state.areas):
             centers = {p for p, _, _ in areas}
             self.avoid_state.reasons = {c: why for c, why in self.avoid_state.reasons.items() if c in centers}
+            self.avoid_state.threats = {c: e for c, e in self.avoid_state.threats.items() if c in centers}
         self.avoid_state.areas = areas
 
     def clear_empty_avoid_areas(self, ai: AresBot) -> None:
@@ -143,6 +161,20 @@ class AvoidAreas:
                 there = armed_enemies + armed_structures
             if not unseen and ai.is_visible(center) and not any(e.position.distance_to(center) < radius for e in there):
                 COUNTS["avoid area cleared (seen empty)"] += 1
+                continue
+            kept.append((center, radius, until))
+        self.set_avoid_areas(kept)
+
+    def drop_beatable_avoid_areas(self, ai: AresBot, units: list[Unit]) -> None:
+        """Avoid areas aren't law: one that `units` (the zerglings free for raids) would clearly win against
+        is over, seen or not, so one squad backing off doesn't block a raid the army can win. Judged on the
+        enemies remembered when it was made; what we've seen since gets its own area
+        (`avoid_armies_we_cannot_beat`). Areas with no known enemies (unseen fire, scout needed) stay."""
+        kept = []
+        for center, radius, until in self.avoid_state.areas:
+            threats = self.avoid_state.threats.get(center)
+            if threats and wins(ai, units, threats, AVOID_DROP_AT):
+                COUNTS[f"avoid area dropped: army can beat it ({self.avoid_state.reasons.get(center)})"] += 1
                 continue
             kept.append((center, radius, until))
         self.set_avoid_areas(kept)

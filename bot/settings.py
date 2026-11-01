@@ -27,6 +27,9 @@ NOTICE_RANGE = 14
 # bases instead of walking back into it
 AVOID_SECONDS = 45
 AVOID_MARGIN = 3
+# An avoid area is dropped at the next plan once the squads free for raids beat the enemies that made it at
+# least this clearly (a bar above FIGHT_AT, so the area isn't dropped and remade as the army's size wobbles)
+AVOID_DROP_AT = EngagementResult.VICTORY_CLOSE
 # Enemies only count as a threat to a squad within their weapon range + this of one of its units:
 # what can hit us within about the next step. An army still walking in doesn't make a squad back off
 # from what it's doing (workers it's killing, a fight it's winning); it counts once it's in range
