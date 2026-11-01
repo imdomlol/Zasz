@@ -702,7 +702,9 @@ def spread_move(ai: AresBot, units: list[Unit], center: Point2, target: Point2) 
         return (p.x - center.x) * side.x + (p.y - center.y) * side.y
 
     for unit, slot in zip(sorted(units, key=lambda u: across(u.position)), sorted(slots, key=across), strict=True):
-        unit.move(slot if ai.in_pathing_grid(slot) else anchor)
+        # (A row across the path can stick out past the map's edge: the grid raises on that)
+        on_map = 0 <= slot.x < ai.game_info.map_size.width and 0 <= slot.y < ai.game_info.map_size.height
+        unit.move(slot if on_map and ai.in_pathing_grid(slot) else anchor)
 
 
 def move(ai: AresBot, unit: Unit, target: Point2) -> None:

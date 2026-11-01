@@ -12,6 +12,7 @@ from sc2.position import Point2
 
 import bot.routes
 from bot.army import Army
+from bot.micro import spread_move
 from bot.settings import PLAN_SECONDS
 from fakes import marine, unit, zergling
 
@@ -217,6 +218,25 @@ def test_a_new_game_starts_with_no_counts_left():
 
 
 # --- avoid areas ---
+
+
+def test_a_spread_move_row_past_the_map_edge_goes_to_the_anchor():
+    anchor = Point2((10.0, 1.0))
+    moved = []
+    units = [SimpleNamespace(position=Point2((x, 8.0)), move=moved.append) for x in (9.0, 11.0)]
+
+    def in_pathing_grid(p):
+        assert p.y >= 0  # like the real grid, which raises off the map
+        return True
+
+    ai = SimpleNamespace(
+        mediator=SimpleNamespace(get_ground_grid=None, find_path_next_point=lambda **_: anchor),
+        game_info=SimpleNamespace(map_size=SimpleNamespace(width=40, height=40)),
+        in_pathing_grid=in_pathing_grid,
+    )
+    # Heading along the map's edge, so the rows across it reach below y = 0
+    spread_move(ai, units * 6, Point2((20.0, 1.0)), Point2((0.0, 1.0)))
+    assert anchor in moved
 
 
 def test_an_avoid_area_the_free_squads_beat_is_dropped_seen_or_not():
