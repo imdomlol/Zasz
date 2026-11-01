@@ -145,6 +145,12 @@ benchmark for timing.
   passivity: squads kept away from Protoss cannons (and batteries) longer. Ideas: keep the area only while
   the structure is what made the squad turn back *and* the army can't take it (sim with the structure), or
   shorten the area's life for structures.
+- **R02 (spare squads join only staffed raids), reverted in `476f5c8`.** Side by side, 2 rounds of 21 games each:
+  phase 2 84.4k lost, 41 of 42 wins, 0.38 lost/killed; phase 2 + R02 102.4k, 38 of 42, 0.44; all of phase 3
+  without R02 78.5k, 40 of 42, 0.37. A real cost, in longer games (654 s vs 575 s). R02 had four parts (no spares for
+  sim-rejected sites, spares at the staging point, patrol rather than push when nothing was raided, rejected site
+  marks raids "not going well"), and the whole didn't separate them. Likely the sim's pessimism (#21): sending spares
+  to a "rejected" site was covering for wrong verdicts. Worth retrying piece by piece, after #21.
 - **Avoid zones shouldn't be law (the user's rule, for R04 and the avoid areas generally).** If the army
   has enough to beat what a zone was made for, the zone should go, vision or not: a raid shouldn't be
   blocked because a scout or one squad couldn't take it on. Today `assign_raids` drops every site inside
